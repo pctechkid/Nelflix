@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.runtime.Composable
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.convert
@@ -167,7 +168,16 @@ internal actual object DownloadsPlatformDownloader {
             null
         }
     }
+
+    actual fun getDownloadFolderUri(): String? = null
+
+    actual fun setDownloadFolderUri(uri: String?) = Unit
+
+    actual fun downloadFolderLabel(uri: String?): String = "Documents/Nelflix"
 }
+
+@Composable
+internal actual fun PlatformDownloadFolderRow() = Unit
 
 private class IosDownloadsTaskHandle(
     private val job: Job,

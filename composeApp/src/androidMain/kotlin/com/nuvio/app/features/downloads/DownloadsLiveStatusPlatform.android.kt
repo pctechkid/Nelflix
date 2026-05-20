@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -30,6 +31,7 @@ internal actual object DownloadsLiveStatusPlatform {
         ensureNotificationChannel()
     }
 
+    @SuppressLint("MissingPermission")
     actual fun onItemsChanged(items: List<DownloadItem>) {
         val context = appContext ?: return
         if (!canPostNotifications(context)) return

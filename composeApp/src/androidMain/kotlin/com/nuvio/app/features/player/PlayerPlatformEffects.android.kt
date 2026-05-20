@@ -52,6 +52,19 @@ actual fun EnterImmersivePlayerMode(keepScreenAwake: Boolean) {
             controller.systemBarsBehavior = previousBehavior
         }
     }
+
+    DisposableEffect(activity, keepScreenAwake) {
+        val window = activity.window
+        if (keepScreenAwake) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+
+        onDispose {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 }
 
 @Composable
@@ -107,7 +120,6 @@ private tailrec fun Context.findActivity(): Activity? =
     }
 
 private fun Activity.shouldForceLandscapePlayer(): Boolean {
-    if (resources.configuration.smallestScreenWidthDp >= 600) return false
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode) return false
     return true
 }

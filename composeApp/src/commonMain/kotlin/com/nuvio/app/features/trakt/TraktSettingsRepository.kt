@@ -35,8 +35,8 @@ enum class WatchProgressSource {
     }
 }
 
-val DEFAULT_WATCH_PROGRESS_SOURCE: WatchProgressSource = WatchProgressSource.TRAKT
-val DEFAULT_LIBRARY_SOURCE_MODE: LibrarySourceMode = LibrarySourceMode.TRAKT
+val DEFAULT_WATCH_PROGRESS_SOURCE: WatchProgressSource = WatchProgressSource.NUVIO_SYNC
+val DEFAULT_LIBRARY_SOURCE_MODE: LibrarySourceMode = LibrarySourceMode.LOCAL
 
 fun librarySourceModeFromStorage(value: String?): LibrarySourceMode =
     LibrarySourceMode.entries.firstOrNull { it.name == value } ?: DEFAULT_LIBRARY_SOURCE_MODE
@@ -148,17 +148,12 @@ fun normalizeTraktContinueWatchingDaysCap(days: Int): Int =
 fun shouldUseTraktProgress(
     isAuthenticated: Boolean,
     source: WatchProgressSource,
-): Boolean = isAuthenticated && source == WatchProgressSource.TRAKT
+): Boolean = false
 
 fun effectiveLibrarySourceMode(
     isAuthenticated: Boolean,
     source: LibrarySourceMode,
-): LibrarySourceMode =
-    if (isAuthenticated && source == LibrarySourceMode.TRAKT) {
-        LibrarySourceMode.TRAKT
-    } else {
-        LibrarySourceMode.LOCAL
-    }
+): LibrarySourceMode = LibrarySourceMode.LOCAL
 
 fun shouldUseTraktLibrary(
     isAuthenticated: Boolean,

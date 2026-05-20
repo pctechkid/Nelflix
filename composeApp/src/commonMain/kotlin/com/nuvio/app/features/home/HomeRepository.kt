@@ -159,8 +159,13 @@ object HomeRepository {
                 val section = cachedSections[definition.key]?.withReleaseFilter() ?: return@mapNotNull null
                 if (section.items.isEmpty()) return@mapNotNull null
                 val customTitle = preference?.customTitle.orEmpty()
+                val defaultTitle = if (snapshot.showCatalogTypeLabels) {
+                    "${definition.defaultTitle} - ${definition.typeLabel}"
+                } else {
+                    definition.defaultTitle
+                }
                 section.copy(
-                    title = customTitle.ifBlank { section.title },
+                    title = customTitle.ifBlank { defaultTitle },
                 )
             }
 

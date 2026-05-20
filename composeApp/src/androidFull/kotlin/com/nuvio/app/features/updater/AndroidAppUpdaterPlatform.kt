@@ -15,7 +15,7 @@ import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
 object AndroidAppUpdaterPlatform {
-    private const val preferencesName = "nuvio_updater"
+    private const val preferencesName = "nelflix_updater"
     private const val ignoredTagKey = "ignored_release_tag"
 
     private val httpClient = OkHttpClient.Builder()

@@ -75,6 +75,7 @@ data class DownloadItem(
 
 data class DownloadsUiState(
     val items: List<DownloadItem> = emptyList(),
+    val downloadFolderUri: String? = null,
 ) {
     val activeItems: List<DownloadItem>
         get() = items.filter { it.status != DownloadStatus.Completed }

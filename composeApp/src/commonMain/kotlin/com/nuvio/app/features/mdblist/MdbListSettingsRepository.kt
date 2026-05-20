@@ -16,7 +16,7 @@ object MdbListSettingsRepository {
     private var useTmdb = true
     private var useTomatoes = true
     private var useMetacritic = true
-    private var useTrakt = true
+    private var useTrakt = false
     private var useLetterboxd = true
     private var useAudience = true
 
@@ -102,7 +102,7 @@ object MdbListSettingsRepository {
         useTmdb = MdbListSettingsStorage.loadUseTmdb() ?: true
         useTomatoes = MdbListSettingsStorage.loadUseTomatoes() ?: true
         useMetacritic = MdbListSettingsStorage.loadUseMetacritic() ?: true
-        useTrakt = MdbListSettingsStorage.loadUseTrakt() ?: true
+        useTrakt = MdbListSettingsStorage.loadUseTrakt() ?: false
         useLetterboxd = MdbListSettingsStorage.loadUseLetterboxd() ?: true
         useAudience = MdbListSettingsStorage.loadUseAudience() ?: true
         publish()

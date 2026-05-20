@@ -12,12 +12,17 @@ interface PlayerEngineController {
     fun setPlaybackSpeed(speed: Float)
     fun getAudioTracks(): List<AudioTrack>
     fun getSubtitleTracks(): List<SubtitleTrack>
+    fun getChapters(): List<PlayerChapter> = emptyList()
     fun selectAudioTrack(index: Int)
     fun selectSubtitleTrack(index: Int)
+    fun selectChapter(index: Int) {}
     fun setSubtitleUri(url: String)
     fun clearExternalSubtitle()
     fun clearExternalSubtitleAndSelect(trackIndex: Int)
+    fun getSubtitleDelayMs(): Long = 0L
+    fun setSubtitleDelayMs(delayMs: Long) {}
     fun applySubtitleStyle(style: SubtitleStyleState) {}
+    fun toggleSilenceSkip() {}
 }
 
 internal fun sanitizePlaybackHeaders(headers: Map<String, String>?): Map<String, String> {

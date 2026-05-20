@@ -1,12 +1,9 @@
 package com.nuvio.app.features.notifications
 
-import android.app.PendingIntent
-import android.content.Intent
-import androidx.core.app.NotificationCompat
+import android.annotation.SuppressLint
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.nuvio.app.MainActivity
 import kotlin.math.abs
 
 class EpisodeReleaseNotificationWorker(
@@ -14,6 +11,7 @@ class EpisodeReleaseNotificationWorker(
     workerParameters: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParameters) {
 
+    @SuppressLint("MissingPermission")
     override suspend fun doWork(): Result {
         if (!EpisodeReleaseNotificationPlatform.notificationsAuthorized()) {
             return Result.success()

@@ -405,7 +405,7 @@ object LibraryRepository {
 }
 
 internal const val LOCAL_LIBRARY_LIST_KEY = "local"
-internal const val LOCAL_LIBRARY_LIST_TITLE = "Nuvio Library"
+internal const val LOCAL_LIBRARY_LIST_TITLE = "NELFLIX Library"
 
 internal fun localLibraryListTab(): TraktListTab =
     TraktListTab(

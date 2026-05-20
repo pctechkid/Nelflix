@@ -1,5 +1,6 @@
 package com.nuvio.app.features.notifications
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.PendingIntent
 import android.app.NotificationChannel
@@ -30,6 +31,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +42,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     private const val permissionRequestCode = 4607
     private const val platformPreferencesName = "nuvio_episode_release_notifications_platform"
     private const val scheduledIdsKey = "scheduled_episode_release_ids"
+    private const val launchPermissionPromptedKey = "launch_notification_permission_prompted"
     private const val workTag = "episode_release_notifications"
     internal const val channelId = "episode_release_notifications"
     internal const val workerRequestIdKey = "request_id"
@@ -128,6 +131,17 @@ internal actual object EpisodeReleaseNotificationPlatform {
         }
     }
 
+    suspend fun requestAuthorizationOnFirstLaunch() {
+        val context = appContext ?: return
+        val preferences = context.getSharedPreferences(platformPreferencesName, Context.MODE_PRIVATE)
+        if (preferences.getBoolean(launchPermissionPromptedKey, false)) return
+        preferences.edit().putBoolean(launchPermissionPromptedKey, true).apply()
+        requestAuthorization()
+    }
+
+    actual fun availableTimezoneIds(): List<String> =
+        TimeZone.getAvailableIDs().toList().sorted()
+
     actual suspend fun scheduleEpisodeReleaseNotifications(requests: List<EpisodeReleaseNotificationRequest>) {
         val context = appContext ?: return
         ensureNotificationChannel()
@@ -140,7 +154,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
             val scheduledIds = mutableListOf<String>()
 
             requests.forEach { request ->
-                val triggerAtEpochMs = triggerAtEpochMs(request.releaseDateIso) ?: return@forEach
+                val triggerAtEpochMs = triggerAtEpochMs(request.releaseDateIso, request.timezoneId) ?: return@forEach
                 val initialDelayMs = triggerAtEpochMs - nowEpochMs
                 if (initialDelayMs <= 0L) return@forEach
 
@@ -188,6 +202,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
         }
     }
 
+    @SuppressLint("MissingPermission")
     actual suspend fun showTestNotification(request: EpisodeReleaseNotificationRequest) {
         val context = appContext ?: return
         ensureNotificationChannel()
@@ -204,7 +219,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     ): android.app.Notification {
         val pendingIntent = buildPendingIntent(context, request)
         val backdropBitmap = loadBackdropBitmap(request.backdropUrl)
-        val appIconBitmap = BitmapFactory.decodeResource(context.resources, com.nuvio.app.R.mipmap.ic_launcher)
+        val appIconBitmap = BitmapFactory.decodeResource(context.resources, com.nuvio.app.R.drawable.nelflix_splash_logo)
 
         return NotificationCompat.Builder(context, channelId)
             .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
@@ -269,10 +284,14 @@ internal actual object EpisodeReleaseNotificationPlatform {
     private fun preferences(context: Context) =
         context.getSharedPreferences(platformPreferencesName, Context.MODE_PRIVATE)
 
-    private fun triggerAtEpochMs(releaseDateIso: String): Long? = runCatching {
+    private fun triggerAtEpochMs(releaseDateIso: String, timezoneId: String): Long? = runCatching {
+        val zoneId = timezoneId.trim()
+            .takeIf { it.isNotBlank() }
+            ?.let { runCatching { ZoneId.of(it) }.getOrNull() }
+            ?: ZoneId.systemDefault()
         LocalDate.parse(releaseDateIso)
             .atTime(EpisodeReleaseNotificationHour, EpisodeReleaseNotificationMinute)
-            .atZone(ZoneId.systemDefault())
+            .atZone(zoneId)
             .toInstant()
             .toEpochMilli()
     }.getOrNull()

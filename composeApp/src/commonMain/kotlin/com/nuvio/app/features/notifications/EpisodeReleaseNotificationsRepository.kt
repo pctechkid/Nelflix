@@ -210,6 +210,7 @@ object EpisodeReleaseNotificationsRepository {
                 notificationBody = getString(Res.string.notifications_test_preview_body),
                 releaseDateIso = CurrentDateProvider.todayIsoDate(),
                 deepLinkUrl = buildMetaDeepLinkUrl(type = target.type, id = target.id),
+                timezoneId = _uiState.value.timezoneId,
                 backdropUrl = target.banner ?: target.poster,
             )
 
@@ -266,6 +267,7 @@ object EpisodeReleaseNotificationsRepository {
             permissionGranted = false,
             scheduledCount = 0,
             testTargetTitle = null,
+            timezoneId = stored?.timezoneId?.takeIf { it.isNotBlank() } ?: DefaultEpisodeReleaseTimezoneId,
             errorMessage = null,
         )
         updateTestTargetState()
@@ -278,9 +280,17 @@ object EpisodeReleaseNotificationsRepository {
                     enabled = _uiState.value.isEnabled,
                     followedShows = trackedShowsByKey.values
                         .sortedWith(compareBy(TrackedFollowedShow::contentType, TrackedFollowedShow::contentId)),
+                    timezoneId = _uiState.value.timezoneId,
                 ),
             ),
         )
+    }
+
+    fun setTimezoneId(timezoneId: String) {
+        ensureLoaded()
+        _uiState.value = _uiState.value.copy(timezoneId = timezoneId.trim())
+        persist()
+        refreshAsync()
     }
 
     private suspend fun syncAuthorizationState(refreshIfEnabled: Boolean) {
@@ -294,7 +304,7 @@ object EpisodeReleaseNotificationsRepository {
             permissionGranted = granted,
             testTargetTitle = currentTestTarget()?.name,
             errorMessage = when {
-                _uiState.value.isEnabled && !granted -> "System notifications are currently disabled for Nuvio."
+                _uiState.value.isEnabled && !granted -> "System notifications are currently disabled for NELFLIX."
                 else -> _uiState.value.errorMessage
             },
         )
@@ -362,7 +372,7 @@ object EpisodeReleaseNotificationsRepository {
                     scheduledCount = 0,
                     testTargetTitle = currentTestTarget()?.name,
                     errorMessage = if (_uiState.value.isEnabled && !permissionGranted) {
-                        "System notifications are currently disabled for Nuvio."
+                        "System notifications are currently disabled for NELFLIX."
                     } else {
                         null
                     },
@@ -441,10 +451,16 @@ object EpisodeReleaseNotificationsRepository {
         }.getOrNull() ?: return emptyList()
 
         val showTitle = meta.name.ifBlank { trackedShow.contentId }
+        val settings = _uiState.value
         return meta.videos.mapNotNull { episode ->
             val releaseDate = releaseDateIso(episode.released) ?: return@mapNotNull null
             if (releaseDate < trackedShow.followedOnIsoDate) return@mapNotNull null
             if (episode.season == null && episode.episode == null) return@mapNotNull null
+            val episodeBody = buildEpisodeReleaseNotificationBody(
+                seasonNumber = episode.season,
+                episodeNumber = episode.episode,
+                episodeTitle = episode.title,
+            )
 
             EpisodeReleaseNotificationRequest(
                 requestId = buildEpisodeReleaseNotificationId(
@@ -455,16 +471,13 @@ object EpisodeReleaseNotificationsRepository {
                     releaseDateIso = releaseDate,
                 ),
                 notificationTitle = showTitle,
-                notificationBody = buildEpisodeReleaseNotificationBody(
-                    seasonNumber = episode.season,
-                    episodeNumber = episode.episode,
-                    episodeTitle = episode.title,
-                ),
+                notificationBody = episodeBody,
                 releaseDateIso = releaseDate,
                 deepLinkUrl = buildMetaDeepLinkUrl(
                     type = trackedShow.contentType,
                     id = trackedShow.contentId,
                 ),
+                timezoneId = settings.timezoneId,
                 backdropUrl = meta.background ?: episode.thumbnail ?: episode.seasonPoster ?: meta.poster,
             )
         }

@@ -37,7 +37,7 @@ fun NetworkCondition.titleForEmptyState(): String =
 
 fun NetworkCondition.messageForEmptyState(): String =
     when (this) {
-        NetworkCondition.ServersUnreachable -> "Your device is online, but Nuvio could not reach required servers."
+        NetworkCondition.ServersUnreachable -> "Your device is online, but NELFLIX could not reach required servers."
         NetworkCondition.NoInternet -> "Check your Wi-Fi or mobile data connection and try again."
         else -> "Please check your connection and try again."
     }

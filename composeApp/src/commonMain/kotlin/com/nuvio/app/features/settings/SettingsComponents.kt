@@ -222,6 +222,7 @@ internal fun SettingsNavigationRow(
     iconPainter: Painter? = null,
     isTablet: Boolean,
     onClick: () -> Unit,
+    trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val iconSize = if (isTablet) 42.dp else 36.dp
     val iconRadius = if (isTablet) 12.dp else 10.dp
@@ -288,6 +289,7 @@ internal fun SettingsNavigationRow(
                 )
             }
         }
+        trailingContent?.invoke(this)
     }
 }
 

@@ -57,7 +57,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |object TraktConfig {
                 |    const val CLIENT_ID = "${props.getProperty("TRAKT_CLIENT_ID", "")}" 
                 |    const val CLIENT_SECRET = "${props.getProperty("TRAKT_CLIENT_SECRET", "")}" 
-                |    const val REDIRECT_URI = "${props.getProperty("TRAKT_REDIRECT_URI", "nuvio://auth/trakt")}" 
+                |    const val REDIRECT_URI = "${props.getProperty("TRAKT_REDIRECT_URI", "nelflix://auth/trakt")}" 
                 |}
                 """.trimMargin()
             )
@@ -97,7 +97,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.debrid
                 |
                 |object DebridConfig {
-                |    const val DIRECT_DEBRID_API_BASE_URL = "${props.getProperty("DIRECT_DEBRID_API_BASE_URL", "")}" 
+                |    const val DIRECT_DEBRID_API_BASE_URL = "${props.getProperty("DIRECT_DEBRID_API_BASE_URL", "https://debrid.nuvioapp.space")}"
                 |}
                 """.trimMargin()
             )
@@ -112,6 +112,17 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |object AppVersionConfig {
                 |    const val VERSION_NAME = "${appVersionName.get()}"
                 |    const val VERSION_CODE = ${appVersionCode.get()}
+                |}
+                """.trimMargin()
+            )
+            resolve("AppUpdaterConfig.kt").writeText(
+                """
+                |package com.nuvio.app.core.build
+                |
+                |object AppUpdaterConfig {
+                |    const val GITHUB_OWNER = "${props.getProperty("UPDATE_GITHUB_OWNER", "Ronnel")}"
+                |    const val GITHUB_REPO = "${props.getProperty("UPDATE_GITHUB_REPO", "Nelflix")}"
+                |    const val GITHUB_API_BASE_URL = "${props.getProperty("UPDATE_GITHUB_API_BASE_URL", "https://api.github.com")}"
                 |}
                 """.trimMargin()
             )
@@ -249,6 +260,7 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.appcompat)
             implementation(libs.androidx.activity.compose)
+            implementation(libs.androidx.documentfile)
             implementation(libs.androidx.core.splashscreen)
             implementation(libs.androidx.work.runtime)
             implementation(libs.coil.gif)
@@ -268,6 +280,7 @@ kotlin {
             implementation(libs.androidx.media3.common)
             implementation(libs.androidx.media3.container)
             implementation(libs.androidx.media3.extractor)
+            implementation(libs.mpv.android.lib)
             implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-*.aar"))))
         }
         commonMain.dependencies {
@@ -331,7 +344,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.nuvio.app"
+        applicationId = "com.nelfix.ronnel"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = releaseAppVersionCode
@@ -352,7 +365,12 @@ android {
     }
     packaging {
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += listOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/LICENSE*",
+                "/META-INF/NOTICE*",
+                "/META-INF/DEPENDENCIES",
+            )
         }
         jniLibs {
             pickFirsts += listOf(
@@ -372,7 +390,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (releaseKeystore != null && releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             ndk {
                 debugSymbolLevel = "FULL"
             }

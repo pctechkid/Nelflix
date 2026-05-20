@@ -1,10 +1,12 @@
 package com.nuvio.app.features.player
 
 import android.content.Context
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import com.nuvio.app.features.trailer.YoutubeChunkedDataSourceFactory
 
+@UnstableApi
 internal object PlatformPlaybackDataSourceFactory {
     fun create(
         context: Context,

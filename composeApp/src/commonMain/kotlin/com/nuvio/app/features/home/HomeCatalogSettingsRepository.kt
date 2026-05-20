@@ -3,6 +3,12 @@ package com.nuvio.app.features.home
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.collection.Collection
 import com.nuvio.app.features.collection.CollectionRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +40,7 @@ data class HomeCatalogSettingsUiState(
     val heroEnabled: Boolean = true,
     val hideUnreleasedContent: Boolean = false,
     val hideCatalogUnderline: Boolean = false,
+    val showCatalogTypeLabels: Boolean = false,
     val items: List<HomeCatalogSettingsItem> = emptyList(),
 ) {
     val signature: String
@@ -43,6 +50,8 @@ data class HomeCatalogSettingsUiState(
             append(hideUnreleasedContent)
             append('|')
             append(hideCatalogUnderline)
+            append('|')
+            append(showCatalogTypeLabels)
             append('|')
             append(
                 items.joinToString(separator = "|") { item ->
@@ -63,6 +72,7 @@ internal data class HomeCatalogSettingsSnapshot(
     val heroEnabled: Boolean,
     val hideUnreleasedContent: Boolean,
     val hideCatalogUnderline: Boolean,
+    val showCatalogTypeLabels: Boolean,
     val preferences: Map<String, HomeCatalogPreference>,
 )
 
@@ -80,16 +90,23 @@ private data class StoredHomeCatalogSettingsPayload(
     val heroEnabled: Boolean = true,
     val hideUnreleasedContent: Boolean = false,
     val hideCatalogUnderline: Boolean = false,
+    val showCatalogTypeLabels: Boolean = false,
     val items: List<StoredHomeCatalogPreference> = emptyList(),
 )
 
 object HomeCatalogSettingsRepository {
     const val HERO_SOURCE_SELECTION_LIMIT = 2
+    private val STARTUP_CATALOG_STABILIZATION_DELAYS_MS = listOf(5_000L, 15_000L, 30_000L, 60_000L, 120_000L)
+    private val FORCED_STARTUP_HERO_CATALOG_TITLES = setOf(
+        "top 10 netflix philippines movies",
+        "top 10 netflix philippines series",
+    )
 
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _uiState = MutableStateFlow(HomeCatalogSettingsUiState())
     val uiState: StateFlow<HomeCatalogSettingsUiState> = _uiState.asStateFlow()
@@ -101,6 +118,9 @@ object HomeCatalogSettingsRepository {
     private var heroEnabled = true
     private var hideUnreleasedContent = false
     private var hideCatalogUnderline = false
+    private var showCatalogTypeLabels = false
+    private var hasAppliedStartupCatalogReset = false
+    private var startupCatalogResetJob: Job? = null
 
     fun onProfileChanged() {
         hasLoaded = false
@@ -108,6 +128,7 @@ object HomeCatalogSettingsRepository {
         heroEnabled = true
         hideUnreleasedContent = false
         hideCatalogUnderline = false
+        showCatalogTypeLabels = false
         definitions = emptyList()
         collectionDefinitions = emptyList()
         _uiState.value = HomeCatalogSettingsUiState()
@@ -121,6 +142,7 @@ object HomeCatalogSettingsRepository {
         heroEnabled = true
         hideUnreleasedContent = false
         hideCatalogUnderline = false
+        showCatalogTypeLabels = false
         _uiState.value = HomeCatalogSettingsUiState()
     }
 
@@ -136,6 +158,7 @@ object HomeCatalogSettingsRepository {
         enforcePinnedCollectionsAtTop()
         publish()
         persist()
+        scheduleStartupCatalogReset()
     }
 
     fun syncCollections(collections: List<Collection>) {
@@ -153,6 +176,7 @@ object HomeCatalogSettingsRepository {
             heroEnabled = heroEnabled,
             hideUnreleasedContent = hideUnreleasedContent,
             hideCatalogUnderline = hideCatalogUnderline,
+            showCatalogTypeLabels = showCatalogTypeLabels,
             preferences = preferences.mapValues { (_, value) ->
                 HomeCatalogPreference(
                     customTitle = value.customTitle,
@@ -189,6 +213,15 @@ object HomeCatalogSettingsRepository {
         persist()
     }
 
+    fun setShowCatalogTypeLabels(enabled: Boolean) {
+        ensureLoaded()
+        if (showCatalogTypeLabels == enabled) return
+        showCatalogTypeLabels = enabled
+        publish()
+        persist()
+        HomeRepository.applyCurrentSettings()
+    }
+
     fun setHeroSourceEnabled(key: String, enabled: Boolean) {
         updatePreference(key) { preference ->
             if (!enabled) {
@@ -218,11 +251,50 @@ object HomeCatalogSettingsRepository {
         heroEnabled = true
         hideUnreleasedContent = false
         hideCatalogUnderline = false
+        showCatalogTypeLabels = false
         preferences.clear()
         normalizePreferences()
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
+    }
+
+    fun resetToStartupCatalogDefaults() {
+        ensureLoaded()
+        if (definitions.isEmpty() && collectionDefinitions.isEmpty()) return
+
+        hasAppliedStartupCatalogReset = true
+        applyStartupCatalogDefaults()
+    }
+
+    private fun applyStartupCatalogDefaults() {
+        heroEnabled = true
+        hideUnreleasedContent = false
+        hideCatalogUnderline = false
+        showCatalogTypeLabels = false
+        preferences.clear()
+        normalizePreferences()
+        forceStartupHeroCatalogs()
+        disableNoisyStartupCatalogs()
+        publish()
+        persist()
+        HomeRepository.applyCurrentSettings()
+    }
+
+    private fun scheduleStartupCatalogReset() {
+        if (hasAppliedStartupCatalogReset || startupCatalogResetJob?.isActive == true) return
+        if (definitions.isEmpty() && collectionDefinitions.isEmpty()) return
+        startupCatalogResetJob = scope.launch {
+            var elapsedDelayMs = 0L
+            STARTUP_CATALOG_STABILIZATION_DELAYS_MS.forEach { delayMs ->
+                delay((delayMs - elapsedDelayMs).coerceAtLeast(0L))
+                elapsedDelayMs = delayMs
+                if (definitions.isNotEmpty() || collectionDefinitions.isNotEmpty()) {
+                    hasAppliedStartupCatalogReset = true
+                    applyStartupCatalogDefaults()
+                }
+            }
+        }
     }
 
     fun moveUp(key: String) {
@@ -265,6 +337,7 @@ object HomeCatalogSettingsRepository {
             heroEnabled = parsedPayload.heroEnabled
             hideUnreleasedContent = parsedPayload.hideUnreleasedContent
             hideCatalogUnderline = parsedPayload.hideCatalogUnderline
+            showCatalogTypeLabels = parsedPayload.showCatalogTypeLabels
             preferences = parsedPayload.items.associateBy { it.key }.toMutableMap()
             publish()
             return
@@ -300,9 +373,7 @@ object HomeCatalogSettingsRepository {
             ),
         ).map { it.first }
 
-        val normalized = current
-            .filterKeys { it !in knownKeys }
-            .toMutableMap()
+        val normalized = mutableMapOf<String, StoredHomeCatalogPreference>()
         var enabledHeroSourceCount = 0
         orderedEntries.forEach { entry ->
             val stored = current[entry.key]
@@ -324,6 +395,40 @@ object HomeCatalogSettingsRepository {
             )
         }
         preferences = normalized
+    }
+
+    private fun disableNoisyStartupCatalogs() {
+        definitions.forEach { definition ->
+            if (!definition.shouldDisableAfterStartupReset()) return@forEach
+            val current = preferences[definition.key] ?: return@forEach
+            preferences[definition.key] = current.copy(
+                enabled = false,
+                heroSourceEnabled = false,
+            )
+        }
+    }
+
+    private fun forceStartupHeroCatalogs() {
+        val heroKeys = definitions
+            .filter { definition -> definition.defaultTitle.trim().lowercase() in FORCED_STARTUP_HERO_CATALOG_TITLES }
+            .mapTo(linkedSetOf()) { it.key }
+
+        if (heroKeys.isEmpty()) return
+
+        definitions.forEach { definition ->
+            val current = preferences[definition.key] ?: return@forEach
+            preferences[definition.key] = current.copy(
+                enabled = if (definition.key in heroKeys) true else current.enabled,
+                heroSourceEnabled = definition.key in heroKeys,
+            )
+        }
+    }
+
+    private fun HomeCatalogDefinition.shouldDisableAfterStartupReset(): Boolean {
+        val normalizedAddon = addonName.trim().lowercase()
+        val normalizedTitle = defaultTitle.trim().lowercase()
+        return (normalizedAddon.contains("torbox") && normalizedTitle == "your media") ||
+            (normalizedAddon.contains("sootio") && normalizedTitle == "no catalogs")
     }
 
     private fun publish() {
@@ -365,6 +470,7 @@ object HomeCatalogSettingsRepository {
             heroEnabled = heroEnabled,
             hideUnreleasedContent = hideUnreleasedContent,
             hideCatalogUnderline = hideCatalogUnderline,
+            showCatalogTypeLabels = showCatalogTypeLabels,
             items = items,
         )
     }
@@ -376,6 +482,7 @@ object HomeCatalogSettingsRepository {
                     heroEnabled = heroEnabled,
                     hideUnreleasedContent = hideUnreleasedContent,
                     hideCatalogUnderline = hideCatalogUnderline,
+                    showCatalogTypeLabels = showCatalogTypeLabels,
                     items = preferences.values.sortedBy { it.order },
                 ),
             ),
@@ -459,6 +566,7 @@ object HomeCatalogSettingsRepository {
         return SyncHomeCatalogPayload(
             hideUnreleasedContent = hideUnreleasedContent,
             hideCatalogUnderline = hideCatalogUnderline,
+            showCatalogTypeLabels = showCatalogTypeLabels,
             items = items,
         )
     }
@@ -467,6 +575,7 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         hideUnreleasedContent = payload.hideUnreleasedContent
         hideCatalogUnderline = payload.hideCatalogUnderline
+        showCatalogTypeLabels = payload.showCatalogTypeLabels
         if (payload.items.isNotEmpty()) {
             val existingHeroState = preferences.mapValues { it.value.heroSourceEnabled }
             preferences = payload.items.associate { item ->

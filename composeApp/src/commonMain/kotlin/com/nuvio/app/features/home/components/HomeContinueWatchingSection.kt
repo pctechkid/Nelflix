@@ -11,19 +11,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -72,38 +72,41 @@ private fun ContinueWatchingItem.continueWatchingArtworkUrl(
 ): String? = when {
     isNextUp && useEpisodeThumbnails -> firstNonBlank(
         episodeThumbnail,
-        poster,
         background,
         imageUrl,
+        poster,
     )
     isNextUp -> firstNonBlank(
-        poster,
         background,
-        episodeThumbnail,
         imageUrl,
+        poster,
+        episodeThumbnail,
     )
     useEpisodeThumbnails -> firstNonBlank(
         episodeThumbnail,
-        poster,
         background,
         imageUrl,
+        poster,
     )
     else -> firstNonBlank(
-        poster,
         background,
-        episodeThumbnail,
         imageUrl,
+        episodeThumbnail,
+        poster,
     )
 }
 
 private fun firstNonBlank(vararg values: String?): String? =
     values.firstOrNull { value -> !value.isNullOrBlank() }?.trim()
 
+private val NetflixProgressRed = Color(0xFFE50914)
+
 @Composable
 internal fun HomeContinueWatchingSection(
     items: List<ContinueWatchingItem>,
     style: ContinueWatchingSectionStyle,
     useEpisodeThumbnails: Boolean = true,
+    useClearlogo: Boolean = true,
     blurNextUp: Boolean = false,
     modifier: Modifier = Modifier,
     sectionPadding: Dp? = null,
@@ -118,6 +121,7 @@ internal fun HomeContinueWatchingSection(
             items = items,
             style = style,
             useEpisodeThumbnails = useEpisodeThumbnails,
+            useClearlogo = useClearlogo,
             blurNextUp = blurNextUp,
             modifier = modifier.fillMaxWidth(),
             sectionPadding = sectionPadding,
@@ -131,6 +135,7 @@ internal fun HomeContinueWatchingSection(
                 items = items,
                 style = style,
                 useEpisodeThumbnails = useEpisodeThumbnails,
+                useClearlogo = useClearlogo,
                 blurNextUp = blurNextUp,
                 modifier = Modifier.fillMaxWidth(),
                 sectionPadding = homeSectionHorizontalPaddingForWidth(maxWidth.value),
@@ -147,6 +152,7 @@ private fun HomeContinueWatchingSectionContent(
     items: List<ContinueWatchingItem>,
     style: ContinueWatchingSectionStyle,
     useEpisodeThumbnails: Boolean,
+    useClearlogo: Boolean,
     blurNextUp: Boolean,
     modifier: Modifier,
     sectionPadding: Dp,
@@ -169,24 +175,15 @@ private fun HomeContinueWatchingSectionContent(
         showHeaderAccent = !homeCatalogSettings.hideCatalogUnderline,
         key = { item -> item.videoId },
     ) { item ->
-        when (style) {
-            ContinueWatchingSectionStyle.Wide -> ContinueWatchingWideCard(
-                item = item,
-                layout = layout,
-                useEpisodeThumbnails = useEpisodeThumbnails,
-                blurNextUp = blurNextUp,
-                onClick = onItemClick?.let { { it(item) } },
-                onLongClick = onItemLongPress?.let { { it(item) } },
-            )
-            ContinueWatchingSectionStyle.Poster -> ContinueWatchingPosterCard(
-                item = item,
-                layout = layout,
-                useEpisodeThumbnails = useEpisodeThumbnails,
-                blurNextUp = blurNextUp,
-                onClick = onItemClick?.let { { it(item) } },
-                onLongClick = onItemLongPress?.let { { it(item) } },
-            )
-        }
+        ContinueWatchingLandscapeCard(
+            item = item,
+            layout = layout,
+            useEpisodeThumbnails = useEpisodeThumbnails,
+            useClearlogo = useClearlogo,
+            blurNextUp = blurNextUp,
+            onClick = onItemClick?.let { { it(item) } },
+            onLongClick = onItemLongPress?.let { { it(item) } },
+        )
     }
 }
 
@@ -337,7 +334,204 @@ private fun PosterCardPreview() {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+private fun ContinueWatchingLandscapeCard(
+    item: ContinueWatchingItem,
+    layout: ContinueWatchingLayout,
+    useEpisodeThumbnails: Boolean,
+    useClearlogo: Boolean,
+    blurNextUp: Boolean,
+    onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?,
+) {
+    val artworkUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails)
+    val shouldBlurArtwork = blurNextUp && useEpisodeThumbnails && item.isNextUp
+    val metaLine = localizedContinueWatchingMetaLine(item)
+    val episodeTitle = item.episodeTitle?.trim()?.takeIf { it.isNotBlank() }
+    val description = item.pauseDescription?.trim()?.takeIf { it.isNotBlank() }
+    val supportingText = episodeTitle ?: description ?: metaLine
+    val clearlogo = item.logo?.trim()?.takeIf { it.isNotBlank() && useClearlogo }
+    Box(
+        modifier = Modifier
+            .width(layout.wideCardWidth)
+            .height(layout.wideCardHeight)
+            .clip(RoundedCornerShape(layout.cardRadius))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(
+                width = 1.5.dp,
+                color = Color.White.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(layout.cardRadius),
+            )
+            .combinedClickable(
+                enabled = onClick != null || onLongClick != null,
+                onClick = { onClick?.invoke() },
+                onLongClick = onLongClick,
+            ),
+    ) {
+        if (artworkUrl != null) {
+            AsyncImage(
+                model = artworkUrl,
+                contentDescription = item.title,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (shouldBlurArtwork) Modifier.blur(18.dp) else Modifier),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Black.copy(alpha = 0.18f),
+                            0.34f to Color.Transparent,
+                            0.56f to Color.Black.copy(alpha = 0.48f),
+                            1f to Color.Black.copy(alpha = 0.88f),
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.48f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp),
+            ) {
+                UpNextBadge(compact = false, textSize = layout.wideBadgeTextSize)
+            }
+        }
+        if (item.seasonNumber != null && item.episodeNumber != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(9.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 9.dp, vertical = 5.dp),
+            ) {
+                Text(
+                    text = stringResource(
+                        Res.string.compose_player_episode_code_full,
+                        item.seasonNumber,
+                        item.episodeNumber,
+                    ),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = layout.wideMetaSize * 0.78f,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = layout.wideMetaSize * 0.9f,
+                    ),
+                    color = Color.White,
+                    maxLines = 1,
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (clearlogo != null) {
+                AsyncImage(
+                    model = clearlogo,
+                    contentDescription = item.title,
+                    modifier = Modifier
+                        .widthIn(max = layout.wideCardWidth * 0.62f)
+                        .heightIn(max = layout.wideTitleSize.value.dp * 2.15f),
+                    contentScale = ContentScale.Fit,
+                )
+            } else {
+                Text(
+                    text = item.title.uppercase(),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = layout.wideTitleSize * 0.88f,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = layout.wideTitleSize * 1.02f,
+                    ),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = supportingText,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = layout.wideMetaSize * 0.76f,
+                    fontWeight = FontWeight.Normal,
+                    lineHeight = layout.wideMetaSize * 0.98f,
+                ),
+                color = Color.White.copy(alpha = 0.82f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (item.progressFraction > 0f) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    NuvioProgressBar(
+                        progress = item.progressFraction,
+                        modifier = Modifier.weight(1f),
+                        height = layout.progressHeight,
+                        trackColor = Color.White.copy(alpha = 0.22f),
+                        fillColor = NetflixProgressRed,
+                    )
+                    Text(
+                        text = stringResource(
+                            Res.string.home_continue_watching_watched,
+                            "${continueWatchingProgressPercent(item.progressFraction)}%",
+                        ),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = layout.progressLabelSize,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun ContinueWatchingWideCard(
+    item: ContinueWatchingItem,
+    layout: ContinueWatchingLayout,
+    useEpisodeThumbnails: Boolean,
+    useClearlogo: Boolean,
+    blurNextUp: Boolean,
+    onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?,
+) {
+    ContinueWatchingLandscapeCard(
+        item = item,
+        layout = layout,
+        useEpisodeThumbnails = useEpisodeThumbnails,
+        useClearlogo = useClearlogo,
+        blurNextUp = blurNextUp,
+        onClick = onClick,
+        onLongClick = onLongClick,
+    )
+}
+
+@Composable
+private fun LegacyContinueWatchingWideCard(
     item: ContinueWatchingItem,
     layout: ContinueWatchingLayout,
     useEpisodeThumbnails: Boolean,
@@ -590,25 +784,23 @@ private fun UpNextBadge(
     compact: Boolean,
     textSize: androidx.compose.ui.unit.TextUnit,
 ) {
-    val chipColor = MaterialTheme.colorScheme.primary
-    val chipTextColor = contentColorFor(chipColor)
-
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(if (compact) 4.dp else 12.dp))
-            .background(chipColor)
+            .clip(RoundedCornerShape(if (compact) 4.dp else 9.dp))
+            .background(NetflixProgressRed)
             .padding(
-                horizontal = if (compact) 6.dp else 8.dp,
-                vertical = if (compact) 3.dp else 4.dp,
+                horizontal = if (compact) 6.dp else 9.dp,
+                vertical = if (compact) 3.dp else 5.dp,
             ),
     ) {
         Text(
             text = stringResource(Res.string.home_continue_watching_up_next),
-            style = MaterialTheme.typography.labelSmall.copy(
+            style = MaterialTheme.typography.titleMedium.copy(
                 fontSize = textSize,
                 fontWeight = FontWeight.Bold,
+                lineHeight = textSize * 1.05f,
             ),
-            color = chipTextColor,
+            color = Color.White,
             maxLines = 1,
         )
     }
@@ -639,7 +831,7 @@ internal fun rememberContinueWatchingLayout(maxWidthDp: Float): ContinueWatching
         maxWidthDp >= 1440f -> ContinueWatchingLayout(
             itemGap = 20.dp,
             wideCardWidth = 400.dp,
-            wideCardHeight = 160.dp,
+            wideCardHeight = 225.dp,
             widePosterStripWidth = 100.dp,
             wideContentPadding = 16.dp,
             posterCardWidth = 180.dp,
@@ -658,7 +850,7 @@ internal fun rememberContinueWatchingLayout(maxWidthDp: Float): ContinueWatching
         maxWidthDp >= 1024f -> ContinueWatchingLayout(
             itemGap = 18.dp,
             wideCardWidth = 350.dp,
-            wideCardHeight = 140.dp,
+            wideCardHeight = 197.dp,
             widePosterStripWidth = 90.dp,
             wideContentPadding = 14.dp,
             posterCardWidth = 160.dp,
@@ -677,7 +869,7 @@ internal fun rememberContinueWatchingLayout(maxWidthDp: Float): ContinueWatching
         maxWidthDp >= 768f -> ContinueWatchingLayout(
             itemGap = 16.dp,
             wideCardWidth = 320.dp,
-            wideCardHeight = 130.dp,
+            wideCardHeight = 180.dp,
             widePosterStripWidth = 85.dp,
             wideContentPadding = 12.dp,
             posterCardWidth = 140.dp,
@@ -696,7 +888,7 @@ internal fun rememberContinueWatchingLayout(maxWidthDp: Float): ContinueWatching
         else -> ContinueWatchingLayout(
             itemGap = 16.dp,
             wideCardWidth = 280.dp,
-            wideCardHeight = 120.dp,
+            wideCardHeight = 158.dp,
             widePosterStripWidth = 80.dp,
             wideContentPadding = 12.dp,
             posterCardWidth = 120.dp,

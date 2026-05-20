@@ -19,6 +19,7 @@ data class EpisodeReleaseNotificationsUiState(
     val scheduledCount: Int = 0,
     val testTargetTitle: String? = null,
     val isSendingTest: Boolean = false,
+    val timezoneId: String = DefaultEpisodeReleaseTimezoneId,
     val statusMessage: String? = null,
     val errorMessage: String? = null,
 )
@@ -27,6 +28,7 @@ data class EpisodeReleaseNotificationsUiState(
 internal data class StoredEpisodeReleaseNotificationsPayload(
     val enabled: Boolean = false,
     val followedShows: List<TrackedFollowedShow> = emptyList(),
+    val timezoneId: String = DefaultEpisodeReleaseTimezoneId,
 )
 
 @Serializable
@@ -42,11 +44,13 @@ internal data class EpisodeReleaseNotificationRequest(
     val notificationBody: String,
     val releaseDateIso: String,
     val deepLinkUrl: String,
+    val timezoneId: String = "",
     val backdropUrl: String? = null,
 )
 
 internal const val EpisodeReleaseNotificationHour = 9
 internal const val EpisodeReleaseNotificationMinute = 0
+internal const val DefaultEpisodeReleaseTimezoneId = "Asia/Manila"
 internal const val MinReasonableSavedAtEpochMs = 946684800000L
 
 internal fun buildTrackedShowKey(

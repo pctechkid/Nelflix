@@ -9,6 +9,9 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+private const val DefaultShowUnairedNextUp = false
+private val DefaultContinueWatchingSortMode = ContinueWatchingSortMode.STREAMING_STYLE
+
 @Serializable
 private data class StoredContinueWatchingPreferences(
     val isVisible: Boolean = true,
@@ -16,14 +19,16 @@ private data class StoredContinueWatchingPreferences(
     val upNextFromFurthestEpisode: Boolean = true,
     @SerialName("use_episode_thumbnails_in_cw")
     val useEpisodeThumbnails: Boolean = true,
+    @SerialName("use_clearlogo_in_cw")
+    val useClearlogo: Boolean = true,
     @SerialName("show_unaired_next_up")
-    val showUnairedNextUp: Boolean = true,
+    val showUnairedNextUp: Boolean = DefaultShowUnairedNextUp,
     @SerialName("blur_continue_watching_next_up")
     val blurNextUp: Boolean = false,
     val dismissedNextUpKeys: Set<String> = emptySet(),
     val showResumePromptOnLaunch: Boolean = true,
     @SerialName("sort_mode")
-    val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
+    val sortMode: ContinueWatchingSortMode = DefaultContinueWatchingSortMode,
 )
 
 object ContinueWatchingPreferencesRepository {
@@ -56,7 +61,8 @@ object ContinueWatchingPreferencesRepository {
         style: ContinueWatchingSectionStyle,
         upNextFromFurthestEpisode: Boolean,
         useEpisodeThumbnails: Boolean = true,
-        showUnairedNextUp: Boolean = true,
+        useClearlogo: Boolean = true,
+        showUnairedNextUp: Boolean = DefaultShowUnairedNextUp,
         blurNextUp: Boolean = false,
         dismissedNextUpKeys: Set<String>,
     ) {
@@ -66,12 +72,14 @@ object ContinueWatchingPreferencesRepository {
             style = style,
             upNextFromFurthestEpisode = upNextFromFurthestEpisode,
             useEpisodeThumbnails = useEpisodeThumbnails,
-            showUnairedNextUp = showUnairedNextUp,
+            useClearlogo = useClearlogo,
+            showUnairedNextUp = DefaultShowUnairedNextUp,
             blurNextUp = blurNextUp,
             dismissedNextUpKeys = dismissedNextUpKeys
                 .map(String::trim)
                 .filter(String::isNotBlank)
                 .toSet(),
+            sortMode = DefaultContinueWatchingSortMode,
         )
         persist()
     }
@@ -82,6 +90,7 @@ object ContinueWatchingPreferencesRepository {
         val payload = ContinueWatchingPreferencesStorage.loadPayload().orEmpty().trim()
         if (payload.isEmpty()) {
             _uiState.value = ContinueWatchingPreferencesUiState()
+            persist()
             return
         }
 
@@ -95,15 +104,17 @@ object ContinueWatchingPreferencesRepository {
                 style = stored.style,
                 upNextFromFurthestEpisode = stored.upNextFromFurthestEpisode,
                 useEpisodeThumbnails = stored.useEpisodeThumbnails,
-                showUnairedNextUp = stored.showUnairedNextUp,
+                useClearlogo = stored.useClearlogo,
+                showUnairedNextUp = DefaultShowUnairedNextUp,
                 blurNextUp = stored.blurNextUp,
                 dismissedNextUpKeys = stored.dismissedNextUpKeys,
                 showResumePromptOnLaunch = stored.showResumePromptOnLaunch,
-                sortMode = stored.sortMode,
+                sortMode = DefaultContinueWatchingSortMode,
             )
         } else {
             ContinueWatchingPreferencesUiState()
         }
+        persist()
     }
 
     fun setVisible(isVisible: Boolean) {
@@ -130,9 +141,16 @@ object ContinueWatchingPreferencesRepository {
         persist()
     }
 
+    fun setUseClearlogo(enabled: Boolean) {
+        ensureLoaded()
+        _uiState.value = _uiState.value.copy(useClearlogo = enabled)
+        persist()
+    }
+
     fun setShowUnairedNextUp(enabled: Boolean) {
         ensureLoaded()
-        _uiState.value = _uiState.value.copy(showUnairedNextUp = enabled)
+        if (_uiState.value.showUnairedNextUp == DefaultShowUnairedNextUp) return
+        _uiState.value = _uiState.value.copy(showUnairedNextUp = DefaultShowUnairedNextUp)
         persist()
     }
 
@@ -160,8 +178,8 @@ object ContinueWatchingPreferencesRepository {
 
     fun setSortMode(mode: ContinueWatchingSortMode) {
         ensureLoaded()
-        if (_uiState.value.sortMode == mode) return
-        _uiState.value = _uiState.value.copy(sortMode = mode)
+        if (_uiState.value.sortMode == DefaultContinueWatchingSortMode) return
+        _uiState.value = _uiState.value.copy(sortMode = DefaultContinueWatchingSortMode)
         persist()
     }
 
@@ -184,11 +202,12 @@ object ContinueWatchingPreferencesRepository {
                     style = _uiState.value.style,
                     upNextFromFurthestEpisode = _uiState.value.upNextFromFurthestEpisode,
                     useEpisodeThumbnails = _uiState.value.useEpisodeThumbnails,
-                    showUnairedNextUp = _uiState.value.showUnairedNextUp,
+                    useClearlogo = _uiState.value.useClearlogo,
+                    showUnairedNextUp = DefaultShowUnairedNextUp,
                     blurNextUp = _uiState.value.blurNextUp,
                     dismissedNextUpKeys = _uiState.value.dismissedNextUpKeys,
                     showResumePromptOnLaunch = _uiState.value.showResumePromptOnLaunch,
-                    sortMode = _uiState.value.sortMode,
+                    sortMode = DefaultContinueWatchingSortMode,
                 ),
             ),
         )

@@ -23,7 +23,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.build.AppUpdaterConfig
 import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioToastController
@@ -53,10 +53,9 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 
-private const val gitHubOwner = "NuvioMedia"
-private const val gitHubRepo = "NuvioMobile"
-private const val gitHubApiBase = "https://api.github.com"
-private const val releaseChannelBranch = "cmp-rewrite"
+private val gitHubOwner: String get() = AppUpdaterConfig.GITHUB_OWNER
+private val gitHubRepo: String get() = AppUpdaterConfig.GITHUB_REPO
+private val gitHubApiBase: String get() = AppUpdaterConfig.GITHUB_API_BASE_URL.trimEnd('/')
 
 data class AppUpdate(
     val tag: String,
@@ -105,8 +104,8 @@ private val appUpdaterJson = Json {
     isLenient = true
 }
 
-private class NoChannelReleaseException : IllegalStateException(
-    "No cmp-rewrite release has been published yet.",
+private class NoDebugApkReleaseException : IllegalStateException(
+    "No GitHub release with a debug APK asset has been published yet.",
 )
 
 private object VersionUtils {
@@ -153,7 +152,7 @@ private object AppUpdaterRepository {
             url = "$gitHubApiBase/repos/$gitHubOwner/$gitHubRepo/releases?per_page=20",
             headers = mapOf(
                 "Accept" to "application/vnd.github+json",
-                "User-Agent" to "NuvioMobile",
+                "User-Agent" to "Nelflix",
             ),
             body = "",
         )
@@ -162,15 +161,16 @@ private object AppUpdaterRepository {
         }
 
         val releases = appUpdaterJson.decodeFromString<List<GitHubReleaseDto>>(response.body)
-        val release = releases.firstOrNull { it.matchesRequestedChannel() && !it.draft && !it.prerelease }
-            ?: throw NoChannelReleaseException()
+        val release = releases.firstOrNull { release ->
+            !release.draft && chooseBestApkAsset(release.assets) != null
+        } ?: throw NoDebugApkReleaseException()
 
         val tag = release.tagName?.takeIf { it.isNotBlank() }
             ?: release.name?.takeIf { it.isNotBlank() }
             ?: error("Release has no tag or name")
 
         val asset = chooseBestApkAsset(release.assets)
-            ?: error("No APK asset found in the cmp-rewrite release")
+            ?: error("No debug APK asset found in the latest release")
 
         AppUpdate(
             tag = tag,
@@ -183,24 +183,19 @@ private object AppUpdaterRepository {
         )
     }
 
-    private fun GitHubReleaseDto.matchesRequestedChannel(): Boolean {
-        val channel = releaseChannelBranch
-        if (targetCommitish?.trim()?.equals(channel, ignoreCase = true) == true) {
-            return true
-        }
-
-        return listOf(tagName, name)
-            .filterNotNull()
-            .any { value -> value.contains(channel, ignoreCase = true) }
-    }
-
     private fun chooseBestApkAsset(assets: List<GitHubAssetDto>): GitHubAssetDto? {
         val apkAssets = assets.filter { asset ->
-            asset.name.endsWith(".apk", ignoreCase = true) ||
-                asset.contentType == "application/vnd.android.package-archive"
+            val name = asset.name.lowercase()
+            (name.endsWith(".apk") || asset.contentType == "application/vnd.android.package-archive") &&
+                name.contains("debug")
         }
         if (apkAssets.isEmpty()) return null
         if (apkAssets.size == 1) return apkAssets.first()
+
+        apkAssets.firstOrNull { asset ->
+            val name = asset.name.lowercase()
+            name.contains("full-debug") || name.contains("fulldebug")
+        }?.let { return it }
 
         val supportedAbis = AppUpdaterPlatform.getSupportedAbis()
         for (abi in supportedAbis) {
@@ -286,9 +281,9 @@ class AppUpdaterController internal constructor(
                         downloadedApkPath = null,
                         update = null,
                         isUpdateAvailable = false,
-                        showDialog = force && error !is NoChannelReleaseException,
+                        showDialog = force && error !is NoDebugApkReleaseException,
                         showUnknownSourcesDialog = false,
-                        errorMessage = if (force && error !is NoChannelReleaseException) {
+                        errorMessage = if (force && error !is NoDebugApkReleaseException) {
                             error.message ?: getString(Res.string.updates_check_failed)
                         } else {
                             null
@@ -296,7 +291,7 @@ class AppUpdaterController internal constructor(
                     )
                 }
 
-                if (showNoUpdateFeedback || error is NoChannelReleaseException) {
+                if (showNoUpdateFeedback || error is NoDebugApkReleaseException) {
                     NuvioToastController.show(error.message ?: getString(Res.string.updates_check_failed))
                 }
             }
@@ -413,10 +408,6 @@ fun AppUpdaterHost(
     }
 
     val state by controller.uiState.collectAsStateWithLifecycle()
-
-    LaunchedEffect(controller) {
-        controller.ensureAutoCheckStarted()
-    }
 
     if (!state.showDialog) return
 

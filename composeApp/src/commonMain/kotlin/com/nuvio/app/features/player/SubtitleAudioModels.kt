@@ -24,6 +24,12 @@ data class SubtitleTrack(
     val isForced: Boolean = false,
 )
 
+data class PlayerChapter(
+    val index: Int,
+    val title: String,
+    val timeMs: Long,
+)
+
 data class AddonSubtitle(
     val id: String,
     val url: String,
@@ -35,7 +41,6 @@ data class AddonSubtitle(
 enum class SubtitleTab {
     BuiltIn,
     Addons,
-    Style,
 }
 
 data class SubtitleStyleState(

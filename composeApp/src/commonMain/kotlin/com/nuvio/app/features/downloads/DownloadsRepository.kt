@@ -34,8 +34,14 @@ object DownloadsRepository {
         activeHandles.values.forEach(DownloadsTaskHandle::cancel)
         activeHandles.clear()
         hasLoaded = false
-        _uiState.value = DownloadsUiState()
+        _uiState.value = DownloadsUiState(downloadFolderUri = DownloadsPlatformDownloader.getDownloadFolderUri())
         notifyLiveStatusPlatform()
+    }
+
+    fun setDownloadFolderUri(uri: String?) {
+        ensureLoaded()
+        DownloadsPlatformDownloader.setDownloadFolderUri(uri)
+        _uiState.update { state -> state.copy(downloadFolderUri = DownloadsPlatformDownloader.getDownloadFolderUri()) }
     }
 
     fun findPlayableDownloadByVideoId(videoId: String?): DownloadItem? {
@@ -258,7 +264,7 @@ object DownloadsRepository {
         hasLoaded = true
         val payload = DownloadsStorage.loadPayload().orEmpty().trim()
         if (payload.isEmpty()) {
-            _uiState.value = DownloadsUiState()
+            _uiState.value = DownloadsUiState(downloadFolderUri = DownloadsPlatformDownloader.getDownloadFolderUri())
             notifyLiveStatusPlatform()
             return
         }
@@ -282,7 +288,10 @@ object DownloadsRepository {
                 localUriNormalized
             }
 
-        _uiState.value = DownloadsUiState(normalized)
+        _uiState.value = DownloadsUiState(
+            items = normalized,
+            downloadFolderUri = DownloadsPlatformDownloader.getDownloadFolderUri(),
+        )
         notifyLiveStatusPlatform()
         if (shouldPersistNormalized) {
             persist()
@@ -375,6 +384,7 @@ object DownloadsRepository {
     private fun publish(items: List<DownloadItem>) {
         _uiState.value = DownloadsUiState(
             items = items,
+            downloadFolderUri = DownloadsPlatformDownloader.getDownloadFolderUri(),
         )
         notifyLiveStatusPlatform()
     }

@@ -7,7 +7,7 @@ data class MdbListSettings(
     val useTmdb: Boolean = true,
     val useTomatoes: Boolean = true,
     val useMetacritic: Boolean = true,
-    val useTrakt: Boolean = true,
+    val useTrakt: Boolean = false,
     val useLetterboxd: Boolean = true,
     val useAudience: Boolean = true,
 ) {

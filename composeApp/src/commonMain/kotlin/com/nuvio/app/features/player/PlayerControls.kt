@@ -5,8 +5,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +24,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +36,6 @@ import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,15 +48,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.AppIconResource
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.appIconPainter
@@ -63,8 +70,8 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 internal fun PlayerControlsShell(
     title: String,
+    logo: String?,
     streamTitle: String,
-    providerName: String,
     seasonNumber: Int?,
     episodeNumber: Int?,
     episodeTitle: String?,
@@ -81,11 +88,14 @@ internal fun PlayerControlsShell(
     onSeekForward: () -> Unit,
     onResizeModeClick: () -> Unit,
     onSpeedClick: () -> Unit,
+    onSilenceSkipClick: () -> Unit,
     onSubtitleClick: () -> Unit,
     onAudioClick: () -> Unit,
+    onChaptersClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
-    onEpisodesClick: (() -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
+    maturityRatingCode: String? = null,
+    maturityGenresLine: String? = null,
     parentalWarnings: List<ParentalWarning> = emptyList(),
     showParentalGuide: Boolean = false,
     onParentalGuideAnimationComplete: () -> Unit = {},
@@ -97,8 +107,22 @@ internal fun PlayerControlsShell(
     Box(modifier = modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
+                .fillMaxSize()
+                .align(Alignment.Center)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.72f),
+                            Color.Black.copy(alpha = 0.38f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
                 .fillMaxWidth()
-                .height(160.dp)
+                .height(190.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
@@ -132,8 +156,7 @@ internal fun PlayerControlsShell(
         ) {
             PlayerHeader(
                 title = title,
-                streamTitle = streamTitle,
-                providerName = providerName,
+                logo = logo,
                 seasonNumber = seasonNumber,
                 episodeNumber = episodeNumber,
                 episodeTitle = episodeTitle,
@@ -141,6 +164,8 @@ internal fun PlayerControlsShell(
                 isLocked = isLocked,
                 showActions = showPlaybackControls,
                 onSubmitIntroClick = onSubmitIntroClick,
+                maturityRatingCode = maturityRatingCode,
+                maturityGenresLine = maturityGenresLine,
                 parentalWarnings = parentalWarnings,
                 showParentalGuide = showParentalGuide,
                 onParentalGuideAnimationComplete = onParentalGuideAnimationComplete,
@@ -180,10 +205,11 @@ internal fun PlayerControlsShell(
                     onScrubFinished = onScrubFinished,
                     onResizeModeClick = onResizeModeClick,
                     onSpeedClick = onSpeedClick,
+                    onSilenceSkipClick = onSilenceSkipClick,
                     onSubtitleClick = onSubtitleClick,
                     onAudioClick = onAudioClick,
+                    onChaptersClick = onChaptersClick,
                     onSourcesClick = onSourcesClick,
-                    onEpisodesClick = onEpisodesClick,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
@@ -198,8 +224,7 @@ internal fun PlayerControlsShell(
 @Composable
 private fun PlayerHeader(
     title: String,
-    streamTitle: String,
-    providerName: String,
+    logo: String?,
     seasonNumber: Int?,
     episodeNumber: Int?,
     episodeTitle: String?,
@@ -207,6 +232,8 @@ private fun PlayerHeader(
     isLocked: Boolean,
     showActions: Boolean,
     onSubmitIntroClick: (() -> Unit)?,
+    maturityRatingCode: String?,
+    maturityGenresLine: String?,
     parentalWarnings: List<ParentalWarning>,
     showParentalGuide: Boolean,
     onParentalGuideAnimationComplete: () -> Unit,
@@ -230,20 +257,26 @@ private fun PlayerHeader(
                 modifier = Modifier.weight(1f),
             ) {
                 Column(
-                    modifier = Modifier.graphicsLayer { alpha = metadataAlpha },
+                    modifier = Modifier
+                        .graphicsLayer { alpha = metadataAlpha }
+                        .padding(end = 24.dp, bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(
-                        text = title,
-                        style = typeScale.titleLg.copy(
-                            fontSize = metrics.titleSize,
-                            lineHeight = metrics.titleSize * 1.16f,
-                            fontWeight = FontWeight.Bold,
-                        ),
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (!logo.isNullOrBlank()) {
+                        AsyncImage(
+                            model = logo,
+                            contentDescription = title,
+                            modifier = Modifier
+                                .height(if (seasonNumber != null && episodeNumber != null) 64.dp else 76.dp)
+                                .widthIn(max = 360.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    } else {
+                        NetflixHeaderTitle(
+                            title = title,
+                            fontSize = metrics.episodeInfoSize * 1.08f,
+                        )
+                    }
                     if (seasonNumber != null && episodeNumber != null && !episodeTitle.isNullOrBlank()) {
                         Text(
                             text = stringResource(
@@ -259,36 +292,13 @@ private fun PlayerHeader(
                             color = Color.White.copy(alpha = 0.9f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = streamTitle,
-                            style = typeScale.labelSm.copy(
-                                fontSize = metrics.metadataSize,
-                                lineHeight = metrics.metadataSize * 1.25f,
-                            ),
-                            color = Color.White.copy(alpha = 0.7f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = providerName,
-                            style = typeScale.labelSm.copy(
-                                fontSize = metrics.metadataSize,
-                                lineHeight = metrics.metadataSize * 1.25f,
-                                fontStyle = FontStyle.Italic,
-                            ),
-                            color = Color.White.copy(alpha = 0.7f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = if (logo.isNullOrBlank()) 11.dp else 0.dp),
                         )
                     }
                 }
                 ParentalGuideOverlay(
+                    ratingCode = maturityRatingCode,
+                    genresLine = maturityGenresLine,
                     warnings = parentalWarnings,
                     isVisible = showParentalGuide,
                     onAnimationComplete = onParentalGuideAnimationComplete,
@@ -332,6 +342,38 @@ private fun PlayerHeader(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NetflixHeaderTitle(
+    title: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(5.dp)
+                .height(38.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(NetflixProgressRed),
+        )
+        Text(
+            text = title.uppercase(),
+            modifier = Modifier
+                .padding(start = 8.dp)
+                .widthIn(max = 320.dp),
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = fontSize,
+                lineHeight = fontSize * 1.05f,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -467,31 +509,36 @@ private fun ProgressControls(
     onScrubFinished: (Long) -> Unit,
     onResizeModeClick: () -> Unit,
     onSpeedClick: () -> Unit,
+    onSilenceSkipClick: () -> Unit,
     onSubtitleClick: () -> Unit,
     onAudioClick: () -> Unit,
+    onChaptersClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
-    onEpisodesClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
+    val bufferedFraction = (playbackSnapshot.bufferedPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    val playedFraction = (displayedPositionMs.coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     val aspectRatioPainter = appIconPainter(AppIconResource.PlayerAspectRatio)
     val subtitlesPainter = appIconPainter(AppIconResource.PlayerSubtitles)
     val audioPainter = appIconPainter(AppIconResource.PlayerAudioFilled)
 
     Column(modifier = modifier) {
-        Slider(
+        NetflixSeekBar(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(metrics.sliderTouchHeight)
-                .graphicsLayer(scaleY = metrics.sliderScaleY),
-            value = displayedPositionMs.coerceIn(0L, durationMs).toFloat(),
-            onValueChange = { value -> onScrubChange(value.toLong()) },
-            onValueChangeFinished = { onScrubFinished(displayedPositionMs.coerceIn(0L, durationMs)) },
-            valueRange = 0f..durationMs.toFloat(),
+                .fillMaxWidth(0.94f)
+                .align(Alignment.CenterHorizontally),
+            durationMs = durationMs,
+            playedFraction = playedFraction,
+            bufferedFraction = bufferedFraction,
+            touchHeight = metrics.sliderTouchHeight,
+            onScrubChange = onScrubChange,
+            onScrubFinished = onScrubFinished,
         )
         Row(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.94f)
+                .align(Alignment.CenterHorizontally)
                 .padding(horizontal = 14.dp)
                 .padding(top = 4.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -538,6 +585,13 @@ private fun ProgressControls(
                         painter = audioPainter,
                         onClick = onAudioClick,
                     )
+                    if (onChaptersClick != null) {
+                        PlayerActionPillButton(
+                            label = "Chapters",
+                            icon = Icons.Rounded.Flag,
+                            onClick = onChaptersClick,
+                        )
+                    }
                     if (onSourcesClick != null) {
                         PlayerActionPillButton(
                             label = stringResource(Res.string.compose_player_sources),
@@ -545,18 +599,91 @@ private fun ProgressControls(
                             onClick = onSourcesClick,
                         )
                     }
-                    if (onEpisodesClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_episodes),
-                            icon = Icons.Rounded.VideoLibrary,
-                            onClick = onEpisodesClick,
-                        )
-                    }
+                    PlayerActionPillButton(
+                        label = "Skip",
+                        icon = Icons.Rounded.Forward10,
+                        onClick = onSilenceSkipClick,
+                    )
                 }
             }
         }
     }
 }
+
+@Composable
+private fun NetflixSeekBar(
+    modifier: Modifier = Modifier,
+    durationMs: Long,
+    playedFraction: Float,
+    bufferedFraction: Float,
+    touchHeight: androidx.compose.ui.unit.Dp,
+    onScrubChange: (Long) -> Unit,
+    onScrubFinished: (Long) -> Unit,
+) {
+    val density = LocalDensity.current
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(touchHeight),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
+        var lastPositionMs = (durationMs * playedFraction).toLong().coerceIn(0L, durationMs)
+        fun positionForX(x: Float): Long =
+            ((x.coerceIn(0f, widthPx) / widthPx) * durationMs).toLong().coerceIn(0L, durationMs)
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(touchHeight)
+                .pointerInput(durationMs, widthPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        lastPositionMs = positionForX(down.position.x)
+                        onScrubChange(lastPositionMs)
+                        down.consume()
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                break
+                            }
+                            lastPositionMs = positionForX(change.position.x)
+                            onScrubChange(lastPositionMs)
+                            change.consume()
+                        }
+                        onScrubFinished(lastPositionMs)
+                    }
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.18f)),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(bufferedFraction)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.48f)),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(playedFraction)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(NetflixProgressRed),
+            )
+        }
+    }
+}
+
+private val NetflixProgressRed = Color(0xFFE50914)
 
 @Composable
 internal fun LockedPlayerOverlay(
@@ -570,11 +697,11 @@ internal fun LockedPlayerOverlay(
     val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
     val sliderColors = SliderDefaults.colors(
         thumbColor = Color.White,
-        activeTrackColor = Color.White,
-        inactiveTrackColor = Color.White.copy(alpha = 0.28f),
+        activeTrackColor = NetflixProgressRed,
+        inactiveTrackColor = Color.White.copy(alpha = 0.22f),
         disabledThumbColor = Color.White,
-        disabledActiveTrackColor = Color.White,
-        disabledInactiveTrackColor = Color.White.copy(alpha = 0.28f),
+        disabledActiveTrackColor = NetflixProgressRed,
+        disabledInactiveTrackColor = Color.White.copy(alpha = 0.22f),
     )
 
     Box(modifier = modifier.fillMaxSize()) {

@@ -79,6 +79,7 @@ fun HomescreenSettingsScreen(
             heroEnabled = homescreenSettingsUiState.heroEnabled,
             hideUnreleasedContent = homescreenSettingsUiState.hideUnreleasedContent,
             hideCatalogUnderline = homescreenSettingsUiState.hideCatalogUnderline,
+            showCatalogTypeLabels = homescreenSettingsUiState.showCatalogTypeLabels,
             items = homescreenSettingsUiState.items,
         )
     }
@@ -133,10 +134,9 @@ fun ContinueWatchingSettingsScreen(
             style = continueWatchingPreferencesUiState.style,
             upNextFromFurthestEpisode = continueWatchingPreferencesUiState.upNextFromFurthestEpisode,
             useEpisodeThumbnails = continueWatchingPreferencesUiState.useEpisodeThumbnails,
-            showUnairedNextUp = continueWatchingPreferencesUiState.showUnairedNextUp,
+            useClearlogo = continueWatchingPreferencesUiState.useClearlogo,
             blurNextUp = continueWatchingPreferencesUiState.blurNextUp,
             showResumePromptOnLaunch = continueWatchingPreferencesUiState.showResumePromptOnLaunch,
-            sortMode = continueWatchingPreferencesUiState.sortMode,
         )
     }
 }

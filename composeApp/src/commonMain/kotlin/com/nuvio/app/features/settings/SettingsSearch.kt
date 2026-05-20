@@ -87,7 +87,6 @@ internal fun settingsSearchEntries(
     val aboutCategory = stringResource(SettingsCategory.About.labelRes)
 
     val accountPage = stringResource(Res.string.compose_settings_page_account)
-    val traktPage = stringResource(Res.string.compose_settings_page_trakt)
     val layoutPage = stringResource(Res.string.compose_settings_page_appearance)
     val contentDiscoveryPage = stringResource(Res.string.compose_settings_page_content_discovery)
     val downloadsPage = stringResource(Res.string.compose_settings_root_downloads_title)
@@ -192,14 +191,6 @@ internal fun settingsSearchEntries(
         icon = Icons.Rounded.AccountCircle,
     )
     addPage(
-        page = SettingsPage.TraktAuthentication,
-        key = "trakt",
-        title = traktPage,
-        description = stringResource(Res.string.compose_settings_root_trakt_description),
-        category = accountCategory,
-        icon = Icons.Rounded.Link,
-    )
-    addPage(
         page = SettingsPage.Appearance,
         key = "layout",
         title = layoutPage,
@@ -261,7 +252,6 @@ internal fun settingsSearchEntries(
     listOf(
         PlaybackSearchRow("nuvio-license", stringResource(Res.string.settings_licenses_attributions_nuvio_title), stringResource(Res.string.settings_licenses_attributions_nuvio_license)),
         PlaybackSearchRow("tmdb-attribution", stringResource(Res.string.settings_licenses_attributions_tmdb_title), stringResource(Res.string.settings_licenses_attributions_tmdb_body)),
-        PlaybackSearchRow("trakt-attribution", stringResource(Res.string.settings_licenses_attributions_trakt_title), stringResource(Res.string.settings_licenses_attributions_trakt_body)),
         PlaybackSearchRow("mdblist-attribution", stringResource(Res.string.settings_licenses_attributions_mdblist_title), stringResource(Res.string.settings_licenses_attributions_mdblist_body)),
         PlaybackSearchRow("introdb-attribution", stringResource(Res.string.settings_licenses_attributions_introdb_title), stringResource(Res.string.settings_licenses_attributions_introdb_body)),
         PlaybackSearchRow("imdb-datasets", stringResource(Res.string.settings_licenses_attributions_imdb_title), stringResource(Res.string.settings_licenses_attributions_imdb_body)),
@@ -290,19 +280,6 @@ internal fun settingsSearchEntries(
             icon = Icons.Rounded.Info,
         )
     }
-    if (checkForUpdatesAvailable) {
-        add(
-            key = "check-updates",
-            title = stringResource(Res.string.compose_settings_root_check_updates_title),
-            description = stringResource(Res.string.compose_settings_root_check_updates_description),
-            page = supportersPage,
-            section = stringResource(Res.string.compose_settings_root_about_section),
-            category = aboutCategory,
-            icon = Icons.Rounded.CloudDownload,
-            target = SettingsSearchTarget.CheckForUpdates,
-        )
-    }
-
     addRow(
         page = SettingsPage.Account,
         key = "account-status",
@@ -419,7 +396,6 @@ internal fun settingsSearchEntries(
     val playbackStreamSelection = stringResource(Res.string.settings_playback_section_stream_selection)
     val playbackStreamAutoPlay = stringResource(Res.string.settings_playback_section_stream_auto_play)
     val playbackDecoder = stringResource(Res.string.settings_playback_section_decoder)
-    val playbackSubtitleRendering = stringResource(Res.string.settings_playback_section_subtitle_rendering)
     val playbackSkipSegments = stringResource(Res.string.settings_playback_section_skip_segments)
     val playbackNextEpisode = stringResource(Res.string.settings_playback_section_next_episode)
     addPlaybackRows(
@@ -500,16 +476,6 @@ internal fun settingsSearchEntries(
                 PlaybackSearchRow("decoder-priority", stringResource(Res.string.settings_playback_decoder_priority)),
                 PlaybackSearchRow("dv7-hevc", stringResource(Res.string.settings_playback_map_dv7_to_hevc), stringResource(Res.string.settings_playback_map_dv7_to_hevc_description)),
                 PlaybackSearchRow("tunneled-playback", stringResource(Res.string.settings_playback_tunneled_playback), stringResource(Res.string.settings_playback_tunneled_playback_description)),
-            ),
-        )
-        addPlaybackRows(
-            addRow = ::addRow,
-            pageLabel = playbackPage,
-            section = playbackSubtitleRendering,
-            icon = Icons.Rounded.PlayArrow,
-            rows = listOf(
-                PlaybackSearchRow("libass", stringResource(Res.string.settings_playback_enable_libass), stringResource(Res.string.settings_playback_enable_libass_description)),
-                PlaybackSearchRow("libass-render", stringResource(Res.string.settings_playback_render_type)),
             ),
         )
     }
@@ -735,34 +701,6 @@ internal fun settingsSearchEntries(
         section = stringResource(Res.string.settings_notifications_section_test),
         icon = Icons.Rounded.Notifications,
     )
-
-    addRow(
-        page = SettingsPage.TraktAuthentication,
-        key = "trakt-authentication",
-        title = stringResource(Res.string.settings_trakt_authentication),
-        description = stringResource(Res.string.settings_trakt_intro_description),
-        pageLabel = traktPage,
-        section = stringResource(Res.string.settings_trakt_authentication),
-        category = accountCategory,
-        icon = Icons.Rounded.Link,
-    )
-    listOf(
-        PlaybackSearchRow("trakt-library-source", stringResource(Res.string.trakt_library_source_title), stringResource(Res.string.trakt_library_source_subtitle)),
-        PlaybackSearchRow("trakt-watch-progress", stringResource(Res.string.trakt_watch_progress_title), stringResource(Res.string.trakt_watch_progress_subtitle)),
-        PlaybackSearchRow("trakt-continue-watching-window", stringResource(Res.string.trakt_continue_watching_window), stringResource(Res.string.trakt_continue_watching_subtitle)),
-        PlaybackSearchRow("trakt-comments", stringResource(Res.string.settings_trakt_comments), stringResource(Res.string.settings_trakt_comments_description)),
-    ).forEach { row ->
-        addRow(
-            page = SettingsPage.TraktAuthentication,
-            key = row.key,
-            title = row.title,
-            description = row.description,
-            pageLabel = traktPage,
-            section = stringResource(Res.string.settings_trakt_features),
-            category = accountCategory,
-            icon = Icons.Rounded.Link,
-        )
-    }
 
     return entries
 }

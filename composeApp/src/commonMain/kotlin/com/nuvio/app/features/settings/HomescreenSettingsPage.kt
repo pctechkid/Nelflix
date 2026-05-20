@@ -68,6 +68,7 @@ internal fun LazyListScope.homescreenSettingsContent(
     heroEnabled: Boolean,
     hideUnreleasedContent: Boolean,
     hideCatalogUnderline: Boolean,
+    showCatalogTypeLabels: Boolean,
     items: List<HomeCatalogSettingsItem>,
 ) {
     val selectedHeroSourceCount = items.count { it.heroSourceEnabled }
@@ -108,6 +109,14 @@ internal fun LazyListScope.homescreenSettingsContent(
                     checked = hideCatalogUnderline,
                     isTablet = isTablet,
                     onCheckedChange = HomeCatalogSettingsRepository::setHideCatalogUnderline,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Show catalog type labels",
+                    description = "Append - Movies or - Series after catalog titles.",
+                    checked = showCatalogTypeLabels,
+                    isTablet = isTablet,
+                    onCheckedChange = HomeCatalogSettingsRepository::setShowCatalogTypeLabels,
                 )
             }
         }

@@ -64,6 +64,8 @@ internal actual object EpisodeReleaseNotificationPlatform {
         }
     }
 
+    actual fun availableTimezoneIds(): List<String> = listOf(DefaultEpisodeReleaseTimezoneId, "UTC")
+
     actual suspend fun scheduleEpisodeReleaseNotifications(requests: List<EpisodeReleaseNotificationRequest>) {
         clearScheduledEpisodeReleaseNotifications()
 

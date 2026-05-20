@@ -33,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -48,7 +49,6 @@ import nuvio.composeapp.generated.resources.addon_title
 import nuvio.composeapp.generated.resources.compose_player_built_in
 import nuvio.composeapp.generated.resources.compose_player_fetch_subtitles
 import nuvio.composeapp.generated.resources.compose_player_none
-import nuvio.composeapp.generated.resources.compose_player_style
 import nuvio.composeapp.generated.resources.compose_player_subtitles
 import org.jetbrains.compose.resources.stringResource
 
@@ -61,12 +61,11 @@ fun SubtitleModal(
     addonSubtitles: List<AddonSubtitle>,
     selectedAddonSubtitleId: String?,
     isLoadingAddonSubtitles: Boolean,
-    subtitleStyle: SubtitleStyleState,
     onTabSelected: (SubtitleTab) -> Unit,
     onBuiltInTrackSelected: (Int) -> Unit,
     onAddonSubtitleSelected: (AddonSubtitle) -> Unit,
     onFetchAddonSubtitles: () -> Unit,
-    onStyleChanged: (SubtitleStyleState) -> Unit,
+    onSubtitleSyncClick: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -89,7 +88,6 @@ fun SubtitleModal(
             contentAlignment = Alignment.Center,
         ) {
             val maxH = maxHeight
-            val isCompact = maxWidth < 360.dp || maxHeight < 640.dp
 
             AnimatedVisibility(
                 visible = visible,
@@ -115,6 +113,7 @@ fun SubtitleModal(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(20.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
@@ -123,6 +122,9 @@ fun SubtitleModal(
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                             )
+                            TextButton(onClick = onSubtitleSyncClick) {
+                                Text("Sync")
+                            }
                         }
 
                         SubtitleTabBar(
@@ -148,11 +150,6 @@ fun SubtitleModal(
                                     isLoading = isLoadingAddonSubtitles,
                                     onSubtitleSelected = onAddonSubtitleSelected,
                                     onFetch = onFetchAddonSubtitles,
-                                )
-                                SubtitleTab.Style -> SubtitleStylePanel(
-                                    style = subtitleStyle,
-                                    isCompact = isCompact,
-                                    onStyleChanged = onStyleChanged,
                                 )
                             }
                         }
@@ -201,7 +198,6 @@ private fun SubtitleTabBar(
                     text = when (tab) {
                         SubtitleTab.BuiltIn -> stringResource(Res.string.compose_player_built_in)
                         SubtitleTab.Addons -> stringResource(Res.string.addon_title)
-                        SubtitleTab.Style -> stringResource(Res.string.compose_player_style)
                     },
                     color = if (isSelected) colorScheme.onPrimaryContainer else colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,

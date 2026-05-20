@@ -2,6 +2,7 @@ package com.nuvio.app.features.settings
 
 import com.nuvio.app.core.build.AppFeaturePolicy
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,6 +82,7 @@ internal fun LazyListScope.playbackSettingsContent(
     secondaryPreferredSubtitleLanguage: String?,
     streamReuseLastLinkEnabled: Boolean,
     streamReuseLastLinkCacheHours: Int,
+    mpvDemuxerMaxBytesMiB: Int,
     decoderPriority: Int,
     mapDV7ToHevc: Boolean,
     tunnelingEnabled: Boolean,
@@ -99,6 +101,7 @@ internal fun LazyListScope.playbackSettingsContent(
             secondaryPreferredSubtitleLanguage = secondaryPreferredSubtitleLanguage,
             streamReuseLastLinkEnabled = streamReuseLastLinkEnabled,
             streamReuseLastLinkCacheHours = streamReuseLastLinkCacheHours,
+            mpvDemuxerMaxBytesMiB = mpvDemuxerMaxBytesMiB,
             decoderPriority = decoderPriority,
             mapDV7ToHevc = mapDV7ToHevc,
             tunnelingEnabled = tunnelingEnabled,
@@ -127,6 +130,140 @@ fun calculateSteps(
 ): Int {
     val totalSteps = ((max - min) / stepSize).roundToInt()
     return (totalSteps - 1).coerceAtLeast(0)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MpvConfigTextDialog(
+    title: String,
+    initialValue: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
+    BasicAlertDialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 220.dp, max = 360.dp),
+                ) {
+                    BasicTextField(
+                        value = value,
+                        onValueChange = { value = it },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(text = stringResource(Res.string.action_cancel))
+                    }
+                    TextButton(
+                        onClick = {
+                            onSave(value)
+                            onDismiss()
+                        },
+                    ) {
+                        Text(text = stringResource(Res.string.action_save))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MpvDemuxerCacheDialog(
+    initialValue: Int,
+    onSave: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by remember(initialValue) { mutableStateOf(initialValue.toString()) }
+    val parsed = value.toIntOrNull()?.coerceIn(128, 4096)
+    BasicAlertDialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = "Demuxer max bytes",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Default is 1024 MiB. Values from mpv.conf still override this setting.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                BasicTextField(
+                    value = value,
+                    onValueChange = { value = it.filter(Char::isDigit) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            RoundedCornerShape(14.dp),
+                        )
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(text = stringResource(Res.string.action_cancel))
+                    }
+                    TextButton(
+                        enabled = parsed != null,
+                        onClick = { parsed?.let(onSave) },
+                    ) {
+                        Text(text = stringResource(Res.string.action_save))
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -161,6 +298,7 @@ private fun PlaybackSettingsSection(
     secondaryPreferredSubtitleLanguage: String?,
     streamReuseLastLinkEnabled: Boolean,
     streamReuseLastLinkCacheHours: Int,
+    mpvDemuxerMaxBytesMiB: Int,
     decoderPriority: Int,
     mapDV7ToHevc: Boolean,
     tunnelingEnabled: Boolean,
@@ -181,6 +319,9 @@ private fun PlaybackSettingsSection(
     var showAutoPlayAddonSelectionDialog by remember { mutableStateOf(false) }
     var showAutoPlayPluginSelectionDialog by remember { mutableStateOf(false) }
     var showAutoPlayRegexDialog by remember { mutableStateOf(false) }
+    var showMpvConfDialog by remember { mutableStateOf(false) }
+    var showMpvInputConfDialog by remember { mutableStateOf(false) }
+    var showMpvDemuxerCacheDialog by remember { mutableStateOf(false) }
     val pluginsEnabled = AppFeaturePolicy.pluginsEnabled
     val autoPlayPlayerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
     val availableExternalPlayers = ExternalPlayerPlatform.availablePlayers()
@@ -252,6 +393,14 @@ private fun PlaybackSettingsSection(
                     checked = holdToSpeedEnabled,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setHoldToSpeedEnabled,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Use clearlogo in player",
+                    description = "Show clearlogo artwork in the player header when available.",
+                    checked = autoPlayPlayerSettings.useClearlogoInPlayer,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setUseClearlogoInPlayer,
                 )
                 if (holdToSpeedEnabled) {
                     SettingsGroupDivider(isTablet = isTablet)
@@ -461,6 +610,14 @@ private fun PlaybackSettingsSection(
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
+                    SettingsSwitchRow(
+                        title = "Try mpv hardware decoding",
+                        description = "Use mpv hwdec=auto. Turn this off to force software decoding.",
+                        checked = autoPlayPlayerSettings.mpvHardwareDecodingEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setMpvHardwareDecodingEnabled,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_decoder_priority),
                         description = decoderPriorityLabel(decoderPriority),
@@ -489,26 +646,50 @@ private fun PlaybackSettingsSection(
 
         if (!isIos) {
             SettingsSection(
-                title = stringResource(Res.string.settings_playback_section_subtitle_rendering),
+                title = "MPV CUSTOMIZATION",
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_playback_enable_libass),
-                        description = stringResource(Res.string.settings_playback_enable_libass_description),
-                        checked = useLibass,
+                    PlatformMpvDirectoryRows(
                         isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setUseLibass,
+                        fontsDirectoryUri = autoPlayPlayerSettings.mpvFontsDirectoryUri,
+                        configDirectoryUri = autoPlayPlayerSettings.mpvConfigDirectoryUri,
                     )
-                    if (useLibass) {
-                        SettingsGroupDivider(isTablet = isTablet)
-                        SettingsNavigationRow(
-                            title = stringResource(Res.string.settings_playback_render_type),
-                            description = libassRenderTypeLabel(libassRenderType),
-                            isTablet = isTablet,
-                            onClick = { showLibassRenderTypeDialog = true },
-                        )
-                    }
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Edit mpv.conf",
+                        description = if (autoPlayPlayerSettings.mpvConf.isBlank()) "Empty" else "Custom config saved",
+                        isTablet = isTablet,
+                        onClick = { showMpvConfDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Edit input.conf",
+                        description = if (autoPlayPlayerSettings.mpvInputConf.isBlank()) "Empty" else "Custom bindings saved",
+                        isTablet = isTablet,
+                        onClick = { showMpvInputConfDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Demuxer max bytes",
+                        description = "${mpvDemuxerMaxBytesMiB} MiB",
+                        isTablet = isTablet,
+                        onClick = { showMpvDemuxerCacheDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Clear cached mpv configurations",
+                        description = "Delete mirrored mpv.conf, input.conf, and bundled scripts",
+                        isTablet = isTablet,
+                        onClick = { clearCachedMpvConfigurations() },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Clear cached fonts",
+                        description = "Delete fonts copied for mpv subtitle rendering",
+                        isTablet = isTablet,
+                        onClick = { clearCachedMpvFonts() },
+                    )
                 }
             }
         }
@@ -585,156 +766,57 @@ private fun PlaybackSettingsSection(
                 }
             }
         }
+    }
 
-        SettingsSection(
-            title = stringResource(Res.string.settings_playback_section_next_episode),
-            isTablet = isTablet,
-        ) {
-            SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_auto_play_next_episode),
-                    description = stringResource(Res.string.settings_playback_auto_play_next_episode_description),
-                    checked = autoPlayPlayerSettings.streamAutoPlayNextEpisodeEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayNextEpisodeEnabled,
+    if (showMpvConfDialog) {
+        val externalMpvConf = readExternalMpvConfigFile(
+            configDirectoryUri = autoPlayPlayerSettings.mpvConfigDirectoryUri,
+            fileName = "mpv.conf",
+        )
+        MpvConfigTextDialog(
+            title = "Edit mpv.conf",
+            initialValue = externalMpvConf ?: autoPlayPlayerSettings.mpvConf,
+            onSave = { value ->
+                PlayerSettingsRepository.setMpvConf(value)
+                writeExternalMpvConfigFile(
+                    configDirectoryUri = autoPlayPlayerSettings.mpvConfigDirectoryUri,
+                    fileName = "mpv.conf",
+                    text = value,
                 )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_prefer_binge_group),
-                    description = stringResource(Res.string.settings_playback_prefer_binge_group_description),
-                    checked = autoPlayPlayerSettings.streamAutoPlayPreferBingeGroup,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayPreferBingeGroup,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                var showThresholdModeDialog by remember { mutableStateOf(false) }
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_threshold_mode),
-                    description = stringResource(autoPlayPlayerSettings.nextEpisodeThresholdMode.labelRes),
-                    isTablet = isTablet,
-                    onClick = { showThresholdModeDialog = true },
-                )
-                if (showThresholdModeDialog) {
-                    NextEpisodeThresholdModeDialog(
-                        selected = autoPlayPlayerSettings.nextEpisodeThresholdMode,
-                        onSelect = {
-                            PlayerSettingsRepository.setNextEpisodeThresholdMode(it)
-                            showThresholdModeDialog = false
-                        },
-                        onDismiss = { showThresholdModeDialog = false },
-                    )
-                }
-                SettingsGroupDivider(isTablet = isTablet)
-                when (autoPlayPlayerSettings.nextEpisodeThresholdMode) {
-                    com.nuvio.app.features.player.skip.NextEpisodeThresholdMode.PERCENTAGE -> {
-                        val thresholdPercent = autoPlayPlayerSettings.nextEpisodeThresholdPercent
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = if (isTablet) 18.dp else 16.dp, vertical = 10.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                    Text(
-                                        text = stringResource(Res.string.settings_playback_threshold_percentage),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    Text(
-                                        text = stringResource(Res.string.settings_playback_threshold_percentage_description),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                ValueBox(text = stringResource(
-                                    Res.string.settings_playback_threshold_percentage_value,
-                                    formatStep(thresholdPercent)), modifier = Modifier.wrapContentWidth())
-                            }
-                            var sliderValue by remember(thresholdPercent) { mutableFloatStateOf(thresholdPercent) }
-                            var lastHapticPercent by remember(thresholdPercent) { mutableStateOf(thresholdPercent) }
-                            Slider(
-                                value = sliderValue,
-                                onValueChange = {
-                                    val snapped = snapToStep(it, 0.5f)
-                                    sliderValue = snapped
+            },
+            onDismiss = { showMpvConfDialog = false },
+        )
+    }
 
-                                    if (snapped != lastHapticPercent) {
-                                        lastHapticPercent = snapped
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    }
-                                },
-                                onValueChangeFinished = {
-                                    PlayerSettingsRepository.setNextEpisodeThresholdPercent(sliderValue)
-                                },
-                                valueRange = 97f..100f,
-                                steps = calculateSteps(97f, 100f, 0.5f),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-                    com.nuvio.app.features.player.skip.NextEpisodeThresholdMode.MINUTES_BEFORE_END -> {
-                        val thresholdMinutes = autoPlayPlayerSettings.nextEpisodeThresholdMinutesBeforeEnd
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = if (isTablet) 18.dp else 16.dp, vertical = 10.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                    Text(
-                                        text = stringResource(Res.string.settings_playback_minutes_before_end),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    Text(
-                                        text = stringResource(Res.string.settings_playback_minutes_before_end_description),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                ValueBox(text = stringResource(
-                                        Res.string.settings_playback_minutes_value,
-                                        formatStep(thresholdMinutes)), modifier = Modifier.wrapContentWidth())
-                            }
-                            var sliderValue by remember(thresholdMinutes) { mutableFloatStateOf(thresholdMinutes) }
-                            var lastHapticMin by remember(thresholdMinutes) { mutableStateOf(thresholdMinutes) }
-                            Slider(
-                                value = sliderValue,
-                                onValueChange = {
-                                    val snapped = snapToStep(it, 0.5f)
-                                    sliderValue = snapped
+    if (showMpvInputConfDialog) {
+        val externalInputConf = readExternalMpvConfigFile(
+            configDirectoryUri = autoPlayPlayerSettings.mpvConfigDirectoryUri,
+            fileName = "input.conf",
+        )
+        MpvConfigTextDialog(
+            title = "Edit input.conf",
+            initialValue = externalInputConf ?: autoPlayPlayerSettings.mpvInputConf,
+            onSave = { value ->
+                PlayerSettingsRepository.setMpvInputConf(value)
+                writeExternalMpvConfigFile(
+                    configDirectoryUri = autoPlayPlayerSettings.mpvConfigDirectoryUri,
+                    fileName = "input.conf",
+                    text = value,
+                )
+            },
+            onDismiss = { showMpvInputConfDialog = false },
+        )
+    }
 
-                                    if (snapped != lastHapticMin) {
-                                        lastHapticMin = snapped
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    }
-                                },
-                                onValueChangeFinished = {
-                                    PlayerSettingsRepository.setNextEpisodeThresholdMinutesBeforeEnd(sliderValue)
-                                },
-                                valueRange = 0f..3.5f,
-                                steps = calculateSteps(0f, 3.5f, 0.5f),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-                }
-            }
-        }
+    if (showMpvDemuxerCacheDialog) {
+        MpvDemuxerCacheDialog(
+            initialValue = mpvDemuxerMaxBytesMiB,
+            onSave = {
+                PlayerSettingsRepository.setMpvDemuxerMaxBytesMiB(it)
+                showMpvDemuxerCacheDialog = false
+            },
+            onDismiss = { showMpvDemuxerCacheDialog = false },
+        )
     }
 
     if (showPreferredAudioDialog) {
@@ -748,7 +830,7 @@ private fun PlaybackSettingsSection(
             },
             selectedValue = preferredAudioLanguage,
             onSelect = { value ->
-                PlayerSettingsRepository.setPreferredAudioLanguage(value ?: AudioLanguageOption.DEVICE)
+                PlayerSettingsRepository.setPreferredAudioLanguage(value ?: AudioLanguageOption.DEFAULT)
                 showPreferredAudioDialog = false
             },
             onDismiss = { showPreferredAudioDialog = false },
@@ -1326,6 +1408,9 @@ private fun HoldToSpeedValueDialog(
     onDismiss: () -> Unit,
 ) {
     val options = listOf(1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+    var showCustomInput by remember { mutableStateOf(options.none { it == selectedSpeed }) }
+    var customSpeedText by remember(selectedSpeed) { mutableStateOf(formatCustomSpeedValue(selectedSpeed)) }
+    val customSpeed = customSpeedText.toFloatOrNull()?.takeIf { it in 1f..10f }
 
     BasicAlertDialog(
         onDismissRequest = onDismiss,
@@ -1389,6 +1474,101 @@ private fun HoldToSpeedValueDialog(
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    val customSelected = options.none { it == selectedSpeed }
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showCustomInput = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (customSelected) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (customSelected) {
+                                    "Custom (${formatPlaybackSpeedLabel(selectedSpeed)})"
+                                } else {
+                                    "Custom"
+                                },
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Box(
+                                modifier = Modifier.size(24.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (customSelected) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (showCustomInput) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        BasicTextField(
+                            value = customSpeedText,
+                            onValueChange = { value ->
+                                customSpeedText = value.filter { char -> char.isDigit() || char == '.' }
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                    RoundedCornerShape(12.dp),
+                                )
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                        )
+                        Text(
+                            text = "Enter a speed from 1x to 10x.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (customSpeed == null) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(onClick = {
+                                showCustomInput = false
+                                customSpeedText = formatCustomSpeedValue(selectedSpeed)
+                            }) {
+                                Text(text = stringResource(Res.string.action_cancel))
+                            }
+                            TextButton(
+                                enabled = customSpeed != null,
+                                onClick = { customSpeed?.let(onSpeedSelected) },
+                            ) {
+                                Text(text = stringResource(Res.string.action_save))
                             }
                         }
                     }
@@ -2289,6 +2469,15 @@ private fun decoderPriorityRes(priority: Int): StringResource = when (priority) 
 
 @Composable
 private fun decoderPriorityLabel(priority: Int): String = stringResource(decoderPriorityRes(priority))
+
+private fun formatCustomSpeedValue(speed: Float): String {
+    val roundedTenths = (speed * 10f).roundToInt() / 10f
+    return if (roundedTenths % 1f == 0f) {
+        roundedTenths.toInt().toString()
+    } else {
+        roundedTenths.toString()
+    }
+}
 
 private fun StreamAutoPlaySource.labelRes(pluginsEnabled: Boolean): StringResource = when (this) {
     StreamAutoPlaySource.ALL_SOURCES ->

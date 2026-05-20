@@ -38,9 +38,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
@@ -166,7 +166,7 @@ fun StreamsScreen(
         null
     } else {
         if (startFromBeginning) {
-            null
+            1L
         } else {
             (resumePositionMs ?: storedProgress?.takeIf { it.isResumable }?.lastPositionMs)?.takeIf { it > 0L }
         }
@@ -335,7 +335,6 @@ fun StreamsScreen(
 
         StreamActionsSheet(
             stream = streamActionsTarget,
-            externalPlayerEnabled = playerSettings.externalPlayerEnabled,
             onDismiss = { streamActionsTarget = null },
             onCopyLink = { stream ->
                 val directUrl = stream.directPlaybackUrl
@@ -1029,7 +1028,6 @@ private fun StreamCard(
 @Composable
 private fun StreamActionsSheet(
     stream: StreamItem?,
-    externalPlayerEnabled: Boolean,
     onDismiss: () -> Unit,
     onCopyLink: (StreamItem) -> Unit,
     onDownload: (StreamItem) -> Unit,
@@ -1093,16 +1091,10 @@ private fun StreamActionsSheet(
             )
             NuvioBottomSheetDivider()
             NuvioBottomSheetActionRow(
-                icon = Icons.AutoMirrored.Rounded.OpenInNew,
-                title = stringResource(
-                    if (externalPlayerEnabled) {
-                        Res.string.streams_open_internal_player
-                    } else {
-                        Res.string.streams_open_external_player
-                    },
-                ),
+                icon = Icons.Rounded.PlayArrow,
+                title = stringResource(Res.string.streams_open_internal_player),
                 onClick = {
-                    onOpen(stream, !externalPlayerEnabled)
+                    onOpen(stream, false)
                     coroutineScope.launch {
                         dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                     }

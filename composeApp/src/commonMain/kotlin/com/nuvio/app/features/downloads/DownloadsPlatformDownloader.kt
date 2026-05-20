@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.runtime.Composable
+
 internal data class DownloadPlatformRequest(
     val sourceUrl: String,
     val sourceHeaders: Map<String, String>,
@@ -23,4 +25,13 @@ internal expect object DownloadsPlatformDownloader {
     fun removePartialFile(destinationFileName: String): Boolean
 
     fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String?
+
+    fun getDownloadFolderUri(): String?
+
+    fun setDownloadFolderUri(uri: String?)
+
+    fun downloadFolderLabel(uri: String?): String
 }
+
+@Composable
+internal expect fun PlatformDownloadFolderRow()

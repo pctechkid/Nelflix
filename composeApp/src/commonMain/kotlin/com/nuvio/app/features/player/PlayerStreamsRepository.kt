@@ -199,7 +199,14 @@ object PlayerStreamsRepository {
             return
         }
 
-        val initialGroups = streamAddons.map { addon ->
+        val initialGroups = debridTargets.map { target ->
+            AddonStreamGroup(
+                addonName = target.addonName,
+                addonId = target.addonId,
+                streams = emptyList(),
+                isLoading = true,
+            )
+        } + streamAddons.map { addon ->
             AddonStreamGroup(
                 addonName = addon.addonName,
                 addonId = addon.addonId,
@@ -210,13 +217,6 @@ object PlayerStreamsRepository {
             AddonStreamGroup(
                 addonName = scraper.name,
                 addonId = "plugin:${scraper.id}",
-                streams = emptyList(),
-                isLoading = true,
-            )
-        } + debridTargets.map { target ->
-            AddonStreamGroup(
-                addonName = target.addonName,
-                addonId = target.addonId,
                 streams = emptyList(),
                 isLoading = true,
             )

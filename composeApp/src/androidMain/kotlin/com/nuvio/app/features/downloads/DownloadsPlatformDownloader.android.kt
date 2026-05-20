@@ -1,7 +1,28 @@
 package com.nuvio.app.features.downloads
 
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
-import kotlinx.coroutines.CancellationException
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.settings.SettingsGroup
+import com.nuvio.app.features.settings.SettingsNavigationRow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -12,12 +33,21 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import nuvio.composeapp.generated.resources.*
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.download_failed
+import nuvio.composeapp.generated.resources.downloads_error_empty_body
+import nuvio.composeapp.generated.resources.downloads_error_http_failed
+import nuvio.composeapp.generated.resources.downloads_error_not_initialized
+import nuvio.composeapp.generated.resources.downloads_error_request_failed
 import org.jetbrains.compose.resources.getString
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URI
 import java.util.concurrent.TimeUnit
+
+private const val downloadsPreferencesName = "nelflix_download_settings"
+private const val downloadFolderUriKey = "download_folder_uri"
+private const val defaultRelativeDownloadPath = "Download/Nelflix/"
 
 private val downloadHttpClient = OkHttpClient.Builder()
     .connectTimeout(60, TimeUnit.SECONDS)
@@ -51,18 +81,14 @@ internal actual object DownloadsPlatformDownloader {
                 return@launch
             }
 
-            val downloadsDir = File(context.filesDir, "downloads").apply { mkdirs() }
-            val destination = File(downloadsDir, request.destinationFileName)
-            val tempFile = File(downloadsDir, "${request.destinationFileName}.part")
+            val target = createDownloadTarget(context, request.destinationFileName)
 
             try {
-                var resumeFromBytes = tempFile.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
+                var resumeFromBytes = target.partialSize().coerceAtLeast(0L)
 
                 fun buildRequest(rangeStart: Long?): Request {
                     val requestBuilder = Request.Builder().url(request.sourceUrl)
-                    request.sourceHeaders.forEach { (key, value) ->
-                        requestBuilder.header(key, value)
-                    }
+                    request.sourceHeaders.forEach { (key, value) -> requestBuilder.header(key, value) }
                     if (rangeStart != null && rangeStart > 0L) {
                         requestBuilder.header("Range", "bytes=$rangeStart-")
                     }
@@ -78,7 +104,7 @@ internal actual object DownloadsPlatformDownloader {
 
                 if (attemptedRangeRequest && response.code == 416) {
                     response.close()
-                    tempFile.delete()
+                    target.deletePartial()
                     resumeFromBytes = 0L
                     attemptedRangeRequest = false
                     httpRequest = buildRequest(null)
@@ -88,37 +114,37 @@ internal actual object DownloadsPlatformDownloader {
                     )
                 }
 
-                response.use { response ->
-                    if (!response.isSuccessful) {
+                response.use { activeResponse ->
+                    if (!activeResponse.isSuccessful) {
                         error(
                             runBlocking {
-                                getString(Res.string.downloads_error_http_failed, response.code)
+                                getString(Res.string.downloads_error_http_failed, activeResponse.code)
                             },
                         )
                     }
 
-                    val isPartialResume = attemptedRangeRequest && response.code == 206 && resumeFromBytes > 0L
+                    val isPartialResume = attemptedRangeRequest && activeResponse.code == 206 && resumeFromBytes > 0L
                     val appendToTemp = isPartialResume
                     val startingBytes = if (appendToTemp) resumeFromBytes else 0L
 
-                    if (!appendToTemp && tempFile.exists()) {
-                        tempFile.delete()
+                    if (!appendToTemp) {
+                        target.deletePartial()
                     }
 
-                    val body = response.body ?: error(
+                    val body = activeResponse.body ?: error(
                         runBlocking { getString(Res.string.downloads_error_empty_body) },
                     )
                     val totalBytes = resolveTotalBytes(
                         startingBytes = startingBytes,
                         isPartialResume = isPartialResume,
-                        contentRangeHeader = response.header("Content-Range"),
+                        contentRangeHeader = activeResponse.header("Content-Range"),
                         contentLength = body.contentLength().takeIf { it > 0L },
                     )
                     var downloadedBytes = startingBytes
                     onProgress(downloadedBytes, totalBytes)
 
                     body.byteStream().use { input ->
-                        FileOutputStream(tempFile, appendToTemp).use { output ->
+                        target.openPartialOutputStream(appendToTemp).use { output ->
                             val buffer = ByteArray(16 * 1024)
                             while (true) {
                                 ensureActive()
@@ -132,60 +158,264 @@ internal actual object DownloadsPlatformDownloader {
                         }
                     }
 
-                    if (destination.exists()) {
-                        destination.delete()
-                    }
-                    if (!tempFile.renameTo(destination)) {
-                        tempFile.copyTo(destination, overwrite = true)
-                        tempFile.delete()
-                    }
-
-                    val finalSize = destination.length()
-                    onSuccess(destination.toURI().toString(), totalBytes ?: finalSize)
+                    val finalUri = target.commitPartial()
+                    onSuccess(finalUri, totalBytes ?: target.finalSize().takeIf { it > 0L })
                 }
             } catch (error: Throwable) {
                 onFailure(error.message ?: runBlocking { getString(Res.string.download_failed) })
             }
         }
 
-        job.invokeOnCompletion {
-            call?.cancel()
-        }
+        job.invokeOnCompletion { call?.cancel() }
 
         return AndroidDownloadsTaskHandle(job)
     }
 
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false
+        val context = appContext ?: return false
+        if (localFileUri.startsWith("content://", ignoreCase = true)) {
+            return runCatching { context.contentResolver.delete(localFileUri.toUri(), null, null) > 0 }
+                .getOrDefault(false)
+        }
         val file = localFileUri.toLocalFileOrNull() ?: return false
         return runCatching { file.delete() }.getOrDefault(false)
     }
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
         val context = appContext ?: return false
-        val downloadsDir = File(context.filesDir, "downloads")
-        val tempFile = File(downloadsDir, "$destinationFileName.part")
-        if (!tempFile.exists()) return true
-        return runCatching { tempFile.delete() }.getOrDefault(false)
+        return runCatching {
+            createDownloadTarget(context, destinationFileName).deletePartial()
+            true
+        }.getOrDefault(false)
     }
 
     actual fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String? {
-        localFileUri
-            ?.toLocalFileOrNull()
-            ?.takeIf { it.exists() }
-            ?.let { return it.toURI().toString() }
-
         val context = appContext ?: return null
-        val fileName = destinationFileName.trim().takeIf { it.isNotBlank() }
-            ?: localFileUri
-                ?.toLocalFileOrNull()
-                ?.name
-                ?.takeIf { it.isNotBlank() }
-            ?: return null
-        val downloadsDir = File(context.filesDir, "downloads")
-        val localFile = File(downloadsDir, fileName)
-        return localFile.takeIf { it.exists() }?.toURI()?.toString()
+        localFileUri?.takeIf { it.isNotBlank() }?.let { uri ->
+            if (uri.startsWith("content://", ignoreCase = true)) {
+                if (context.contentResolver.openFileDescriptor(uri.toUri(), "r")?.use { it.statSize >= 0L } == true) {
+                    return uri
+                }
+            } else {
+                uri.toLocalFileOrNull()?.takeIf { it.exists() }?.let { return it.toURI().toString() }
+            }
+        }
+        return createDownloadTarget(context, destinationFileName).resolveFinalUri()
     }
+
+    actual fun getDownloadFolderUri(): String? =
+        preferences()?.getString(downloadFolderUriKey, null)?.takeIf { it.isNotBlank() }
+
+    actual fun setDownloadFolderUri(uri: String?) {
+        preferences()?.edit()?.apply {
+            val normalized = uri?.takeIf { it.isNotBlank() }
+            if (normalized == null) remove(downloadFolderUriKey) else putString(downloadFolderUriKey, normalized)
+        }?.apply()
+    }
+
+    actual fun downloadFolderLabel(uri: String?): String {
+        if (uri.isNullOrBlank()) return "Android Downloads/Nelflix"
+        return runCatching {
+            val decoded = Uri.decode(uri)
+            decoded.substringAfterLast(":").ifBlank { decoded.substringAfterLast("/") }
+        }.getOrDefault(uri)
+    }
+
+    private fun preferences() =
+        appContext?.getSharedPreferences(downloadsPreferencesName, Context.MODE_PRIVATE)
+}
+
+@Composable
+internal actual fun PlatformDownloadFolderRow() {
+    val context = LocalContext.current
+    val uiState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let {
+            context.persistDirectoryPermission(it)
+            DownloadsRepository.setDownloadFolderUri(it.toString())
+        }
+    }
+
+    SettingsGroup(isTablet = false) {
+        SettingsNavigationRow(
+            title = "Download Folder",
+            description = DownloadsPlatformDownloader.downloadFolderLabel(uiState.downloadFolderUri),
+            isTablet = false,
+            onClick = { picker.launch(uiState.downloadFolderUri?.toUri()) },
+            trailingContent = {
+                if (!uiState.downloadFolderUri.isNullOrBlank()) {
+                    IconButton(onClick = { DownloadsRepository.setDownloadFolderUri(null) }) {
+                        Icon(imageVector = Icons.Rounded.Close, contentDescription = "Use default Downloads folder")
+                    }
+                }
+            },
+        )
+    }
+}
+
+private interface AndroidDownloadTarget {
+    fun partialSize(): Long
+    fun openPartialOutputStream(append: Boolean): java.io.OutputStream
+    fun deletePartial()
+    fun commitPartial(): String
+    fun finalSize(): Long
+    fun resolveFinalUri(): String?
+}
+
+private fun createDownloadTarget(context: Context, fileName: String): AndroidDownloadTarget {
+    val configuredTree = DownloadsPlatformDownloader.getDownloadFolderUri()
+    if (!configuredTree.isNullOrBlank()) {
+        DocumentFile.fromTreeUri(context, configuredTree.toUri())?.let { tree ->
+            return SafDownloadTarget(context, tree, fileName)
+        }
+    }
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        MediaStoreDownloadTarget(context, fileName)
+    } else {
+        FileDownloadTarget(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                .resolve("Nelflix")
+                .apply { mkdirs() },
+            fileName,
+        )
+    }
+}
+
+private class SafDownloadTarget(
+    private val context: Context,
+    private val tree: DocumentFile,
+    private val fileName: String,
+) : AndroidDownloadTarget {
+    private val partialName = "$fileName.part"
+
+    override fun partialSize(): Long = tree.findFile(partialName)?.length()?.coerceAtLeast(0L) ?: 0L
+
+    override fun openPartialOutputStream(append: Boolean): java.io.OutputStream {
+        val partial = tree.findFile(partialName) ?: tree.createFile("application/octet-stream", partialName)
+            ?: error("Unable to create partial download file")
+        return context.contentResolver.openOutputStream(partial.uri, if (append) "wa" else "wt")
+            ?: error("Unable to open partial download file")
+    }
+
+    override fun deletePartial() {
+        tree.findFile(partialName)?.delete()
+    }
+
+    override fun commitPartial(): String {
+        tree.findFile(fileName)?.delete()
+        val partial = tree.findFile(partialName) ?: error("Partial download file is missing")
+        if (!partial.renameTo(fileName)) {
+            val finalFile = tree.createFile("application/octet-stream", fileName)
+                ?: error("Unable to create completed download file")
+            context.contentResolver.openInputStream(partial.uri)?.use { input ->
+                context.contentResolver.openOutputStream(finalFile.uri, "wt")?.use { output -> input.copyTo(output) }
+                    ?: error("Unable to write completed download file")
+            }
+            partial.delete()
+            return finalFile.uri.toString()
+        }
+        return tree.findFile(fileName)?.uri?.toString() ?: partial.uri.toString()
+    }
+
+    override fun finalSize(): Long = tree.findFile(fileName)?.length()?.coerceAtLeast(0L) ?: 0L
+
+    override fun resolveFinalUri(): String? = tree.findFile(fileName)?.takeIf { it.isFile }?.uri?.toString()
+}
+
+private class MediaStoreDownloadTarget(
+    private val context: Context,
+    private val fileName: String,
+) : AndroidDownloadTarget {
+    private val partialName = "$fileName.part"
+    private val collection: Uri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+
+    override fun partialSize(): Long =
+        findByName(partialName)?.let(::sizeOf).takeIf { it != null && it >= 0L } ?: 0L
+
+    override fun openPartialOutputStream(append: Boolean): java.io.OutputStream {
+        val partialUri = findByName(partialName) ?: createItem(partialName, pending = true)
+        return context.contentResolver.openOutputStream(partialUri, if (append) "wa" else "wt")
+            ?: error("Unable to open partial download file")
+    }
+
+    override fun deletePartial() {
+        findByName(partialName)?.let { context.contentResolver.delete(it, null, null) }
+    }
+
+    override fun commitPartial(): String {
+        findByName(fileName)?.let { context.contentResolver.delete(it, null, null) }
+        val partialUri = findByName(partialName) ?: error("Partial download file is missing")
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.MediaColumns.IS_PENDING, 0)
+        }
+        context.contentResolver.update(partialUri, values, null, null)
+        return findByName(fileName)?.toString() ?: partialUri.toString()
+    }
+
+    override fun finalSize(): Long = findByName(fileName)?.let(::sizeOf) ?: 0L
+
+    override fun resolveFinalUri(): String? = findByName(fileName)?.toString()
+
+    private fun createItem(name: String, pending: Boolean): Uri {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, defaultRelativeDownloadPath)
+            put(MediaStore.MediaColumns.IS_PENDING, if (pending) 1 else 0)
+        }
+        return context.contentResolver.insert(collection, values)
+            ?: error("Unable to create download file")
+    }
+
+    private fun findByName(name: String): Uri? {
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+        val args = arrayOf(name, defaultRelativeDownloadPath)
+        context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                return ContentUris.withAppendedId(collection, cursor.getLong(0))
+            }
+        }
+        return null
+    }
+
+    private fun sizeOf(uri: Uri): Long =
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
+}
+
+private class FileDownloadTarget(
+    private val directory: File,
+    private val fileName: String,
+) : AndroidDownloadTarget {
+    private val destination = directory.resolve(fileName)
+    private val partial = directory.resolve("$fileName.part")
+
+    override fun partialSize(): Long = partial.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
+
+    override fun openPartialOutputStream(append: Boolean): java.io.OutputStream =
+        FileOutputStream(partial, append)
+
+    override fun deletePartial() {
+        partial.delete()
+    }
+
+    override fun commitPartial(): String {
+        if (destination.exists()) destination.delete()
+        if (!partial.renameTo(destination)) {
+            partial.copyTo(destination, overwrite = true)
+            partial.delete()
+        }
+        return destination.toURI().toString()
+    }
+
+    override fun finalSize(): Long = destination.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
+
+    override fun resolveFinalUri(): String? = destination.takeIf { it.exists() }?.toURI()?.toString()
 }
 
 private class AndroidDownloadsTaskHandle(
@@ -196,14 +426,18 @@ private class AndroidDownloadsTaskHandle(
     }
 }
 
-private fun String.toLocalFileOrNull(): File? {
-    return runCatching {
-        if (startsWith("file:")) {
-            File(URI(this))
-        } else {
-            File(this)
-        }
+private fun String.toLocalFileOrNull(): File? =
+    runCatching {
+        if (startsWith("file:")) File(URI(this)) else File(this)
     }.getOrNull()
+
+private fun Context.persistDirectoryPermission(uri: Uri) {
+    runCatching {
+        contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+    }
 }
 
 private fun resolveTotalBytes(

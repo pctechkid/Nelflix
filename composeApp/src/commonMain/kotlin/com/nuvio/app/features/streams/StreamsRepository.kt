@@ -184,7 +184,14 @@ object StreamsRepository {
         }
 
         // Initialise loading placeholders
-        val initialGroups = streamAddons.map { addon ->
+        val initialGroups = debridTargets.map { target ->
+            AddonStreamGroup(
+                addonName = target.addonName,
+                addonId = target.addonId,
+                streams = emptyList(),
+                isLoading = true,
+            )
+        } + streamAddons.map { addon ->
             AddonStreamGroup(
                 addonName = addon.addonName,
                 addonId = addon.addonId,
@@ -195,13 +202,6 @@ object StreamsRepository {
             AddonStreamGroup(
                 addonName = providerGroup.addonName,
                 addonId = providerGroup.addonId,
-                streams = emptyList(),
-                isLoading = true,
-            )
-        } + debridTargets.map { target ->
-            AddonStreamGroup(
-                addonName = target.addonName,
-                addonId = target.addonId,
                 streams = emptyList(),
                 isLoading = true,
             )

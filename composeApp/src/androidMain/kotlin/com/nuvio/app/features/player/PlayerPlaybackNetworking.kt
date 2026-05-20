@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import android.content.Context
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -17,6 +18,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
+@UnstableApi
 internal object PlayerPlaybackNetworking {
     private val DEFAULT_STREAM_HEADERS = mapOf(
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +

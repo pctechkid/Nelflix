@@ -74,7 +74,7 @@ class DebridStreamFormatter(
             "service.cached" to resolve?.isCached,
             "service.shortName" to serviceShortName(resolve),
             "service.name" to serviceName(resolve),
-            "addon.name" to "Nuvio Direct Debrid",
+            "addon.name" to "NELFLIX Direct Debrid",
         )
     }
 

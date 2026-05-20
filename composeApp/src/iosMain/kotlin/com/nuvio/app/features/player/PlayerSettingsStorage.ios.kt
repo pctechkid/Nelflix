@@ -21,6 +21,7 @@ actual object PlayerSettingsStorage {
     private const val resizeModeKey = "resize_mode"
     private const val holdToSpeedEnabledKey = "hold_to_speed_enabled"
     private const val holdToSpeedValueKey = "hold_to_speed_value"
+    private const val useClearlogoInPlayerKey = "use_clearlogo_in_player"
     private const val externalPlayerEnabledKey = "external_player_enabled"
     private const val externalPlayerIdKey = "external_player_id"
     private const val preferredAudioLanguageKey = "preferred_audio_language"
@@ -36,6 +37,12 @@ actual object PlayerSettingsStorage {
     private const val decoderPriorityKey = "decoder_priority"
     private const val mapDV7ToHevcKey = "map_dv7_to_hevc"
     private const val tunnelingEnabledKey = "tunneling_enabled"
+    private const val mpvHardwareDecodingEnabledKey = "mpv_hardware_decoding_enabled"
+    private const val mpvFontsDirectoryUriKey = "mpv_fonts_directory_uri"
+    private const val mpvConfigDirectoryUriKey = "mpv_config_directory_uri"
+    private const val mpvConfKey = "mpv.conf"
+    private const val mpvInputConfKey = "input.conf"
+    private const val mpvDemuxerMaxBytesMiBKey = "mpv_demuxer_max_bytes_mib"
     private const val streamAutoPlayModeKey = "stream_auto_play_mode"
     private const val streamAutoPlaySourceKey = "stream_auto_play_source"
     private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
@@ -59,6 +66,7 @@ actual object PlayerSettingsStorage {
         resizeModeKey,
         holdToSpeedEnabledKey,
         holdToSpeedValueKey,
+        useClearlogoInPlayerKey,
         externalPlayerEnabledKey,
         externalPlayerIdKey,
         preferredAudioLanguageKey,
@@ -74,6 +82,12 @@ actual object PlayerSettingsStorage {
         decoderPriorityKey,
         mapDV7ToHevcKey,
         tunnelingEnabledKey,
+        mpvHardwareDecodingEnabledKey,
+        mpvFontsDirectoryUriKey,
+        mpvConfigDirectoryUriKey,
+        mpvConfKey,
+        mpvInputConfKey,
+        mpvDemuxerMaxBytesMiBKey,
         streamAutoPlayModeKey,
         streamAutoPlaySourceKey,
         streamAutoPlaySelectedAddonsKey,
@@ -142,6 +156,20 @@ actual object PlayerSettingsStorage {
 
     actual fun saveHoldToSpeedValue(speed: Float) {
         NSUserDefaults.standardUserDefaults.setFloat(speed, forKey = ProfileScopedKey.of(holdToSpeedValueKey))
+    }
+
+    actual fun loadUseClearlogoInPlayer(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(useClearlogoInPlayerKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveUseClearlogoInPlayer(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(useClearlogoInPlayerKey))
     }
 
     actual fun loadExternalPlayerEnabled(): Boolean? {
@@ -346,6 +374,72 @@ actual object PlayerSettingsStorage {
 
     actual fun saveTunnelingEnabled(enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(tunnelingEnabledKey))
+    }
+
+    actual fun loadMpvHardwareDecodingEnabled(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(mpvHardwareDecodingEnabledKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveMpvHardwareDecodingEnabled(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(mpvHardwareDecodingEnabledKey))
+    }
+
+    actual fun loadMpvFontsDirectoryUri(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(mpvFontsDirectoryUriKey))
+
+    actual fun saveMpvFontsDirectoryUri(uri: String?) {
+        val key = ProfileScopedKey.of(mpvFontsDirectoryUriKey)
+        if (uri.isNullOrBlank()) {
+            NSUserDefaults.standardUserDefaults.removeObjectForKey(key)
+        } else {
+            NSUserDefaults.standardUserDefaults.setObject(uri, forKey = key)
+        }
+    }
+
+    actual fun loadMpvConfigDirectoryUri(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(mpvConfigDirectoryUriKey))
+
+    actual fun saveMpvConfigDirectoryUri(uri: String?) {
+        val key = ProfileScopedKey.of(mpvConfigDirectoryUriKey)
+        if (uri.isNullOrBlank()) {
+            NSUserDefaults.standardUserDefaults.removeObjectForKey(key)
+        } else {
+            NSUserDefaults.standardUserDefaults.setObject(uri, forKey = key)
+        }
+    }
+
+    actual fun loadMpvConf(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(mpvConfKey))
+
+    actual fun saveMpvConf(value: String) {
+        NSUserDefaults.standardUserDefaults.setObject(value, forKey = ProfileScopedKey.of(mpvConfKey))
+    }
+
+    actual fun loadMpvInputConf(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(mpvInputConfKey))
+
+    actual fun saveMpvInputConf(value: String) {
+        NSUserDefaults.standardUserDefaults.setObject(value, forKey = ProfileScopedKey.of(mpvInputConfKey))
+    }
+
+    actual fun loadMpvDemuxerMaxBytesMiB(): Int? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(mpvDemuxerMaxBytesMiBKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.integerForKey(key).toInt()
+        } else {
+            null
+        }
+    }
+
+    actual fun saveMpvDemuxerMaxBytesMiB(value: Int) {
+        NSUserDefaults.standardUserDefaults.setInteger(value.toLong(), forKey = ProfileScopedKey.of(mpvDemuxerMaxBytesMiBKey))
     }
 
     actual fun loadStreamAutoPlayMode(): String? {
@@ -557,6 +651,7 @@ actual object PlayerSettingsStorage {
         loadResizeMode()?.let { put(resizeModeKey, encodeSyncString(it)) }
         loadHoldToSpeedEnabled()?.let { put(holdToSpeedEnabledKey, encodeSyncBoolean(it)) }
         loadHoldToSpeedValue()?.let { put(holdToSpeedValueKey, encodeSyncFloat(it)) }
+        loadUseClearlogoInPlayer()?.let { put(useClearlogoInPlayerKey, encodeSyncBoolean(it)) }
         loadExternalPlayerEnabled()?.let { put(externalPlayerEnabledKey, encodeSyncBoolean(it)) }
         loadExternalPlayerId()?.let { put(externalPlayerIdKey, encodeSyncString(it)) }
         loadPreferredAudioLanguage()?.let { put(preferredAudioLanguageKey, encodeSyncString(it)) }
@@ -572,6 +667,12 @@ actual object PlayerSettingsStorage {
         loadDecoderPriority()?.let { put(decoderPriorityKey, encodeSyncInt(it)) }
         loadMapDV7ToHevc()?.let { put(mapDV7ToHevcKey, encodeSyncBoolean(it)) }
         loadTunnelingEnabled()?.let { put(tunnelingEnabledKey, encodeSyncBoolean(it)) }
+        loadMpvHardwareDecodingEnabled()?.let { put(mpvHardwareDecodingEnabledKey, encodeSyncBoolean(it)) }
+        loadMpvFontsDirectoryUri()?.let { put(mpvFontsDirectoryUriKey, encodeSyncString(it)) }
+        loadMpvConfigDirectoryUri()?.let { put(mpvConfigDirectoryUriKey, encodeSyncString(it)) }
+        loadMpvConf()?.let { put(mpvConfKey, encodeSyncString(it)) }
+        loadMpvInputConf()?.let { put(mpvInputConfKey, encodeSyncString(it)) }
+        loadMpvDemuxerMaxBytesMiB()?.let { put(mpvDemuxerMaxBytesMiBKey, encodeSyncInt(it)) }
         loadStreamAutoPlayMode()?.let { put(streamAutoPlayModeKey, encodeSyncString(it)) }
         loadStreamAutoPlaySource()?.let { put(streamAutoPlaySourceKey, encodeSyncString(it)) }
         loadStreamAutoPlaySelectedAddons()?.let { put(streamAutoPlaySelectedAddonsKey, encodeSyncStringSet(it)) }
@@ -599,6 +700,7 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncString(resizeModeKey)?.let(::saveResizeMode)
         payload.decodeSyncBoolean(holdToSpeedEnabledKey)?.let(::saveHoldToSpeedEnabled)
         payload.decodeSyncFloat(holdToSpeedValueKey)?.let(::saveHoldToSpeedValue)
+        payload.decodeSyncBoolean(useClearlogoInPlayerKey)?.let(::saveUseClearlogoInPlayer)
         payload.decodeSyncBoolean(externalPlayerEnabledKey)?.let(::saveExternalPlayerEnabled)
         payload.decodeSyncString(externalPlayerIdKey)?.let(::saveExternalPlayerId)
         payload.decodeSyncString(preferredAudioLanguageKey)?.let(::savePreferredAudioLanguage)
@@ -614,6 +716,12 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncInt(decoderPriorityKey)?.let(::saveDecoderPriority)
         payload.decodeSyncBoolean(mapDV7ToHevcKey)?.let(::saveMapDV7ToHevc)
         payload.decodeSyncBoolean(tunnelingEnabledKey)?.let(::saveTunnelingEnabled)
+        payload.decodeSyncBoolean(mpvHardwareDecodingEnabledKey)?.let(::saveMpvHardwareDecodingEnabled)
+        payload.decodeSyncString(mpvFontsDirectoryUriKey)?.let(::saveMpvFontsDirectoryUri)
+        payload.decodeSyncString(mpvConfigDirectoryUriKey)?.let(::saveMpvConfigDirectoryUri)
+        payload.decodeSyncString(mpvConfKey)?.let(::saveMpvConf)
+        payload.decodeSyncString(mpvInputConfKey)?.let(::saveMpvInputConf)
+        payload.decodeSyncInt(mpvDemuxerMaxBytesMiBKey)?.let(::saveMpvDemuxerMaxBytesMiB)
         payload.decodeSyncString(streamAutoPlayModeKey)?.let(::saveStreamAutoPlayMode)
         payload.decodeSyncString(streamAutoPlaySourceKey)?.let(::saveStreamAutoPlaySource)
         payload.decodeSyncStringSet(streamAutoPlaySelectedAddonsKey)?.let(::saveStreamAutoPlaySelectedAddons)

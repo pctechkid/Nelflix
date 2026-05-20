@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -224,28 +225,29 @@ private fun NuvioShelfSectionHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
     ) {
-        Column(
+        Row(
             modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (showAccent) {
+                Box(
+                    modifier = Modifier
+                        .width(5.dp)
+                        .height(30.dp)
+                        .background(
+                            color = NetflixAccentRed,
+                            shape = RoundedCornerShape(1.dp),
+                        ),
+                )
+            }
             Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
+                text = title.uppercase(),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (showAccent) {
-                Box(
-                    modifier = Modifier
-                        .padding(top = 6.dp)
-                        .width(60.dp)
-                        .height(4.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(999.dp),
-                    ),
-                )
-            }
         }
         if (onViewAllClick != null) {
             NuvioViewAllPill(
@@ -255,6 +257,8 @@ private fun NuvioShelfSectionHeader(
         }
     }
 }
+
+private val NetflixAccentRed = androidx.compose.ui.graphics.Color(0xFFE50914)
 
 @Composable
 private fun NuvioViewAllPill(

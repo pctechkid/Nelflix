@@ -32,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
@@ -72,7 +71,6 @@ import kotlin.math.max
 
 internal enum class GestureFeedbackIcon {
     Speed,
-    Brightness,
     Volume,
     VolumeMuted,
     SeekForward,
@@ -224,7 +222,6 @@ internal fun GestureFeedbackPill(
     }
     val icon = when (feedback.icon) {
         GestureFeedbackIcon.Speed -> Icons.Rounded.Speed
-        GestureFeedbackIcon.Brightness -> Icons.Rounded.Brightness6
         GestureFeedbackIcon.Volume -> Icons.AutoMirrored.Rounded.VolumeUp
         GestureFeedbackIcon.VolumeMuted -> Icons.AutoMirrored.Rounded.VolumeOff
         GestureFeedbackIcon.SeekForward -> Icons.Rounded.FastForward
@@ -284,7 +281,6 @@ internal fun PauseMetadataOverlay(
     episodeNumber: Int?,
     episodeTitle: String?,
     pauseDescription: String?,
-    providerName: String,
     metrics: PlayerLayoutMetrics,
     horizontalSafePadding: Dp,
     modifier: Modifier = Modifier,
@@ -362,23 +358,22 @@ internal fun PauseMetadataOverlay(
                 )
             }
 
-            val episodeInfo = if (isEpisode && seasonNumber != null && episodeNumber != null) {
-                stringResource(Res.string.compose_player_episode_code_full, seasonNumber, episodeNumber)
-            } else {
-                providerName
+            if (isEpisode && seasonNumber != null && episodeNumber != null) {
+                Text(
+                    text = stringResource(Res.string.compose_player_episode_code_full, seasonNumber, episodeNumber),
+                    style = MaterialTheme.nuvioTypeScale.bodyLg,
+                    color = Color(0xFFCCCCCC),
+                    modifier = Modifier.padding(top = if (compactHeight) 6.dp else 8.dp),
+                )
             }
-
-            Text(
-                text = episodeInfo,
-                style = MaterialTheme.nuvioTypeScale.bodyLg,
-                color = Color(0xFFCCCCCC),
-                modifier = Modifier.padding(top = if (compactHeight) 6.dp else 8.dp),
-            )
 
             if (!episodeTitle.isNullOrBlank()) {
                 Text(
-                    text = episodeTitle,
-                    style = MaterialTheme.nuvioTypeScale.titleLg,
+                    text = episodeTitle.uppercase(),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 22.sp,
+                    ),
                     color = Color.White,
                     maxLines = if (compactHeight) 1 else 2,
                     overflow = TextOverflow.Ellipsis,

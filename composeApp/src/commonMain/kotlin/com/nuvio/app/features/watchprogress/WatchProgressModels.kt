@@ -177,11 +177,12 @@ data class ContinueWatchingPreferencesUiState(
     val style: ContinueWatchingSectionStyle = ContinueWatchingSectionStyle.Wide,
     val upNextFromFurthestEpisode: Boolean = true,
     val useEpisodeThumbnails: Boolean = true,
-    val showUnairedNextUp: Boolean = true,
+    val useClearlogo: Boolean = true,
+    val showUnairedNextUp: Boolean = false,
     val blurNextUp: Boolean = false,
     val dismissedNextUpKeys: Set<String> = emptySet(),
     val showResumePromptOnLaunch: Boolean = true,
-    val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
+    val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.STREAMING_STYLE,
 )
 
 internal fun nextUpDismissKey(

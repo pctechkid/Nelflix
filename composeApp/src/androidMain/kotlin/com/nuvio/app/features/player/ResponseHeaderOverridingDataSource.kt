@@ -1,10 +1,12 @@
 package com.nuvio.app.features.player
 
 import android.net.Uri
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 
+@UnstableApi
 internal class ResponseHeaderOverridingDataSourceFactory(
     private val upstreamFactory: DataSource.Factory,
     private val defaultResponseHeaders: Map<String, String>,
@@ -16,6 +18,7 @@ internal class ResponseHeaderOverridingDataSourceFactory(
         )
 }
 
+@UnstableApi
 private class ResponseHeaderOverridingDataSource(
     private val upstream: DataSource,
     private val defaultResponseHeaders: Map<String, String>,

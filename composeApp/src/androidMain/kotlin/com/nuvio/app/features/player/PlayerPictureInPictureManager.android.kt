@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.annotation.RequiresApi
 import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.Lifecycle
 
@@ -93,6 +94,7 @@ internal object PlayerPictureInPictureManager {
         return activity.enterPictureInPictureMode(buildParams())
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun buildParams(): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder()
         buildAspectRatio(sessionState.playerSize)?.let(builder::setAspectRatio)

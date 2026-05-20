@@ -8,23 +8,34 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+private const val DefaultPreferredSubtitleLanguage = "en"
+private const val DefaultStreamReuseLastLinkEnabled = true
+private const val DefaultStreamReuseLastLinkCacheHours = 168
+
 data class PlayerSettingsUiState(
     val showLoadingOverlay: Boolean = true,
     val resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
     val holdToSpeedEnabled: Boolean = true,
     val holdToSpeedValue: Float = 2f,
+    val useClearlogoInPlayer: Boolean = false,
     val externalPlayerEnabled: Boolean = false,
     val externalPlayerId: String? = ExternalPlayerPlatform.defaultPlayerId(),
-    val preferredAudioLanguage: String = AudioLanguageOption.DEVICE,
+    val preferredAudioLanguage: String = AudioLanguageOption.DEFAULT,
     val secondaryPreferredAudioLanguage: String? = null,
-    val preferredSubtitleLanguage: String = SubtitleLanguageOption.NONE,
+    val preferredSubtitleLanguage: String = DefaultPreferredSubtitleLanguage,
     val secondaryPreferredSubtitleLanguage: String? = null,
     val subtitleStyle: SubtitleStyleState = SubtitleStyleState.DEFAULT,
-    val streamReuseLastLinkEnabled: Boolean = false,
-    val streamReuseLastLinkCacheHours: Int = 24,
+    val streamReuseLastLinkEnabled: Boolean = DefaultStreamReuseLastLinkEnabled,
+    val streamReuseLastLinkCacheHours: Int = DefaultStreamReuseLastLinkCacheHours,
     val decoderPriority: Int = 1,
     val mapDV7ToHevc: Boolean = false,
     val tunnelingEnabled: Boolean = false,
+    val mpvHardwareDecodingEnabled: Boolean = true,
+    val mpvFontsDirectoryUri: String? = null,
+    val mpvConfigDirectoryUri: String? = null,
+    val mpvConf: String = "",
+    val mpvInputConf: String = "",
+    val mpvDemuxerMaxBytesMiB: Int = DefaultMpvDemuxerMaxBytesMiB,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
@@ -54,18 +65,25 @@ object PlayerSettingsRepository {
     private var resizeMode = PlayerResizeMode.Fit
     private var holdToSpeedEnabled = true
     private var holdToSpeedValue = 2f
+    private var useClearlogoInPlayer = false
     private var externalPlayerEnabled = false
     private var externalPlayerId: String? = ExternalPlayerPlatform.defaultPlayerId()
-    private var preferredAudioLanguage = AudioLanguageOption.DEVICE
+    private var preferredAudioLanguage = AudioLanguageOption.DEFAULT
     private var secondaryPreferredAudioLanguage: String? = null
-    private var preferredSubtitleLanguage = SubtitleLanguageOption.NONE
+    private var preferredSubtitleLanguage = DefaultPreferredSubtitleLanguage
     private var secondaryPreferredSubtitleLanguage: String? = null
     private var subtitleStyle = SubtitleStyleState.DEFAULT
-    private var streamReuseLastLinkEnabled = false
-    private var streamReuseLastLinkCacheHours = 24
+    private var streamReuseLastLinkEnabled = DefaultStreamReuseLastLinkEnabled
+    private var streamReuseLastLinkCacheHours = DefaultStreamReuseLastLinkCacheHours
     private var decoderPriority = 1
     private var mapDV7ToHevc = false
     private var tunnelingEnabled = false
+    private var mpvHardwareDecodingEnabled = true
+    private var mpvFontsDirectoryUri: String? = null
+    private var mpvConfigDirectoryUri: String? = null
+    private var mpvConf = DefaultMpvConf
+    private var mpvInputConf = ""
+    private var mpvDemuxerMaxBytesMiB = DefaultMpvDemuxerMaxBytesMiB
     private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
     private var streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
     private var streamAutoPlaySelectedAddons: Set<String> = emptySet()
@@ -100,18 +118,25 @@ object PlayerSettingsRepository {
         resizeMode = PlayerResizeMode.Fit
         holdToSpeedEnabled = true
         holdToSpeedValue = 2f
+        useClearlogoInPlayer = false
         externalPlayerEnabled = false
         externalPlayerId = ExternalPlayerPlatform.defaultPlayerId()
-        preferredAudioLanguage = AudioLanguageOption.DEVICE
+        preferredAudioLanguage = AudioLanguageOption.DEFAULT
         secondaryPreferredAudioLanguage = null
-        preferredSubtitleLanguage = SubtitleLanguageOption.NONE
+        preferredSubtitleLanguage = DefaultPreferredSubtitleLanguage
         secondaryPreferredSubtitleLanguage = null
         subtitleStyle = SubtitleStyleState.DEFAULT
-        streamReuseLastLinkEnabled = false
-        streamReuseLastLinkCacheHours = 24
+        streamReuseLastLinkEnabled = DefaultStreamReuseLastLinkEnabled
+        streamReuseLastLinkCacheHours = DefaultStreamReuseLastLinkCacheHours
         decoderPriority = 1
         mapDV7ToHevc = false
         tunnelingEnabled = false
+        mpvHardwareDecodingEnabled = true
+        mpvFontsDirectoryUri = null
+        mpvConfigDirectoryUri = null
+        mpvConf = DefaultMpvConf
+        mpvInputConf = ""
+        mpvDemuxerMaxBytesMiB = DefaultMpvDemuxerMaxBytesMiB
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
         streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
         streamAutoPlaySelectedAddons = emptySet()
@@ -141,17 +166,18 @@ object PlayerSettingsRepository {
             ?: PlayerResizeMode.Fit
         holdToSpeedEnabled = PlayerSettingsStorage.loadHoldToSpeedEnabled() ?: true
         holdToSpeedValue = PlayerSettingsStorage.loadHoldToSpeedValue() ?: 2f
+        useClearlogoInPlayer = PlayerSettingsStorage.loadUseClearlogoInPlayer() ?: false
         externalPlayerEnabled = PlayerSettingsStorage.loadExternalPlayerEnabled() ?: false
         externalPlayerId = PlayerSettingsStorage.loadExternalPlayerId()
             ?: ExternalPlayerPlatform.defaultPlayerId()
         preferredAudioLanguage =
             normalizeLanguageCode(PlayerSettingsStorage.loadPreferredAudioLanguage())
-                ?: AudioLanguageOption.DEVICE
+                ?: AudioLanguageOption.DEFAULT
         secondaryPreferredAudioLanguage =
             normalizeLanguageCode(PlayerSettingsStorage.loadSecondaryPreferredAudioLanguage())
         preferredSubtitleLanguage =
             normalizeLanguageCode(PlayerSettingsStorage.loadPreferredSubtitleLanguage())
-                ?: SubtitleLanguageOption.NONE
+                ?: DefaultPreferredSubtitleLanguage
         secondaryPreferredSubtitleLanguage =
             normalizeLanguageCode(PlayerSettingsStorage.loadSecondaryPreferredSubtitleLanguage())
         subtitleStyle = SubtitleStyleState(
@@ -164,11 +190,21 @@ object PlayerSettingsRepository {
             bottomOffset = PlayerSettingsStorage.loadSubtitleBottomOffset()
                 ?: SubtitleStyleState.DEFAULT.bottomOffset,
         )
-        streamReuseLastLinkEnabled = PlayerSettingsStorage.loadStreamReuseLastLinkEnabled() ?: false
-        streamReuseLastLinkCacheHours = PlayerSettingsStorage.loadStreamReuseLastLinkCacheHours() ?: 24
+        streamReuseLastLinkEnabled = DefaultStreamReuseLastLinkEnabled
+        streamReuseLastLinkCacheHours = DefaultStreamReuseLastLinkCacheHours
+        PlayerSettingsStorage.saveStreamReuseLastLinkEnabled(DefaultStreamReuseLastLinkEnabled)
+        PlayerSettingsStorage.saveStreamReuseLastLinkCacheHours(DefaultStreamReuseLastLinkCacheHours)
         decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
         mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
         tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
+        mpvHardwareDecodingEnabled = PlayerSettingsStorage.loadMpvHardwareDecodingEnabled() ?: true
+        mpvFontsDirectoryUri = PlayerSettingsStorage.loadMpvFontsDirectoryUri()
+        mpvConfigDirectoryUri = PlayerSettingsStorage.loadMpvConfigDirectoryUri()
+        mpvConf = PlayerSettingsStorage.loadMpvConf() ?: DefaultMpvConf
+        mpvInputConf = PlayerSettingsStorage.loadMpvInputConf() ?: ""
+        mpvDemuxerMaxBytesMiB = PlayerSettingsStorage.loadMpvDemuxerMaxBytesMiB()
+            ?.coerceIn(128, 4096)
+            ?: DefaultMpvDemuxerMaxBytesMiB
         streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
             ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
             ?: StreamAutoPlayMode.MANUAL
@@ -233,11 +269,19 @@ object PlayerSettingsRepository {
 
     fun setHoldToSpeedValue(speed: Float) {
         ensureLoaded()
-        val normalized = speed.coerceIn(1f, 4f)
+        val normalized = speed.coerceIn(1f, 10f)
         if (holdToSpeedValue == normalized) return
         holdToSpeedValue = normalized
         publish()
         PlayerSettingsStorage.saveHoldToSpeedValue(normalized)
+    }
+
+    fun setUseClearlogoInPlayer(enabled: Boolean) {
+        ensureLoaded()
+        if (useClearlogoInPlayer == enabled) return
+        useClearlogoInPlayer = enabled
+        publish()
+        PlayerSettingsStorage.saveUseClearlogoInPlayer(enabled)
     }
 
     fun setExternalPlayerEnabled(enabled: Boolean) {
@@ -314,18 +358,18 @@ object PlayerSettingsRepository {
 
     fun setStreamReuseLastLinkEnabled(enabled: Boolean) {
         ensureLoaded()
-        if (streamReuseLastLinkEnabled == enabled) return
-        streamReuseLastLinkEnabled = enabled
+        if (streamReuseLastLinkEnabled == DefaultStreamReuseLastLinkEnabled) return
+        streamReuseLastLinkEnabled = DefaultStreamReuseLastLinkEnabled
         publish()
-        PlayerSettingsStorage.saveStreamReuseLastLinkEnabled(enabled)
+        PlayerSettingsStorage.saveStreamReuseLastLinkEnabled(DefaultStreamReuseLastLinkEnabled)
     }
 
     fun setStreamReuseLastLinkCacheHours(hours: Int) {
         ensureLoaded()
-        if (streamReuseLastLinkCacheHours == hours) return
-        streamReuseLastLinkCacheHours = hours
+        if (streamReuseLastLinkCacheHours == DefaultStreamReuseLastLinkCacheHours) return
+        streamReuseLastLinkCacheHours = DefaultStreamReuseLastLinkCacheHours
         publish()
-        PlayerSettingsStorage.saveStreamReuseLastLinkCacheHours(hours)
+        PlayerSettingsStorage.saveStreamReuseLastLinkCacheHours(DefaultStreamReuseLastLinkCacheHours)
     }
 
     fun setDecoderPriority(priority: Int) {
@@ -350,6 +394,57 @@ object PlayerSettingsRepository {
         tunnelingEnabled = enabled
         publish()
         PlayerSettingsStorage.saveTunnelingEnabled(enabled)
+    }
+
+    fun setMpvHardwareDecodingEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (mpvHardwareDecodingEnabled == enabled) return
+        mpvHardwareDecodingEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveMpvHardwareDecodingEnabled(enabled)
+    }
+
+    fun setMpvFontsDirectoryUri(uri: String?) {
+        ensureLoaded()
+        val normalized = uri?.takeIf { it.isNotBlank() }
+        if (mpvFontsDirectoryUri == normalized) return
+        mpvFontsDirectoryUri = normalized
+        publish()
+        PlayerSettingsStorage.saveMpvFontsDirectoryUri(normalized)
+    }
+
+    fun setMpvConfigDirectoryUri(uri: String?) {
+        ensureLoaded()
+        val normalized = uri?.takeIf { it.isNotBlank() }
+        if (mpvConfigDirectoryUri == normalized) return
+        mpvConfigDirectoryUri = normalized
+        publish()
+        PlayerSettingsStorage.saveMpvConfigDirectoryUri(normalized)
+    }
+
+    fun setMpvConf(value: String) {
+        ensureLoaded()
+        if (mpvConf == value) return
+        mpvConf = value
+        publish()
+        PlayerSettingsStorage.saveMpvConf(value)
+    }
+
+    fun setMpvInputConf(value: String) {
+        ensureLoaded()
+        if (mpvInputConf == value) return
+        mpvInputConf = value
+        publish()
+        PlayerSettingsStorage.saveMpvInputConf(value)
+    }
+
+    fun setMpvDemuxerMaxBytesMiB(value: Int) {
+        ensureLoaded()
+        val normalized = value.coerceIn(128, 4096)
+        if (mpvDemuxerMaxBytesMiB == normalized) return
+        mpvDemuxerMaxBytesMiB = normalized
+        publish()
+        PlayerSettingsStorage.saveMpvDemuxerMaxBytesMiB(normalized)
     }
 
     fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {
@@ -504,6 +599,7 @@ object PlayerSettingsRepository {
             resizeMode = resizeMode,
             holdToSpeedEnabled = holdToSpeedEnabled,
             holdToSpeedValue = holdToSpeedValue,
+            useClearlogoInPlayer = useClearlogoInPlayer,
             externalPlayerEnabled = externalPlayerEnabled,
             externalPlayerId = externalPlayerId,
             preferredAudioLanguage = preferredAudioLanguage,
@@ -516,6 +612,12 @@ object PlayerSettingsRepository {
             decoderPriority = decoderPriority,
             mapDV7ToHevc = mapDV7ToHevc,
             tunnelingEnabled = tunnelingEnabled,
+            mpvHardwareDecodingEnabled = mpvHardwareDecodingEnabled,
+            mpvFontsDirectoryUri = mpvFontsDirectoryUri,
+            mpvConfigDirectoryUri = mpvConfigDirectoryUri,
+            mpvConf = mpvConf,
+            mpvInputConf = mpvInputConf,
+            mpvDemuxerMaxBytesMiB = mpvDemuxerMaxBytesMiB,
             streamAutoPlayMode = streamAutoPlayMode,
             streamAutoPlaySource = streamAutoPlaySource,
             streamAutoPlaySelectedAddons = streamAutoPlaySelectedAddons,
@@ -545,3 +647,35 @@ object PlayerSettingsRepository {
         }
     }
 }
+
+const val DefaultMpvDemuxerMaxBytesMiB = 1024
+
+const val DefaultMpvConf = """vo=gpu-next
+save-position-on-quit
+volume=100
+volume-max=100
+alang=jpn,jp,jap,Japanese,eng,en,enUS,en-US,English
+audio-file-auto=fuzzy
+sub-ass-override=force
+sub-visibility=yes
+sub-font="Helvetica"
+sub-font-size=35
+sub-border-style=opaque-box
+sub-line-spacing=12.5
+sub-ass-line-spacing=12.5
+sub-shadow-offset=1
+sub-back-color="#82000000"
+sub-color="#ffffff"
+sub-border-size=0
+sub-pos=93
+sub-ass-force-style=FontName=Helvetica
+slang=eng,en,enUS,en-US,English
+demuxer-max-bytes=2000MiB
+cache=yes
+blend-subtitles=yes
+osd-font-size=18
+sub-auto=fuzzy
+sub-ass-force-style=Bold=0,Italic=0
+sub-bold=no
+sub-italic=no
+"""

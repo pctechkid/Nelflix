@@ -11,6 +11,8 @@ internal expect object PlayerSettingsStorage {
     fun saveHoldToSpeedEnabled(enabled: Boolean)
     fun loadHoldToSpeedValue(): Float?
     fun saveHoldToSpeedValue(speed: Float)
+    fun loadUseClearlogoInPlayer(): Boolean?
+    fun saveUseClearlogoInPlayer(enabled: Boolean)
     fun loadExternalPlayerEnabled(): Boolean?
     fun saveExternalPlayerEnabled(enabled: Boolean)
     fun loadExternalPlayerId(): String?
@@ -41,6 +43,18 @@ internal expect object PlayerSettingsStorage {
     fun saveMapDV7ToHevc(enabled: Boolean)
     fun loadTunnelingEnabled(): Boolean?
     fun saveTunnelingEnabled(enabled: Boolean)
+    fun loadMpvHardwareDecodingEnabled(): Boolean?
+    fun saveMpvHardwareDecodingEnabled(enabled: Boolean)
+    fun loadMpvFontsDirectoryUri(): String?
+    fun saveMpvFontsDirectoryUri(uri: String?)
+    fun loadMpvConfigDirectoryUri(): String?
+    fun saveMpvConfigDirectoryUri(uri: String?)
+    fun loadMpvConf(): String?
+    fun saveMpvConf(value: String)
+    fun loadMpvInputConf(): String?
+    fun saveMpvInputConf(value: String)
+    fun loadMpvDemuxerMaxBytesMiB(): Int?
+    fun saveMpvDemuxerMaxBytesMiB(value: Int)
     fun loadStreamAutoPlayMode(): String?
     fun saveStreamAutoPlayMode(mode: String)
     fun loadStreamAutoPlaySource(): String?

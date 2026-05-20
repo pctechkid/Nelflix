@@ -116,6 +116,10 @@ private fun LazyListScope.downloadsRootContent(
         }
         .sortedBy { (item, _) -> item.title.lowercase() }
 
+    item {
+        PlatformDownloadFolderRow()
+    }
+
     if (activeItems.isNotEmpty()) {
         item {
             SectionTitle(stringResource(Res.string.downloads_section_active))
