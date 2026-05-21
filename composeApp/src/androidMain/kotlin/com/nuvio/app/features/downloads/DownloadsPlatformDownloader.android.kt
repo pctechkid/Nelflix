@@ -291,23 +291,27 @@ private class SafDownloadTarget(
     private val fileName: String,
 ) : AndroidDownloadTarget {
     private val partialName = "$fileName.part"
+    private var activePartial: DocumentFile? = null
 
-    override fun partialSize(): Long = tree.findFile(partialName)?.length()?.coerceAtLeast(0L) ?: 0L
+    override fun partialSize(): Long =
+        (activePartial ?: tree.findFile(partialName))?.length()?.coerceAtLeast(0L) ?: 0L
 
     override fun openPartialOutputStream(append: Boolean): java.io.OutputStream {
-        val partial = tree.findFile(partialName) ?: tree.createFile("application/octet-stream", partialName)
+        val partial = activePartial ?: tree.findFile(partialName) ?: tree.createFile("application/octet-stream", partialName)
             ?: error("Unable to create partial download file")
+        activePartial = partial
         return context.contentResolver.openOutputStream(partial.uri, if (append) "wa" else "wt")
             ?: error("Unable to open partial download file")
     }
 
     override fun deletePartial() {
-        tree.findFile(partialName)?.delete()
+        (activePartial ?: tree.findFile(partialName))?.delete()
+        activePartial = null
     }
 
     override fun commitPartial(): String {
         tree.findFile(fileName)?.delete()
-        val partial = tree.findFile(partialName) ?: error("Partial download file is missing")
+        val partial = activePartial ?: tree.findFile(partialName) ?: error("Partial download file is missing")
         if (!partial.renameTo(fileName)) {
             val finalFile = tree.createFile("application/octet-stream", fileName)
                 ?: error("Unable to create completed download file")
@@ -316,8 +320,10 @@ private class SafDownloadTarget(
                     ?: error("Unable to write completed download file")
             }
             partial.delete()
+            activePartial = null
             return finalFile.uri.toString()
         }
+        activePartial = null
         return tree.findFile(fileName)?.uri?.toString() ?: partial.uri.toString()
     }
 
@@ -332,28 +338,32 @@ private class MediaStoreDownloadTarget(
 ) : AndroidDownloadTarget {
     private val partialName = "$fileName.part"
     private val collection: Uri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+    private var activePartialUri: Uri? = null
 
     override fun partialSize(): Long =
-        findByName(partialName)?.let(::sizeOf).takeIf { it != null && it >= 0L } ?: 0L
+        (activePartialUri ?: findByName(partialName))?.let(::sizeOf).takeIf { it != null && it >= 0L } ?: 0L
 
     override fun openPartialOutputStream(append: Boolean): java.io.OutputStream {
-        val partialUri = findByName(partialName) ?: createItem(partialName, pending = true)
+        val partialUri = activePartialUri ?: findByName(partialName) ?: createItem(partialName, pending = false)
+        activePartialUri = partialUri
         return context.contentResolver.openOutputStream(partialUri, if (append) "wa" else "wt")
             ?: error("Unable to open partial download file")
     }
 
     override fun deletePartial() {
-        findByName(partialName)?.let { context.contentResolver.delete(it, null, null) }
+        (activePartialUri ?: findByName(partialName))?.let { context.contentResolver.delete(it, null, null) }
+        activePartialUri = null
     }
 
     override fun commitPartial(): String {
         findByName(fileName)?.let { context.contentResolver.delete(it, null, null) }
-        val partialUri = findByName(partialName) ?: error("Partial download file is missing")
+        val partialUri = activePartialUri ?: findByName(partialName) ?: error("Partial download file is missing")
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
             put(MediaStore.MediaColumns.IS_PENDING, 0)
         }
         context.contentResolver.update(partialUri, values, null, null)
+        activePartialUri = null
         return findByName(fileName)?.toString() ?: partialUri.toString()
     }
 

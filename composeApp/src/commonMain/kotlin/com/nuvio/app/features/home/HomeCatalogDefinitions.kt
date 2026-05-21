@@ -2,6 +2,7 @@ package com.nuvio.app.features.home
 
 import com.nuvio.app.core.i18n.localizedMediaTypeLabel
 import com.nuvio.app.features.addons.ManagedAddon
+import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.catalog.supportsPagination
 
 data class HomeCatalogDefinition(
@@ -12,6 +13,7 @@ data class HomeCatalogDefinition(
     val manifestUrl: String,
     val type: String,
     val catalogId: String,
+    val sourceUrl: String,
     val supportsPagination: Boolean,
 )
 
@@ -31,6 +33,12 @@ fun buildHomeCatalogDefinitions(addons: List<ManagedAddon>): List<HomeCatalogDef
                     manifestUrl = addon.manifestUrl,
                     type = catalog.type,
                     catalogId = catalog.id,
+                    sourceUrl = buildAddonResourceUrl(
+                        manifestUrl = addon.manifestUrl,
+                        resource = "catalog",
+                        type = catalog.type,
+                        id = catalog.id,
+                    ),
                     supportsPagination = catalog.supportsPagination(),
                 )
             }

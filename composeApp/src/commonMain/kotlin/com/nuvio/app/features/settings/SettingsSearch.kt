@@ -393,8 +393,6 @@ internal fun settingsSearchEntries(
 
     val playbackPlayer = stringResource(Res.string.settings_playback_section_player)
     val playbackSubtitleAudio = stringResource(Res.string.settings_playback_section_subtitle_audio)
-    val playbackStreamSelection = stringResource(Res.string.settings_playback_section_stream_selection)
-    val playbackStreamAutoPlay = stringResource(Res.string.settings_playback_section_stream_auto_play)
     val playbackDecoder = stringResource(Res.string.settings_playback_section_decoder)
     val playbackSkipSegments = stringResource(Res.string.settings_playback_section_skip_segments)
     val playbackNextEpisode = stringResource(Res.string.settings_playback_section_next_episode)
@@ -437,34 +435,6 @@ internal fun settingsSearchEntries(
             PlaybackSearchRow("preferred-subtitles", stringResource(Res.string.settings_playback_preferred_subtitle_language)),
             PlaybackSearchRow("secondary-subtitles", stringResource(Res.string.settings_playback_secondary_subtitle_language)),
         ),
-    )
-    addPlaybackRows(
-        addRow = ::addRow,
-        pageLabel = playbackPage,
-        section = playbackStreamSelection,
-        icon = Icons.Rounded.PlayArrow,
-        rows = listOf(
-            PlaybackSearchRow(
-                "reuse-last-link",
-                stringResource(Res.string.settings_playback_reuse_last_link),
-                stringResource(Res.string.settings_playback_reuse_last_link_description),
-            ),
-            PlaybackSearchRow("last-link-cache", stringResource(Res.string.settings_playback_last_link_cache_duration)),
-        ),
-    )
-    addPlaybackRows(
-        addRow = ::addRow,
-        pageLabel = playbackPage,
-        section = playbackStreamAutoPlay,
-        icon = Icons.Rounded.PlayArrow,
-        rows = buildList {
-            add(PlaybackSearchRow("stream-mode", stringResource(Res.string.settings_playback_stream_selection_mode)))
-            add(PlaybackSearchRow("regex-pattern", stringResource(Res.string.settings_playback_regex_pattern)))
-            add(PlaybackSearchRow("stream-timeout", stringResource(Res.string.settings_playback_stream_timeout), stringResource(Res.string.settings_playback_stream_timeout_description)))
-            add(PlaybackSearchRow("source-scope", stringResource(Res.string.settings_playback_source_scope)))
-            add(PlaybackSearchRow("allowed-addons", stringResource(Res.string.settings_playback_allowed_addons)))
-            if (pluginsEnabled) add(PlaybackSearchRow("allowed-plugins", stringResource(Res.string.settings_playback_allowed_plugins)))
-        },
     )
     if (!isIos) {
         addPlaybackRows(
@@ -564,7 +534,6 @@ internal fun settingsSearchEntries(
         PlaybackSearchRow("home-hero", stringResource(Res.string.settings_homescreen_show_hero), stringResource(Res.string.settings_homescreen_show_hero_description)),
         PlaybackSearchRow("home-hide-unreleased", stringResource(Res.string.layout_hide_unreleased), stringResource(Res.string.layout_hide_unreleased_sub)),
         PlaybackSearchRow("home-hide-catalog-underline", stringResource(Res.string.settings_homescreen_hide_catalog_underline), stringResource(Res.string.settings_homescreen_hide_catalog_underline_description)),
-        PlaybackSearchRow("home-hero-sources", stringResource(Res.string.settings_homescreen_section_hero_sources)),
         PlaybackSearchRow("home-catalogs", stringResource(Res.string.settings_homescreen_section_catalogs)),
     ).forEach { row ->
         addRow(

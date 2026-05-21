@@ -45,6 +45,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -248,6 +251,13 @@ private fun PlayerHeader(
         label = "playerHeaderMetadataAlpha",
     )
     Column(modifier = modifier) {
+        var textTitleLineCount by remember(title, logo) { mutableIntStateOf(1) }
+        val episodeLine = if (seasonNumber != null && episodeNumber != null && !episodeTitle.isNullOrBlank()) {
+            "S${seasonNumber}E${episodeNumber}: $episodeTitle"
+        } else {
+            null
+        }
+        val showEpisodeInsideTextHeader = logo.isNullOrBlank() && episodeLine != null && textTitleLineCount <= 1
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -274,23 +284,21 @@ private fun PlayerHeader(
                     } else {
                         NetflixHeaderTitle(
                             title = title,
+                            episodeLine = if (showEpisodeInsideTextHeader) episodeLine else null,
                             fontSize = metrics.episodeInfoSize * 1.08f,
+                            episodeFontSize = metrics.episodeInfoSize,
+                            onTitleLineCountChanged = { textTitleLineCount = it },
                         )
                     }
-                    if (seasonNumber != null && episodeNumber != null && !episodeTitle.isNullOrBlank()) {
+                    if (episodeLine != null && !showEpisodeInsideTextHeader) {
                         Text(
-                            text = stringResource(
-                                Res.string.compose_player_episode_title_format,
-                                seasonNumber,
-                                episodeNumber,
-                                episodeTitle,
-                            ),
+                            text = episodeLine,
                             style = typeScale.bodyMd.copy(
                                 fontSize = metrics.episodeInfoSize,
                                 lineHeight = metrics.episodeInfoSize * 1.3f,
                             ),
                             color = Color.White.copy(alpha = 0.9f),
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = if (logo.isNullOrBlank()) 11.dp else 0.dp),
                         )
@@ -348,32 +356,53 @@ private fun PlayerHeader(
 @Composable
 private fun NetflixHeaderTitle(
     title: String,
+    episodeLine: String?,
     fontSize: androidx.compose.ui.unit.TextUnit,
+    episodeFontSize: androidx.compose.ui.unit.TextUnit,
+    onTitleLineCountChanged: (Int) -> Unit,
 ) {
     Row(
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         Box(
             modifier = Modifier
                 .width(5.dp)
-                .height(38.dp)
+                .height(if (episodeLine.isNullOrBlank()) 38.dp else 64.dp)
                 .clip(RoundedCornerShape(1.dp))
                 .background(NetflixProgressRed),
         )
-        Text(
-            text = title.uppercase(),
+        Column(
             modifier = Modifier
                 .padding(start = 8.dp)
                 .widthIn(max = 320.dp),
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = fontSize,
-                lineHeight = fontSize * 1.05f,
-                fontWeight = FontWeight.Bold,
-            ),
-            color = Color.White,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title.uppercase(),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = fontSize,
+                    lineHeight = fontSize * 1.05f,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { onTitleLineCountChanged(it.lineCount) },
+            )
+            if (!episodeLine.isNullOrBlank()) {
+                Text(
+                    text = episodeLine,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = episodeFontSize,
+                        lineHeight = episodeFontSize * 1.25f,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                    color = Color.White.copy(alpha = 0.9f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 

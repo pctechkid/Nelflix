@@ -97,9 +97,13 @@ private data class StoredHomeCatalogSettingsPayload(
 object HomeCatalogSettingsRepository {
     const val HERO_SOURCE_SELECTION_LIMIT = 2
     private val STARTUP_CATALOG_STABILIZATION_DELAYS_MS = listOf(5_000L, 15_000L, 30_000L, 60_000L, 120_000L)
-    private val FORCED_STARTUP_HERO_CATALOG_TITLES = setOf(
-        "top 10 netflix philippines movies",
-        "top 10 netflix philippines series",
+    private const val FORCED_HERO_MOVIES_URL =
+        "https://aiometadata.home.kg/stremio/02253c19-8905-4cee-a5db-8c894551a50a/catalog/movie/mdblist.123095.json"
+    private const val FORCED_HERO_SERIES_URL =
+        "https://aiometadata.home.kg/stremio/02253c19-8905-4cee-a5db-8c894551a50a/catalog/series/mdblist.123093.json"
+    private val FORCED_HERO_CATALOG_URLS = setOf(
+        FORCED_HERO_MOVIES_URL,
+        FORCED_HERO_SERIES_URL,
     )
 
     private val json = Json {
@@ -155,6 +159,7 @@ object HomeCatalogSettingsRepository {
             return
         }
         normalizePreferences()
+        enforceForcedHeroCatalogs()
         enforcePinnedCollectionsAtTop()
         publish()
         persist()
@@ -165,6 +170,7 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         collectionDefinitions = buildCollectionDefinitions(collections)
         normalizePreferences()
+        enforceForcedHeroCatalogs()
         enforcePinnedCollectionsAtTop()
         publish()
         persist()
@@ -254,6 +260,7 @@ object HomeCatalogSettingsRepository {
         showCatalogTypeLabels = false
         preferences.clear()
         normalizePreferences()
+        enforceForcedHeroCatalogs()
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
@@ -274,7 +281,7 @@ object HomeCatalogSettingsRepository {
         showCatalogTypeLabels = false
         preferences.clear()
         normalizePreferences()
-        forceStartupHeroCatalogs()
+        enforceForcedHeroCatalogs()
         disableNoisyStartupCatalogs()
         publish()
         persist()
@@ -339,6 +346,7 @@ object HomeCatalogSettingsRepository {
             hideCatalogUnderline = parsedPayload.hideCatalogUnderline
             showCatalogTypeLabels = parsedPayload.showCatalogTypeLabels
             preferences = parsedPayload.items.associateBy { it.key }.toMutableMap()
+            enforceForcedHeroCatalogs()
             publish()
             return
         }
@@ -348,6 +356,7 @@ object HomeCatalogSettingsRepository {
         }.getOrDefault(emptyList())
 
         preferences = legacyItems.associateBy { it.key }.toMutableMap()
+        enforceForcedHeroCatalogs()
         publish()
     }
 
@@ -395,6 +404,7 @@ object HomeCatalogSettingsRepository {
             )
         }
         preferences = normalized
+        enforceForcedHeroCatalogs()
     }
 
     private fun disableNoisyStartupCatalogs() {
@@ -408,9 +418,9 @@ object HomeCatalogSettingsRepository {
         }
     }
 
-    private fun forceStartupHeroCatalogs() {
+    private fun enforceForcedHeroCatalogs() {
         val heroKeys = definitions
-            .filter { definition -> definition.defaultTitle.trim().lowercase() in FORCED_STARTUP_HERO_CATALOG_TITLES }
+            .filter { definition -> definition.sourceUrl.trim() in FORCED_HERO_CATALOG_URLS }
             .mapTo(linkedSetOf()) { it.key }
 
         if (heroKeys.isEmpty()) return
@@ -496,6 +506,7 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         val current = preferences[key] ?: return
         preferences[key] = transform(current)
+        enforceForcedHeroCatalogs()
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
@@ -594,6 +605,7 @@ object HomeCatalogSettingsRepository {
             }.toMutableMap()
         }
         hasLoaded = true
+        enforceForcedHeroCatalogs()
         publish()
         persist()
         HomeRepository.applyCurrentSettings()

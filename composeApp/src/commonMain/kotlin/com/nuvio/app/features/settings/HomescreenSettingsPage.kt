@@ -122,24 +122,6 @@ internal fun LazyListScope.homescreenSettingsContent(
         }
     }
     item {
-        val catalogOnlyItems = items.filter { !it.isCollection }
-        if (heroEnabled && catalogOnlyItems.isNotEmpty()) {
-            var heroSourcesExpanded by remember { mutableStateOf(false) }
-            SettingsSection(
-                title = stringResource(Res.string.settings_homescreen_section_hero_sources),
-                isTablet = isTablet,
-            ) {
-                HeroSourcesDropdown(
-                    isTablet = isTablet,
-                    items = catalogOnlyItems,
-                    selectedHeroSourceCount = selectedHeroSourceCount,
-                    expanded = heroSourcesExpanded,
-                    onExpandedChange = { heroSourcesExpanded = it },
-                )
-            }
-        }
-    }
-    item {
         if (items.isEmpty()) {
             HomeEmptyStateCard(
                 modifier = Modifier.fillMaxWidth(),

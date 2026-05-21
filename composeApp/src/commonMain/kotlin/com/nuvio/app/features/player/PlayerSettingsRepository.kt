@@ -205,9 +205,8 @@ object PlayerSettingsRepository {
         mpvDemuxerMaxBytesMiB = PlayerSettingsStorage.loadMpvDemuxerMaxBytesMiB()
             ?.coerceIn(128, 4096)
             ?: DefaultMpvDemuxerMaxBytesMiB
-        streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
-            ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
-            ?: StreamAutoPlayMode.MANUAL
+        streamAutoPlayMode = StreamAutoPlayMode.MANUAL
+        PlayerSettingsStorage.saveStreamAutoPlayMode(StreamAutoPlayMode.MANUAL.name)
         streamAutoPlaySource = PlayerSettingsStorage.loadStreamAutoPlaySource()
             ?.let { runCatching { StreamAutoPlaySource.valueOf(it) }.getOrNull() }
             ?: StreamAutoPlaySource.ALL_SOURCES
@@ -449,10 +448,10 @@ object PlayerSettingsRepository {
 
     fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {
         ensureLoaded()
-        if (streamAutoPlayMode == mode) return
-        streamAutoPlayMode = mode
+        if (streamAutoPlayMode == StreamAutoPlayMode.MANUAL) return
+        streamAutoPlayMode = StreamAutoPlayMode.MANUAL
         publish()
-        PlayerSettingsStorage.saveStreamAutoPlayMode(mode.name)
+        PlayerSettingsStorage.saveStreamAutoPlayMode(StreamAutoPlayMode.MANUAL.name)
     }
 
     fun setStreamAutoPlaySource(source: StreamAutoPlaySource) {
