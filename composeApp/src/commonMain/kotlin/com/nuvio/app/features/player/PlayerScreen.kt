@@ -1496,17 +1496,30 @@ fun PlayerScreen(
 
             val season = activeSeasonNumber
             val episode = activeEpisodeNumber
-            val vid = activeVideoId
-
-            if (season == null || episode == null || vid == null) return@LaunchedEffect
+            if (season == null || episode == null) return@LaunchedEffect
 
             launch {
-                val imdbId = vid.split(":").firstOrNull()?.takeIf { it.startsWith("tt") }
-                val intervals = SkipIntroRepository.getSkipIntervals(
-                    imdbId = imdbId,
-                    season = season,
-                    episode = episode,
-                )
+                val ids = listOfNotNull(activeVideoId, parentMetaId)
+                val imdbId = resolveParentalGuideImdbId()
+                val malId = ids.firstNotNullOfOrNull { id -> extractProviderId(id, "mal") ?: extractProviderId(id, "myanimelist") }
+                val anilistId = ids.firstNotNullOfOrNull { id -> extractProviderId(id, "anilist") }
+                val intervals = when {
+                    imdbId != null -> SkipIntroRepository.getSkipIntervals(
+                        imdbId = imdbId,
+                        season = season,
+                        episode = episode,
+                    )
+                    malId != null -> SkipIntroRepository.getSkipIntervalsForMal(
+                        malId = malId,
+                        episode = episode,
+                    )
+                    anilistId != null -> SkipIntroRepository.getSkipIntervalsForAnilist(
+                        anilistId = anilistId,
+                        episode = episode,
+                        season = season,
+                    )
+                    else -> emptyList()
+                }
                 skipIntervals = intervals
             }
         }
@@ -1929,8 +1942,8 @@ fun PlayerScreen(
                     },
                     onDismiss = { skipIntervalDismissed = true },
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = sliderEdgePadding, bottom = overlayBottomPadding),
+                        .align(Alignment.BottomEnd)
+                        .padding(end = sliderEdgePadding, bottom = overlayBottomPadding),
                 )
             }
 
@@ -2274,6 +2287,17 @@ private fun AddonSubtitle.isFullSubtitle(): Boolean {
         !text.contains("sign/song") &&
         !text.contains("signs & songs") &&
         !text.contains("signs and songs")
+}
+
+private fun extractProviderId(value: String?, provider: String): String? {
+    val normalized = value?.trim()?.takeIf(String::isNotBlank) ?: return null
+    val prefix = "$provider:"
+    if (normalized.startsWith(prefix, ignoreCase = true)) {
+        return normalized.substringAfter(':').substringBefore(':').substringBefore('/').takeIf(String::isNotBlank)
+    }
+    val tokens = normalized.split(':', '/', '|')
+    val providerIndex = tokens.indexOfFirst { it.equals(provider, ignoreCase = true) }
+    return tokens.getOrNull(providerIndex + 1)?.takeIf(String::isNotBlank)
 }
 
 private fun SubtitleTrack.accessibilitySubtitleScore(): Int =

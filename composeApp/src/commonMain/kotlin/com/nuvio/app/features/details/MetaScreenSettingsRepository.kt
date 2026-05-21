@@ -42,7 +42,7 @@ data class MetaScreenSectionItem(
 
 data class MetaScreenSettingsUiState(
     val items: List<MetaScreenSectionItem> = emptyList(),
-    val cinematicBackground: Boolean = false,
+    val cinematicBackground: Boolean = true,
     val tabLayout: Boolean = false,
     val episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal,
     val blurUnwatchedEpisodes: Boolean = false,
@@ -78,7 +78,7 @@ private data class StoredMetaScreenSectionPreference(
 @Serializable
 private data class StoredMetaScreenSettingsPayload(
     val items: List<StoredMetaScreenSectionPreference> = emptyList(),
-    val cinematicBackground: Boolean = false,
+    val cinematicBackground: Boolean = true,
     @SerialName("tvStyleLayout")
     val tabLayout: Boolean = false,
     val episodeCardStyle: String = "horizontal",
@@ -156,7 +156,7 @@ object MetaScreenSettingsRepository {
 
     private var hasLoaded = false
     private var preferences: MutableMap<MetaScreenSectionKey, StoredMetaScreenSectionPreference> = mutableMapOf()
-    private var cinematicBackground: Boolean = false
+    private var cinematicBackground: Boolean = true
     private var tabLayout: Boolean = false
     private var episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal
     private var blurUnwatchedEpisodes: Boolean = false
@@ -172,7 +172,7 @@ object MetaScreenSettingsRepository {
                 json.decodeFromString<StoredMetaScreenSettingsPayload>(payload)
             }.getOrNull()
             if (parsed != null) {
-                cinematicBackground = parsed.cinematicBackground
+                cinematicBackground = true
                 tabLayout = parsed.tabLayout
                 episodeCardStyle = MetaEpisodeCardStyle.parse(parsed.episodeCardStyle)
                     ?: MetaEpisodeCardStyle.Horizontal
@@ -185,6 +185,7 @@ object MetaScreenSettingsRepository {
         }
 
         normalizePreferences()
+        forceNelflixDefaults()
         publish()
         persist()
     }
@@ -192,7 +193,7 @@ object MetaScreenSettingsRepository {
     fun onProfileChanged() {
         hasLoaded = false
         preferences.clear()
-        cinematicBackground = false
+        cinematicBackground = true
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
         blurUnwatchedEpisodes = false
@@ -202,7 +203,7 @@ object MetaScreenSettingsRepository {
 
     fun setCinematicBackground(enabled: Boolean) {
         ensureLoaded()
-        cinematicBackground = enabled
+        cinematicBackground = true
         publish()
         persist()
     }
@@ -244,7 +245,7 @@ object MetaScreenSettingsRepository {
     fun clearLocalState() {
         hasLoaded = false
         preferences.clear()
-        cinematicBackground = false
+        cinematicBackground = true
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
         blurUnwatchedEpisodes = false
@@ -259,7 +260,7 @@ object MetaScreenSettingsRepository {
         blurUnwatchedEpisodes: Boolean = false,
     ) {
         ensureLoaded()
-        this.cinematicBackground = cinematicBackground
+        this.cinematicBackground = true
         this.tabLayout = tabLayout
         this.episodeCardStyle = episodeCardStyle
         this.blurUnwatchedEpisodes = blurUnwatchedEpisodes
@@ -272,24 +273,24 @@ object MetaScreenSettingsRepository {
             )
         }.toMutableMap()
         normalizePreferences()
+        forceNelflixDefaults()
         publish()
         persist()
     }
 
     fun setEnabled(key: MetaScreenSectionKey, enabled: Boolean) {
-        updatePreference(key) { preference ->
-            preference.copy(enabled = enabled)
-        }
+        updatePreference(key) { preference -> preference.copy(enabled = true) }
     }
 
     fun resetToDefaults() {
         ensureLoaded()
         preferences.clear()
-        cinematicBackground = false
+        cinematicBackground = true
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
         blurUnwatchedEpisodes = false
         normalizePreferences()
+        forceNelflixDefaults()
         publish()
         persist()
     }
@@ -335,6 +336,13 @@ object MetaScreenSettingsRepository {
                 )
             }
         preferences = normalized
+    }
+
+    private fun forceNelflixDefaults() {
+        cinematicBackground = true
+        preferences = preferences.mapValues { (_, preference) ->
+            preference.copy(enabled = true)
+        }.toMutableMap()
     }
 
     private fun publish() {

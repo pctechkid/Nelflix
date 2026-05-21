@@ -11,12 +11,14 @@ import kotlinx.coroutines.flow.asStateFlow
 private const val DefaultPreferredSubtitleLanguage = "en"
 private const val DefaultStreamReuseLastLinkEnabled = true
 private const val DefaultStreamReuseLastLinkCacheHours = 168
+private const val DefaultNelflixHoldSpeed = 10f
+private const val DefaultNelflixAnimeSkipClientId = "co7yoH241AnjAG70LIkkXPzDbJlMQUPJ"
 
 data class PlayerSettingsUiState(
     val showLoadingOverlay: Boolean = true,
     val resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
     val holdToSpeedEnabled: Boolean = true,
-    val holdToSpeedValue: Float = 2f,
+    val holdToSpeedValue: Float = DefaultNelflixHoldSpeed,
     val useClearlogoInPlayer: Boolean = false,
     val externalPlayerEnabled: Boolean = false,
     val externalPlayerId: String? = ExternalPlayerPlatform.defaultPlayerId(),
@@ -43,8 +45,8 @@ data class PlayerSettingsUiState(
     val streamAutoPlayRegex: String = "",
     val streamAutoPlayTimeoutSeconds: Int = 3,
     val skipIntroEnabled: Boolean = true,
-    val animeSkipEnabled: Boolean = false,
-    val animeSkipClientId: String = "",
+    val animeSkipEnabled: Boolean = true,
+    val animeSkipClientId: String = DefaultNelflixAnimeSkipClientId,
     val introDbApiKey: String = "",
     val introSubmitEnabled: Boolean = false,
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
@@ -64,7 +66,7 @@ object PlayerSettingsRepository {
     private var showLoadingOverlay = true
     private var resizeMode = PlayerResizeMode.Fit
     private var holdToSpeedEnabled = true
-    private var holdToSpeedValue = 2f
+    private var holdToSpeedValue = DefaultNelflixHoldSpeed
     private var useClearlogoInPlayer = false
     private var externalPlayerEnabled = false
     private var externalPlayerId: String? = ExternalPlayerPlatform.defaultPlayerId()
@@ -91,8 +93,8 @@ object PlayerSettingsRepository {
     private var streamAutoPlayRegex = ""
     private var streamAutoPlayTimeoutSeconds = 3
     private var skipIntroEnabled = true
-    private var animeSkipEnabled = false
-    private var animeSkipClientId = ""
+    private var animeSkipEnabled = true
+    private var animeSkipClientId = DefaultNelflixAnimeSkipClientId
     private var introDbApiKey = ""
     private var introSubmitEnabled = false
     private var streamAutoPlayNextEpisodeEnabled = false
@@ -117,7 +119,7 @@ object PlayerSettingsRepository {
         showLoadingOverlay = true
         resizeMode = PlayerResizeMode.Fit
         holdToSpeedEnabled = true
-        holdToSpeedValue = 2f
+        holdToSpeedValue = DefaultNelflixHoldSpeed
         useClearlogoInPlayer = false
         externalPlayerEnabled = false
         externalPlayerId = ExternalPlayerPlatform.defaultPlayerId()
@@ -144,8 +146,8 @@ object PlayerSettingsRepository {
         streamAutoPlayRegex = ""
         streamAutoPlayTimeoutSeconds = 3
         skipIntroEnabled = true
-        animeSkipEnabled = false
-        animeSkipClientId = ""
+        animeSkipEnabled = true
+        animeSkipClientId = DefaultNelflixAnimeSkipClientId
         introDbApiKey = ""
         introSubmitEnabled = false
         streamAutoPlayNextEpisodeEnabled = false
@@ -165,7 +167,8 @@ object PlayerSettingsRepository {
             ?.let { runCatching { PlayerResizeMode.valueOf(it) }.getOrNull() }
             ?: PlayerResizeMode.Fit
         holdToSpeedEnabled = PlayerSettingsStorage.loadHoldToSpeedEnabled() ?: true
-        holdToSpeedValue = PlayerSettingsStorage.loadHoldToSpeedValue() ?: 2f
+        holdToSpeedValue = DefaultNelflixHoldSpeed
+        PlayerSettingsStorage.saveHoldToSpeedValue(DefaultNelflixHoldSpeed)
         useClearlogoInPlayer = PlayerSettingsStorage.loadUseClearlogoInPlayer() ?: false
         externalPlayerEnabled = PlayerSettingsStorage.loadExternalPlayerEnabled() ?: false
         externalPlayerId = PlayerSettingsStorage.loadExternalPlayerId()
@@ -225,9 +228,12 @@ object PlayerSettingsRepository {
         }
         streamAutoPlayRegex = PlayerSettingsStorage.loadStreamAutoPlayRegex() ?: ""
         streamAutoPlayTimeoutSeconds = PlayerSettingsStorage.loadStreamAutoPlayTimeoutSeconds() ?: 3
-        skipIntroEnabled = PlayerSettingsStorage.loadSkipIntroEnabled() ?: true
-        animeSkipEnabled = PlayerSettingsStorage.loadAnimeSkipEnabled() ?: false
-        animeSkipClientId = PlayerSettingsStorage.loadAnimeSkipClientId() ?: ""
+        skipIntroEnabled = true
+        animeSkipEnabled = true
+        animeSkipClientId = DefaultNelflixAnimeSkipClientId
+        PlayerSettingsStorage.saveSkipIntroEnabled(true)
+        PlayerSettingsStorage.saveAnimeSkipEnabled(true)
+        PlayerSettingsStorage.saveAnimeSkipClientId(DefaultNelflixAnimeSkipClientId)
         introDbApiKey = PlayerSettingsStorage.loadIntroDbApiKey() ?: ""
         introSubmitEnabled = PlayerSettingsStorage.loadIntroSubmitEnabled() ?: false
         streamAutoPlayNextEpisodeEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeEnabled() ?: false
@@ -268,7 +274,7 @@ object PlayerSettingsRepository {
 
     fun setHoldToSpeedValue(speed: Float) {
         ensureLoaded()
-        val normalized = speed.coerceIn(1f, 10f)
+        val normalized = DefaultNelflixHoldSpeed
         if (holdToSpeedValue == normalized) return
         holdToSpeedValue = normalized
         publish()
@@ -498,26 +504,26 @@ object PlayerSettingsRepository {
 
     fun setSkipIntroEnabled(enabled: Boolean) {
         ensureLoaded()
-        if (skipIntroEnabled == enabled) return
-        skipIntroEnabled = enabled
+        if (skipIntroEnabled) return
+        skipIntroEnabled = true
         publish()
-        PlayerSettingsStorage.saveSkipIntroEnabled(enabled)
+        PlayerSettingsStorage.saveSkipIntroEnabled(true)
     }
 
     fun setAnimeSkipEnabled(enabled: Boolean) {
         ensureLoaded()
-        if (animeSkipEnabled == enabled) return
-        animeSkipEnabled = enabled
+        if (animeSkipEnabled) return
+        animeSkipEnabled = true
         publish()
-        PlayerSettingsStorage.saveAnimeSkipEnabled(enabled)
+        PlayerSettingsStorage.saveAnimeSkipEnabled(true)
     }
 
     fun setAnimeSkipClientId(clientId: String) {
         ensureLoaded()
-        if (animeSkipClientId == clientId) return
-        animeSkipClientId = clientId
+        if (animeSkipClientId == DefaultNelflixAnimeSkipClientId) return
+        animeSkipClientId = DefaultNelflixAnimeSkipClientId
         publish()
-        PlayerSettingsStorage.saveAnimeSkipClientId(clientId)
+        PlayerSettingsStorage.saveAnimeSkipClientId(DefaultNelflixAnimeSkipClientId)
     }
 
     fun setIntroDbApiKey(apiKey: String) {

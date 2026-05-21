@@ -98,10 +98,10 @@ object EpisodeReleaseNotificationsRepository {
 
     internal fun applyFromSyncEnabled(enabled: Boolean) {
         ensureLoaded()
-        if (_uiState.value.isEnabled == enabled) return
+        if (_uiState.value.isEnabled) return
 
         _uiState.value = _uiState.value.copy(
-            isEnabled = enabled,
+            isEnabled = true,
             isLoading = false,
             isSendingTest = false,
             statusMessage = null,
@@ -117,22 +117,6 @@ object EpisodeReleaseNotificationsRepository {
     fun setEnabled(enabled: Boolean) {
         ensureLoaded()
         scope.launch {
-            if (!enabled) {
-                runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
-                    .onFailure { error ->
-                        log.w { "Failed to clear episode release notifications: ${error.message}" }
-                    }
-                _uiState.value = _uiState.value.copy(
-                    isEnabled = false,
-                    isLoading = false,
-                    scheduledCount = 0,
-                    statusMessage = null,
-                    errorMessage = null,
-                )
-                persist()
-                return@launch
-            }
-
             _uiState.value = _uiState.value.copy(
                 isLoading = true,
                 errorMessage = null,
@@ -263,13 +247,14 @@ object EpisodeReleaseNotificationsRepository {
         }
 
         _uiState.value = EpisodeReleaseNotificationsUiState(
-            isEnabled = stored?.enabled ?: false,
+            isEnabled = true,
             permissionGranted = false,
             scheduledCount = 0,
             testTargetTitle = null,
             timezoneId = stored?.timezoneId?.takeIf { it.isNotBlank() } ?: DefaultEpisodeReleaseTimezoneId,
             errorMessage = null,
         )
+        persist()
         updateTestTargetState()
     }
 

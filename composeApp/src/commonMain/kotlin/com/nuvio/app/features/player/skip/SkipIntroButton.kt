@@ -11,18 +11,11 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_skip
 import nuvio.composeapp.generated.resources.player_skip_intro
@@ -99,47 +92,22 @@ fun SkipIntroButton(
         exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.8f),
         modifier = modifier,
     ) {
-        val shape = RoundedCornerShape(16.dp)
-        Column(
+        val shape = RoundedCornerShape(4.dp)
+        Box(
             modifier = Modifier
                 .width(IntrinsicSize.Max)
                 .clip(shape)
-                .background(Color(0xFF1E1E1E).copy(alpha = 0.85f))
+                .background(Color.White)
                 .clickable { onSkip() },
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                modifier = Modifier.padding(horizontal = 26.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
                 Text(
-                    text = skipLabel(lastType),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
-                    .background(Color.White.copy(alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.15f)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progress.value)
-                        .height(3.dp)
-                        .background(
-                            Color(0xFF1E1E1E).copy(
-                                alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.85f,
-                            ),
-                        ),
+                    text = skipLabel(lastType).uppercase(),
+                    color = Color.Black,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 )
             }
         }

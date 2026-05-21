@@ -1,8 +1,8 @@
 package com.nuvio.app.features.tmdb
 
 data class TmdbSettings(
-    val enabled: Boolean = false,
-    val apiKey: String = "",
+    val enabled: Boolean = true,
+    val apiKey: String = DefaultNelflixTmdbApiKey,
     val language: String = "en",
     val useTrailers: Boolean = true,
     val useArtwork: Boolean = true,
@@ -19,3 +19,5 @@ data class TmdbSettings(
     val hasApiKey: Boolean
         get() = apiKey.isNotBlank()
 }
+
+const val DefaultNelflixTmdbApiKey = "be81ce98c6eee5edb31216413be5fcda"

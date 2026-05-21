@@ -469,7 +469,6 @@ fun NuvioToastHost(
     modifier: Modifier = Modifier,
 ) {
     val toast by NuvioToastController.currentToast.collectAsState()
-    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val visibilityState = remember { MutableTransitionState(false) }
     var renderedToast by remember { mutableStateOf<NuvioToastMessage?>(null) }
 
@@ -498,16 +497,16 @@ fun NuvioToastHost(
     AnimatedVisibility(
         visibleState = visibilityState,
         modifier = modifier,
-        enter = fadeIn() + slideInVertically { -it },
-        exit = fadeOut() + slideOutVertically { -it },
+        enter = fadeIn() + slideInVertically { it / 2 },
+        exit = fadeOut() + slideOutVertically { it / 2 },
     ) {
         val currentToast = renderedToast ?: return@AnimatedVisibility
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = statusBarTop + 12.dp)
+                .fillMaxSize()
+                .padding(top = 96.dp)
                 .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.TopCenter,
+            contentAlignment = Alignment.Center,
         ) {
             Surface(
                 shape = RoundedCornerShape(18.dp),

@@ -10,8 +10,8 @@ object TmdbSettingsRepository {
 
     private var hasLoaded = false
 
-    private var enabled = false
-    private var apiKey = ""
+    private var enabled = true
+    private var apiKey = DefaultNelflixTmdbApiKey
     private var language = "en"
     private var useTrailers = true
     private var useArtwork = true
@@ -41,29 +41,26 @@ object TmdbSettingsRepository {
 
     fun setEnabled(value: Boolean) {
         ensureLoaded()
-        if (value && apiKey.isBlank()) return
-        if (enabled == value) return
-        enabled = value
+        if (enabled) return
+        enabled = true
         publish()
-        TmdbSettingsStorage.saveEnabled(value)
+        TmdbSettingsStorage.saveEnabled(true)
     }
 
     fun setApiKey(value: String) {
         ensureLoaded()
-        val normalized = value.trim()
-        if (apiKey == normalized) return
+        val normalized = DefaultNelflixTmdbApiKey
+        if (apiKey == normalized && enabled) return
         apiKey = normalized
-        if (apiKey.isBlank()) {
-            enabled = false
-            TmdbSettingsStorage.saveEnabled(false)
-        }
+        enabled = true
         publish()
         TmdbSettingsStorage.saveApiKey(normalized)
+        TmdbSettingsStorage.saveEnabled(true)
     }
 
     fun setLanguage(value: String) {
         ensureLoaded()
-        val normalized = normalizeLanguage(value)
+        val normalized = "en"
         if (language == normalized) return
         language = normalized
         publish()
@@ -154,30 +151,47 @@ object TmdbSettingsRepository {
         persist: (Boolean) -> Unit,
     ) {
         ensureLoaded()
-        if (current == next) return
-        update(next)
+        if (current) return
+        update(true)
         publish()
-        persist(next)
+        persist(true)
     }
 
     private fun loadFromDisk() {
         hasLoaded = true
-        apiKey = TmdbSettingsStorage.loadApiKey()?.trim().orEmpty()
-        enabled = (TmdbSettingsStorage.loadEnabled() ?: false) && apiKey.isNotBlank()
-        val storedLanguage = TmdbSettingsStorage.loadLanguage()
-        language = if (storedLanguage == null) "en" else normalizeLanguage(storedLanguage)
-        useTrailers = TmdbSettingsStorage.loadUseTrailers() ?: true
-        useArtwork = TmdbSettingsStorage.loadUseArtwork() ?: true
-        useBasicInfo = TmdbSettingsStorage.loadUseBasicInfo() ?: true
-        useDetails = TmdbSettingsStorage.loadUseDetails() ?: true
-        useCredits = TmdbSettingsStorage.loadUseCredits() ?: true
-        useProductions = TmdbSettingsStorage.loadUseProductions() ?: true
-        useNetworks = TmdbSettingsStorage.loadUseNetworks() ?: true
-        useEpisodes = TmdbSettingsStorage.loadUseEpisodes() ?: true
-        useSeasonPosters = TmdbSettingsStorage.loadUseSeasonPosters() ?: true
-        useMoreLikeThis = TmdbSettingsStorage.loadUseMoreLikeThis() ?: true
-        useCollections = TmdbSettingsStorage.loadUseCollections() ?: true
+        apiKey = DefaultNelflixTmdbApiKey
+        enabled = true
+        language = "en"
+        useTrailers = true
+        useArtwork = true
+        useBasicInfo = true
+        useDetails = true
+        useCredits = true
+        useProductions = true
+        useNetworks = true
+        useEpisodes = true
+        useSeasonPosters = true
+        useMoreLikeThis = true
+        useCollections = true
+        persistForcedDefaults()
         publish()
+    }
+
+    private fun persistForcedDefaults() {
+        TmdbSettingsStorage.saveApiKey(DefaultNelflixTmdbApiKey)
+        TmdbSettingsStorage.saveEnabled(true)
+        TmdbSettingsStorage.saveLanguage("en")
+        TmdbSettingsStorage.saveUseTrailers(true)
+        TmdbSettingsStorage.saveUseArtwork(true)
+        TmdbSettingsStorage.saveUseBasicInfo(true)
+        TmdbSettingsStorage.saveUseDetails(true)
+        TmdbSettingsStorage.saveUseCredits(true)
+        TmdbSettingsStorage.saveUseProductions(true)
+        TmdbSettingsStorage.saveUseNetworks(true)
+        TmdbSettingsStorage.saveUseEpisodes(true)
+        TmdbSettingsStorage.saveUseSeasonPosters(true)
+        TmdbSettingsStorage.saveUseMoreLikeThis(true)
+        TmdbSettingsStorage.saveUseCollections(true)
     }
 
     private fun publish() {

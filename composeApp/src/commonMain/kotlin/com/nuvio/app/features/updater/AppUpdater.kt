@@ -39,7 +39,6 @@ import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.httpRequestRaw
-import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -409,7 +408,6 @@ fun AppUpdaterHost(
     }
 
     val state by controller.uiState.collectAsStateWithLifecycle()
-    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
 
     if (!state.showDialog) return
 
@@ -454,9 +452,7 @@ fun AppUpdaterHost(
                             state.showUnknownSourcesDialog -> stringResource(Res.string.updates_message_allow_installs)
                             state.isDownloading -> stringResource(Res.string.updates_message_downloading)
                             state.isUpdateAvailable -> buildString {
-                                append("Hi, ")
-                                append(profileState.activeProfile?.name?.takeIf { it.isNotBlank() } ?: "there")
-                                append(", Ronnel has an update for you!\n")
+                                append("Hi, Ronnel has an update for you!\n")
                                 append(stringResource(Res.string.updates_message_ready))
                             }
                             else -> stringResource(Res.string.updates_message_no_updates)
