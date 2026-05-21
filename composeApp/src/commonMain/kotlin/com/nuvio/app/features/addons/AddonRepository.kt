@@ -62,13 +62,14 @@ object AddonRepository {
         log.d { "initialize() — loading local addons for profile $currentProfileId" }
 
         val storedUrls = dedupeManifestUrls(AddonStorage.loadInstalledAddonUrls(currentProfileId))
+        val storedNamesByUrl = normalizeAddonNames(AddonStorage.loadInstalledAddonNames(currentProfileId))
         log.d { "initialize() — local addon count: ${storedUrls.size}" }
         if (storedUrls.isEmpty()) return
 
         val existingByUrl = _uiState.value.addons.associateBy(ManagedAddon::manifestUrl)
         _uiState.value = AddonsUiState(
             addons = storedUrls.map { manifestUrl ->
-                existingByUrl[manifestUrl].toPendingAddon(manifestUrl)
+                existingByUrl[manifestUrl].toPendingAddon(manifestUrl, storedNamesByUrl[manifestUrl])
             },
         )
 
@@ -123,6 +124,7 @@ object AddonRepository {
 
             if (urls.isEmpty() && !pulledFromServer) {
                 val localUrls = AddonStorage.loadInstalledAddonUrls(currentProfileId)
+                val localNamesByUrl = normalizeAddonNames(AddonStorage.loadInstalledAddonNames(currentProfileId))
                 log.i { "pullFromServer() — server empty, local has ${localUrls.size} addons" }
                 if (localUrls.isNotEmpty()) {
                     log.i { "pullFromServer() — migrating local addons to server for profile $currentProfileId" }
@@ -131,8 +133,9 @@ object AddonRepository {
                     val addons = localUrls.mapIndexed { index, addonUrl ->
                         AddonPushItem(
                             url = addonUrl,
-                            name = _uiState.value.addons
-                                .find { it.manifestUrl == addonUrl }?.manifest?.name ?: "",
+                            name = localNamesByUrl[ensureManifestSuffix(addonUrl)]
+                                ?: _uiState.value.addons.find { it.manifestUrl == addonUrl }?.manifest?.name
+                                ?: "",
                             enabled = true,
                             sortOrder = index,
                         )
@@ -149,12 +152,13 @@ object AddonRepository {
 
             if (urls.isEmpty()) {
                 val localUrls = dedupeManifestUrls(AddonStorage.loadInstalledAddonUrls(currentProfileId))
+                val localNamesByUrl = normalizeAddonNames(AddonStorage.loadInstalledAddonNames(currentProfileId))
                 if (localUrls.isNotEmpty()) {
                     log.w { "pullFromServer() — remote empty while local has ${localUrls.size} addons; preserving local addons" }
                     val existingByUrl = _uiState.value.addons.associateBy(ManagedAddon::manifestUrl)
                     _uiState.value = AddonsUiState(
                         addons = localUrls.map { url ->
-                            existingByUrl[url].toPendingAddon(url)
+                            existingByUrl[url].toPendingAddon(url, localNamesByUrl[url])
                         },
                     )
                     persist()
@@ -377,9 +381,19 @@ object AddonRepository {
     }
 
     private fun persist() {
+        val addons = _uiState.value.addons
         AddonStorage.saveInstalledAddonUrls(
             currentProfileId,
-            dedupeManifestUrls(_uiState.value.addons.map { it.manifestUrl }),
+            dedupeManifestUrls(addons.map { it.manifestUrl }),
+        )
+        AddonStorage.saveInstalledAddonNames(
+            currentProfileId,
+            addons.mapNotNull { addon ->
+                val name = addon.userSetName
+                    ?.takeIf { it.isNotBlank() }
+                    ?: addon.manifest?.name?.takeIf { it.isNotBlank() }
+                name?.let { addon.manifestUrl to it }
+            }.toMap(),
         )
     }
 
@@ -425,6 +439,10 @@ private fun ManagedAddon?.toPendingAddon(manifestUrl: String, userSetName: Strin
 
 private fun dedupeManifestUrls(urls: List<String>): List<String> =
     urls.map(::ensureManifestSuffix).distinct()
+
+private fun normalizeAddonNames(namesByUrl: Map<String, String>): Map<String, String> =
+    namesByUrl.mapKeys { (url, _) -> ensureManifestSuffix(url) }
+        .filterValues { it.isNotBlank() }
 
 private fun ensureManifestSuffix(url: String): String {
     val path = url.substringBefore("?").trimEnd('/')

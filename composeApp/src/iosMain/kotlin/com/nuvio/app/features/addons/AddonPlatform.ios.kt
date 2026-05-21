@@ -19,6 +19,7 @@ import platform.Foundation.NSUserDefaults
 
 actual object AddonStorage {
     private const val addonUrlsKey = "installed_manifest_urls"
+    private const val addonNamesKey = "installed_manifest_names"
 
     actual fun loadInstalledAddonUrls(profileId: Int): List<String> =
         NSUserDefaults.standardUserDefaults
@@ -33,6 +34,35 @@ actual object AddonStorage {
         NSUserDefaults.standardUserDefaults.setObject(
             urls.joinToString(separator = "\n"),
             forKey = "${addonUrlsKey}_$profileId",
+        )
+    }
+
+    actual fun loadInstalledAddonNames(profileId: Int): Map<String, String> =
+        NSUserDefaults.standardUserDefaults
+            .stringForKey("${addonNamesKey}_$profileId")
+            .orEmpty()
+            .lineSequence()
+            .mapNotNull { line ->
+                val separatorIndex = line.indexOf('\t')
+                if (separatorIndex <= 0) return@mapNotNull null
+                val url = line.substring(0, separatorIndex).trim()
+                val name = line.substring(separatorIndex + 1).trim()
+                if (url.isEmpty() || name.isEmpty()) null else url to name
+            }
+            .toMap()
+
+    actual fun saveInstalledAddonNames(profileId: Int, namesByUrl: Map<String, String>) {
+        val payload = namesByUrl.entries
+            .mapNotNull { (url, name) ->
+                val safeUrl = url.trim()
+                val safeName = name.replace('\n', ' ').replace('\t', ' ').trim()
+                if (safeUrl.isEmpty() || safeName.isEmpty()) null else "$safeUrl\t$safeName"
+            }
+            .joinToString(separator = "\n")
+
+        NSUserDefaults.standardUserDefaults.setObject(
+            payload,
+            forKey = "${addonNamesKey}_$profileId",
         )
     }
 }

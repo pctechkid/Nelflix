@@ -3,6 +3,8 @@ package com.nuvio.app.features.addons
 internal expect object AddonStorage {
     fun loadInstalledAddonUrls(profileId: Int): List<String>
     fun saveInstalledAddonUrls(profileId: Int, urls: List<String>)
+    fun loadInstalledAddonNames(profileId: Int): Map<String, String>
+    fun saveInstalledAddonNames(profileId: Int, namesByUrl: Map<String, String>)
 }
 
 data class RawHttpResponse(

@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -97,17 +98,18 @@ fun SkipIntroButton(
             modifier = Modifier
                 .width(IntrinsicSize.Max)
                 .clip(shape)
-                .background(Color.White)
+                .background(Color.Transparent)
+                .border(width = 2.dp, color = Color.White, shape = shape)
                 .clickable { onSkip() },
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 26.dp, vertical = 14.dp),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = skipLabel(lastType).uppercase(),
-                    color = Color.Black,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                 )
             }
         }

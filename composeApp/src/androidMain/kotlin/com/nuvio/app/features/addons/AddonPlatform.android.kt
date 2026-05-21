@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
 actual object AddonStorage {
     private const val preferencesName = "nuvio_addons"
     private const val addonUrlsKey = "installed_manifest_urls"
+    private const val addonNamesKey = "installed_manifest_names"
 
     private var preferences: SharedPreferences? = null
 
@@ -39,6 +40,35 @@ actual object AddonStorage {
         preferences
             ?.edit()
             ?.putString("${addonUrlsKey}_$profileId", urls.joinToString(separator = "\n"))
+            ?.apply()
+    }
+
+    actual fun loadInstalledAddonNames(profileId: Int): Map<String, String> =
+        preferences
+            ?.getString("${addonNamesKey}_$profileId", null)
+            .orEmpty()
+            .lineSequence()
+            .mapNotNull { line ->
+                val separatorIndex = line.indexOf('\t')
+                if (separatorIndex <= 0) return@mapNotNull null
+                val url = line.substring(0, separatorIndex).trim()
+                val name = line.substring(separatorIndex + 1).trim()
+                if (url.isEmpty() || name.isEmpty()) null else url to name
+            }
+            .toMap()
+
+    actual fun saveInstalledAddonNames(profileId: Int, namesByUrl: Map<String, String>) {
+        val payload = namesByUrl.entries
+            .mapNotNull { (url, name) ->
+                val safeUrl = url.trim()
+                val safeName = name.replace('\n', ' ').replace('\t', ' ').trim()
+                if (safeUrl.isEmpty() || safeName.isEmpty()) null else "$safeUrl\t$safeName"
+            }
+            .joinToString(separator = "\n")
+
+        preferences
+            ?.edit()
+            ?.putString("${addonNamesKey}_$profileId", payload)
             ?.apply()
     }
 }

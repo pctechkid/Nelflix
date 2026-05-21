@@ -489,6 +489,15 @@ fun PlayerScreen(
         var audioTracks by remember { mutableStateOf<List<AudioTrack>>(emptyList()) }
         var subtitleTracks by remember { mutableStateOf<List<SubtitleTrack>>(emptyList()) }
         var chapters by remember { mutableStateOf<List<PlayerChapter>>(emptyList()) }
+        val effectiveSkipIntervals = remember(skipIntervals, chapters, playbackSnapshot.durationMs) {
+            mergeSkipIntervals(
+                apiIntervals = skipIntervals,
+                chapterIntervals = buildChapterSkipIntervals(
+                    chapters = chapters,
+                    durationMs = playbackSnapshot.durationMs,
+                ),
+            )
+        }
         var selectedAudioIndex by remember { mutableStateOf(-1) }
         var selectedSubtitleIndex by remember { mutableStateOf(-1) }
         var selectedAddonSubtitleId by remember { mutableStateOf<String?>(null) }
@@ -1525,13 +1534,13 @@ fun PlayerScreen(
         }
 
         // Update active skip interval based on playback position
-        LaunchedEffect(playbackSnapshot.positionMs, skipIntervals) {
-            if (skipIntervals.isEmpty()) {
+        LaunchedEffect(playbackSnapshot.positionMs, effectiveSkipIntervals) {
+            if (effectiveSkipIntervals.isEmpty()) {
                 activeSkipInterval = null
                 return@LaunchedEffect
             }
             val positionSec = playbackSnapshot.positionMs / 1000.0
-            val current = skipIntervals.firstOrNull { interval ->
+            val current = effectiveSkipIntervals.firstOrNull { interval ->
                 positionSec >= interval.startTime && positionSec < interval.endTime
             }
             if (current != activeSkipInterval) {
@@ -2287,6 +2296,60 @@ private fun AddonSubtitle.isFullSubtitle(): Boolean {
         !text.contains("sign/song") &&
         !text.contains("signs & songs") &&
         !text.contains("signs and songs")
+}
+
+private fun buildChapterSkipIntervals(
+    chapters: List<PlayerChapter>,
+    durationMs: Long,
+): List<SkipInterval> {
+    if (chapters.isEmpty()) return emptyList()
+    val sortedChapters = chapters
+        .filter { it.timeMs >= 0L }
+        .sortedBy { it.timeMs }
+    if (sortedChapters.isEmpty()) return emptyList()
+
+    return sortedChapters.mapIndexedNotNull { index, chapter ->
+        if (!chapter.isIntroChapter()) return@mapIndexedNotNull null
+        val nextChapterMs = sortedChapters.getOrNull(index + 1)?.timeMs
+        val fallbackEndMs = chapter.timeMs + 90_000L
+        val rawEndMs = nextChapterMs ?: fallbackEndMs
+        val boundedEndMs = if (durationMs > 0L) rawEndMs.coerceAtMost(durationMs) else rawEndMs
+        val maxIntroEndMs = chapter.timeMs + 180_000L
+        val endMs = boundedEndMs.coerceAtMost(maxIntroEndMs)
+        if (endMs - chapter.timeMs < 5_000L) return@mapIndexedNotNull null
+        SkipInterval(
+            startTime = chapter.timeMs / 1000.0,
+            endTime = endMs / 1000.0,
+            type = "intro",
+            provider = "chapters",
+        )
+    }
+}
+
+private fun mergeSkipIntervals(
+    apiIntervals: List<SkipInterval>,
+    chapterIntervals: List<SkipInterval>,
+): List<SkipInterval> {
+    if (apiIntervals.isEmpty()) return chapterIntervals
+    if (chapterIntervals.isEmpty()) return apiIntervals
+    val merged = apiIntervals.toMutableList()
+    chapterIntervals.forEach { chapterInterval ->
+        val overlapsExisting = merged.any { existing ->
+            val overlapStart = maxOf(existing.startTime, chapterInterval.startTime)
+            val overlapEnd = minOf(existing.endTime, chapterInterval.endTime)
+            overlapEnd > overlapStart
+        }
+        if (!overlapsExisting) merged += chapterInterval
+    }
+    return merged.sortedBy { it.startTime }
+}
+
+private fun PlayerChapter.isIntroChapter(): Boolean {
+    val normalized = title.trim().lowercase()
+    if (normalized.isBlank()) return false
+    return normalized.contains("intro") ||
+        normalized.contains("opening") ||
+        Regex("""(^|[^a-z0-9])op(\s*\d+)?([^a-z0-9]|$)""").containsMatchIn(normalized)
 }
 
 private fun extractProviderId(value: String?, provider: String): String? {
