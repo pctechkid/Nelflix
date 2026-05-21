@@ -120,7 +120,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.core.build
                 |
                 |object AppUpdaterConfig {
-                |    const val GITHUB_OWNER = "${props.getProperty("UPDATE_GITHUB_OWNER", "Ronnel")}"
+                |    const val GITHUB_OWNER = "${props.getProperty("UPDATE_GITHUB_OWNER", "pctechkid")}"
                 |    const val GITHUB_REPO = "${props.getProperty("UPDATE_GITHUB_REPO", "Nelflix")}"
                 |    const val GITHUB_API_BASE_URL = "${props.getProperty("UPDATE_GITHUB_API_BASE_URL", "https://api.github.com")}"
                 |}

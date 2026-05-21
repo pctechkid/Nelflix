@@ -579,47 +579,18 @@ fun AppUpdaterHost(
                         }
                     }
 
-                    if (state.isUpdateAvailable && !state.isDownloading && !state.showUnknownSourcesDialog) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            OutlinedButton(
-                                modifier = Modifier.weight(1f),
-                                onClick = controller::ignoreThisVersion,
-                            ) {
-                                Text(stringResource(Res.string.action_ignore))
-                            }
-
-                            OutlinedButton(
-                                modifier = Modifier.weight(1f),
-                                onClick = controller::dismissDialog,
-                                enabled = !state.isDownloading,
-                            ) {
-                                Text(
-                                    if (state.isDownloading) {
-                                        stringResource(Res.string.updates_message_downloading)
-                                    } else {
-                                        stringResource(Res.string.action_later)
-                                    },
-                                )
-                            }
-                        }
-                    } else {
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = controller::dismissDialog,
-                            enabled = !state.isDownloading,
-                        ) {
-                            Text(
-                                if (state.isDownloading) {
-                                    stringResource(Res.string.updates_message_downloading)
-                                } else {
-                                    stringResource(Res.string.action_later)
-                                },
-                            )
-                        }
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = controller::dismissDialog,
+                        enabled = !state.isDownloading,
+                    ) {
+                        Text(
+                            if (state.isDownloading) {
+                                stringResource(Res.string.updates_message_downloading)
+                            } else {
+                                stringResource(Res.string.action_later)
+                            },
+                        )
                     }
                 }
             }

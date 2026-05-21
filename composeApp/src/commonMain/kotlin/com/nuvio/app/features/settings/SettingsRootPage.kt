@@ -1,6 +1,10 @@
 package com.nuvio.app.features.settings
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
@@ -18,13 +22,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.app_logo_wordmark
+import nuvio.composeapp.generated.resources.compose_settings_category_about
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.compose_settings_page_appearance
+import nuvio.composeapp.generated.resources.compose_settings_page_content_discovery
 import nuvio.composeapp.generated.resources.compose_settings_page_integrations
 import nuvio.composeapp.generated.resources.compose_settings_page_notifications
 import nuvio.composeapp.generated.resources.compose_settings_page_playback
 import nuvio.composeapp.generated.resources.compose_settings_root_account_description
+import nuvio.composeapp.generated.resources.compose_settings_root_account_section
 import nuvio.composeapp.generated.resources.compose_settings_root_appearance_description
+import nuvio.composeapp.generated.resources.compose_settings_root_check_updates_description
+import nuvio.composeapp.generated.resources.compose_settings_root_check_updates_title
 import nuvio.composeapp.generated.resources.compose_settings_root_content_discovery_description
 import nuvio.composeapp.generated.resources.compose_settings_root_downloads_description
 import nuvio.composeapp.generated.resources.compose_settings_root_downloads_title
@@ -33,9 +43,8 @@ import nuvio.composeapp.generated.resources.compose_settings_root_integrations_d
 import nuvio.composeapp.generated.resources.compose_settings_root_notifications_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_title
-import nuvio.composeapp.generated.resources.compose_settings_root_account_section
-import nuvio.composeapp.generated.resources.compose_settings_page_content_discovery
 import nuvio.composeapp.generated.resources.settings_playback_subtitle
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 internal fun LazyListScope.settingsRootContent(
@@ -142,12 +151,38 @@ internal fun LazyListScope.settingsRootContent(
             }
         }
     }
+    if (showAboutSection && onCheckForUpdatesClick != null) {
+        item {
+            SettingsSection(
+                title = stringResource(Res.string.compose_settings_category_about),
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.compose_settings_root_check_updates_title),
+                        description = stringResource(Res.string.compose_settings_root_check_updates_description),
+                        icon = Icons.Rounded.CloudDownload,
+                        isTablet = isTablet,
+                        onClick = onCheckForUpdatesClick,
+                    )
+                }
+            }
+        }
+    }
     item {
-        androidx.compose.foundation.layout.Column(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = if (isTablet) 20.dp else 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Image(
+                painter = painterResource(Res.drawable.app_logo_wordmark),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp),
+            )
             Text(
                 text = "Made with ❤️ by Ronnel",
                 modifier = Modifier.fillMaxWidth(),
