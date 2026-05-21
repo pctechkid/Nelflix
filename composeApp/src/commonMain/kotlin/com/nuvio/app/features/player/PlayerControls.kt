@@ -367,7 +367,7 @@ private fun NetflixHeaderTitle(
         Box(
             modifier = Modifier
                 .width(5.dp)
-                .height(if (episodeLine.isNullOrBlank()) 38.dp else 64.dp)
+                .height(if (episodeLine.isNullOrBlank()) 38.dp else 50.dp)
                 .clip(RoundedCornerShape(1.dp))
                 .background(NetflixProgressRed),
         )

@@ -20,6 +20,7 @@ object DebridProviders {
         id = TORBOX_ID,
         displayName = "Torbox",
         shortName = "TB",
+        visibleInUi = false,
     )
 
     val RealDebrid = DebridProvider(

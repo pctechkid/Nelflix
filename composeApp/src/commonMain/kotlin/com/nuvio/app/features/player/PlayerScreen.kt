@@ -295,6 +295,7 @@ fun PlayerScreen(
             ?.genres
             ?.take(4)
             ?.joinToString(", ")
+        var imdbMaturityGenresLine by remember { mutableStateOf<String?>(null) }
 
         // Skip intro/outro/recap state
         var skipIntervals by remember { mutableStateOf<List<SkipInterval>>(emptyList()) }
@@ -1458,6 +1459,7 @@ fun PlayerScreen(
         // Fetch parental guide when the playable item changes.
         LaunchedEffect(activeVideoId, activeSeasonNumber, activeEpisodeNumber, parentMetaId, parentMetaType) {
             parentalWarnings = emptyList()
+            imdbMaturityGenresLine = null
             showParentalGuide = false
             parentalGuideHasShown = false
             playbackStartedForParentalGuide = false
@@ -1470,6 +1472,7 @@ fun PlayerScreen(
             }
             val guide = ParentalGuideRepository.getParentalGuide(imdbId) ?: return@LaunchedEffect
             parentalWarnings = buildParentalWarnings(guide, parentalGuideLabels)
+            imdbMaturityGenresLine = guide.genres.takeIf { it.isNotEmpty() }?.joinToString(", ")
 
             if (playbackSnapshot.isPlaying) {
                 tryShowParentalGuide()
@@ -1844,7 +1847,7 @@ fun PlayerScreen(
                     onSourcesClick = null,
                     onSubmitIntroClick = if (isSeries && playerSettingsUiState.introSubmitEnabled && playerSettingsUiState.introDbApiKey.isNotBlank()) { { showSubmitIntroModal = true } } else null,
                     maturityRatingCode = maturityRatingCode,
-                    maturityGenresLine = maturityGenresLine,
+                    maturityGenresLine = imdbMaturityGenresLine ?: maturityGenresLine,
                     parentalWarnings = parentalWarnings,
                     showParentalGuide = showParentalGuide,
                     onParentalGuideAnimationComplete = { showParentalGuide = false },

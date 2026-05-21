@@ -478,7 +478,7 @@ object EpisodeReleaseNotificationsRepository {
                     id = trackedShow.contentId,
                 ),
                 timezoneId = settings.timezoneId,
-                backdropUrl = meta.background ?: episode.thumbnail ?: episode.seasonPoster ?: meta.poster,
+                backdropUrl = episode.thumbnail ?: episode.seasonPoster ?: meta.background ?: meta.poster,
             )
         }
     }

@@ -1,6 +1,11 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.StreamUrlResolver
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +19,7 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
 object DownloadsRepository {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _uiState = MutableStateFlow(DownloadsUiState())
     val uiState: StateFlow<DownloadsUiState> = _uiState.asStateFlow()
 
@@ -24,6 +30,7 @@ object DownloadsRepository {
     fun ensureLoaded() {
         if (hasLoaded) return
         loadFromDisk()
+        pruneMissingCompletedDownloads()
     }
 
     fun onProfileChanged() {
@@ -88,7 +95,10 @@ object DownloadsRepository {
         val resolvedUri = DownloadsPlatformDownloader.resolveLocalFileUri(
             localFileUri = item.localFileUri,
             destinationFileName = item.fileName,
-        ) ?: return null
+        ) ?: run {
+            removeMissingCompletedDownload(item.id)
+            return null
+        }
 
         if (resolvedUri != item.localFileUri) {
             mutateItem(item.id) { current ->
@@ -299,6 +309,26 @@ object DownloadsRepository {
     }
 
     private fun startDownload(item: DownloadItem) {
+        scope.launch {
+            val resolved = runCatching {
+                StreamUrlResolver.resolve(item.sourceUrl, item.sourceHeaders)
+            }.getOrNull()
+            if (resolved != null && resolved.url != item.sourceUrl) {
+                mutateItem(item.id) { current ->
+                    current.copy(
+                        sourceUrl = resolved.url,
+                        sourceHeaders = sanitizeRequestHeaders(resolved.requestHeaders),
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                }
+            }
+            startResolvedDownload(
+                item = _uiState.value.items.firstOrNull { it.id == item.id } ?: item,
+            )
+        }
+    }
+
+    private fun startResolvedDownload(item: DownloadItem) {
         val request = DownloadPlatformRequest(
             sourceUrl = item.sourceUrl,
             sourceHeaders = item.sourceHeaders,
@@ -382,8 +412,15 @@ object DownloadsRepository {
     }
 
     private fun publish(items: List<DownloadItem>) {
+        val normalizedItems = items.filterNot { item ->
+            item.status == DownloadStatus.Completed &&
+                DownloadsPlatformDownloader.resolveLocalFileUri(
+                    localFileUri = item.localFileUri,
+                    destinationFileName = item.fileName,
+                ) == null
+        }
         _uiState.value = DownloadsUiState(
-            items = items,
+            items = normalizedItems,
             downloadFolderUri = DownloadsPlatformDownloader.getDownloadFolderUri(),
         )
         notifyLiveStatusPlatform()
@@ -415,7 +452,7 @@ object DownloadsRepository {
         val resolvedUri = DownloadsPlatformDownloader.resolveLocalFileUri(
             localFileUri = item.localFileUri,
             destinationFileName = item.fileName,
-        ) ?: return item
+        ) ?: return item.copy(localFileUri = null)
         return if (resolvedUri != item.localFileUri) {
             item.copy(localFileUri = resolvedUri)
         } else {
@@ -429,6 +466,23 @@ object DownloadsRepository {
                 localFileUri = localFileUri,
                 destinationFileName = fileName,
             ) != null
+
+    private fun pruneMissingCompletedDownloads() {
+        val filtered = _uiState.value.items.filterNot { item ->
+            item.status == DownloadStatus.Completed && !item.hasPlayableLocalFile()
+        }
+        if (filtered.size != _uiState.value.items.size) {
+            publish(filtered)
+            persist()
+        }
+    }
+
+    private fun removeMissingCompletedDownload(downloadId: String) {
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        if (item.status != DownloadStatus.Completed) return
+        publish(_uiState.value.items.filterNot { it.id == downloadId })
+        persist()
+    }
 }
 
 @Serializable

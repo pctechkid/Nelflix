@@ -51,8 +51,12 @@ object AndroidAppUpdaterPlatform {
         runCatching {
             val context = requireContext()
             val safeName = assetName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-            val destination = File(File(context.cacheDir, "updates"), safeName)
-            destination.parentFile?.mkdirs()
+            val updatesDirectory = File(context.cacheDir, "updates")
+            updatesDirectory.mkdirs()
+            updatesDirectory.listFiles()
+                ?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }
+                ?.forEach { it.delete() }
+            val destination = File(updatesDirectory, safeName)
             if (destination.exists()) {
                 destination.delete()
             }

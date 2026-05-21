@@ -17,6 +17,7 @@ data class ParentalGuideResult(
     val profanity: String? = null,
     val alcohol: String? = null,
     val frightening: String? = null,
+    val genres: List<String> = emptyList(),
 )
 
 data class ParentalWarning(
@@ -51,18 +52,23 @@ internal object ParentalGuideRepository {
         }
 
         val result = runCatching {
-            val response = httpRequestRaw(
+            val guideResponse = httpRequestRaw(
                 method = "GET",
                 url = "$PARENTAL_GUIDE_BASE_URL/titles/$normalizedImdbId/parentsGuide",
                 headers = mapOf("Accept" to "application/json"),
                 body = "",
             )
-            if (response.status !in 200..299 || response.body.isBlank()) {
+            if (guideResponse.status !in 200..299 || guideResponse.body.isBlank()) {
                 return@runCatching null
             }
-            val body = json.decodeFromString<ImdbApiParentsGuideResponse>(response.body)
+            val body = json.decodeFromString<ImdbApiParentsGuideResponse>(guideResponse.body)
             val categories = body.parentsGuide
-            if (categories.isEmpty()) null else mapParentalGuideCategoriesToResult(categories)
+            val genres = getImdbGenres(normalizedImdbId)
+            if (categories.isEmpty() && genres.isEmpty()) {
+                null
+            } else {
+                mapParentalGuideCategoriesToResult(categories).copy(genres = genres)
+            }
         }.onFailure { error ->
             log.w(error) { "Failed to fetch parental guide for $normalizedImdbId" }
         }.getOrNull()
@@ -72,6 +78,21 @@ internal object ParentalGuideRepository {
         }
         return result
     }
+
+    private suspend fun getImdbGenres(imdbId: String): List<String> = runCatching {
+        val response = httpRequestRaw(
+            method = "GET",
+            url = "$PARENTAL_GUIDE_BASE_URL/titles/$imdbId",
+            headers = mapOf("Accept" to "application/json"),
+            body = "",
+        )
+        if (response.status !in 200..299 || response.body.isBlank()) return@runCatching emptyList()
+        json.decodeFromString<ImdbApiTitleResponse>(response.body)
+            .genres
+            .mapNotNull { it.trim().takeIf(String::isNotBlank) }
+            .distinct()
+            .take(4)
+    }.getOrDefault(emptyList())
 }
 
 internal fun mapParentalGuideCategoriesToResult(
@@ -160,6 +181,11 @@ internal fun extractParentalGuideTmdbId(value: String?): Int? {
 @Serializable
 internal data class ImdbApiParentsGuideResponse(
     @SerialName("parentsGuide") val parentsGuide: List<ImdbApiParentsGuideCategory> = emptyList(),
+)
+
+@Serializable
+internal data class ImdbApiTitleResponse(
+    @SerialName("genres") val genres: List<String> = emptyList(),
 )
 
 @Serializable

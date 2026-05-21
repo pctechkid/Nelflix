@@ -10,7 +10,7 @@ object ThemeSettingsRepository {
     private val _selectedTheme = MutableStateFlow(AppTheme.WHITE)
     val selectedTheme: StateFlow<AppTheme> = _selectedTheme.asStateFlow()
 
-    private val _amoledEnabled = MutableStateFlow(false)
+    private val _amoledEnabled = MutableStateFlow(true)
     val amoledEnabled: StateFlow<Boolean> = _amoledEnabled.asStateFlow()
 
     private val _liquidGlassNativeTabBarEnabled = MutableStateFlow(false)
@@ -33,7 +33,7 @@ object ThemeSettingsRepository {
     fun clearLocalState() {
         hasLoaded = false
         _selectedTheme.value = AppTheme.WHITE
-        _amoledEnabled.value = false
+        _amoledEnabled.value = true
         _liquidGlassNativeTabBarEnabled.value = false
         NativeTabBridge.publishAccentColor(AppTheme.WHITE.nativeTabAccentHex())
         NativeTabBridge.publishLiquidGlassEnabled(false)
@@ -54,7 +54,7 @@ object ThemeSettingsRepository {
         }
         _selectedTheme.value = theme
         NativeTabBridge.publishAccentColor(theme.nativeTabAccentHex())
-        _amoledEnabled.value = ThemeSettingsStorage.loadAmoledEnabled() ?: false
+        _amoledEnabled.value = ThemeSettingsStorage.loadAmoledEnabled() ?: true
         val liquidGlassEnabled = ThemeSettingsStorage.loadLiquidGlassNativeTabBarEnabled() ?: false
         _liquidGlassNativeTabBarEnabled.value = liquidGlassEnabled
         NativeTabBridge.publishLiquidGlassEnabled(liquidGlassEnabled)

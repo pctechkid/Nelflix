@@ -91,7 +91,7 @@ object AuthRepository {
         Unit
     }.onFailure { e ->
         log.e(e) { "Email sign-up failed" }
-        _error.value = e.message ?: getString(Res.string.auth_sign_up_failed)
+        _error.value = e.toFriendlyAuthError(getString(Res.string.auth_sign_up_failed))
     }
 
     suspend fun signInWithEmail(email: String, password: String): Result<Unit> = runCatching {
@@ -102,7 +102,7 @@ object AuthRepository {
         }
     }.onFailure { e ->
         log.e(e) { "Email sign-in failed" }
-        _error.value = e.message ?: getString(Res.string.auth_sign_in_failed)
+        _error.value = e.toFriendlyAuthError(getString(Res.string.auth_sign_in_failed))
     }
 
     suspend fun signOut(): Result<Unit> = runCatching {
@@ -116,7 +116,7 @@ object AuthRepository {
         LocalAccountDataCleaner.wipe()
     }.onFailure { e ->
         log.e(e) { "Sign-out failed" }
-        _error.value = e.message ?: getString(Res.string.auth_sign_out_failed)
+        _error.value = e.toFriendlyAuthError(getString(Res.string.auth_sign_out_failed))
     }
 
     suspend fun deleteAccount(): Result<Unit> = runCatching {
@@ -126,10 +126,41 @@ object AuthRepository {
         LocalAccountDataCleaner.wipe()
     }.onFailure { e ->
         log.e(e) { "Account deletion failed" }
-        _error.value = e.message ?: getString(Res.string.auth_account_deletion_failed)
+        _error.value = e.toFriendlyAuthError(getString(Res.string.auth_account_deletion_failed))
     }
 
     fun clearError() {
         _error.value = null
+    }
+}
+
+private fun Throwable.toFriendlyAuthError(fallback: String): String {
+    val text = buildString {
+        message?.let(::append)
+        cause?.message?.let {
+            append(' ')
+            append(it)
+        }
+    }.trim()
+    val lower = text.lowercase()
+    return when {
+        lower.contains("invalid_credentials") || lower.contains("invalid login credentials") ->
+            "Invalid email or password."
+        lower.contains("email not confirmed") ->
+            "Please confirm your email before signing in."
+        lower.contains("network") || lower.contains("failed to connect") || lower.contains("unable to resolve host") ||
+            lower.contains("timeout") || lower.contains("connection") ->
+            "Unable to connect. Check your internet connection and try again."
+        lower.contains("already registered") || lower.contains("user already registered") ->
+            "An account with this email already exists."
+        lower.contains("password") && lower.contains("short") ->
+            "Password is too short."
+        else -> text
+            .substringBefore(" URL:")
+            .substringBefore(" url:")
+            .substringBefore('\n')
+            .take(120)
+            .takeIf { it.isNotBlank() }
+            ?: fallback
     }
 }

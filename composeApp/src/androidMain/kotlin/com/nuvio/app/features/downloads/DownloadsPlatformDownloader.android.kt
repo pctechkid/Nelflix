@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -51,8 +52,9 @@ private const val defaultRelativeDownloadPath = "Download/Nelflix/"
 
 private val downloadHttpClient = OkHttpClient.Builder()
     .connectTimeout(60, TimeUnit.SECONDS)
-    .readTimeout(60, TimeUnit.SECONDS)
+    .readTimeout(5, TimeUnit.MINUTES)
     .writeTimeout(60, TimeUnit.SECONDS)
+    .retryOnConnectionFailure(true)
     .followRedirects(true)
     .followSslRedirects(true)
     .build()
@@ -82,7 +84,9 @@ internal actual object DownloadsPlatformDownloader {
             }
 
             val target = createDownloadTarget(context, request.destinationFileName)
+            var retryCount = 0
 
+            while (true) {
             try {
                 var resumeFromBytes = target.partialSize().coerceAtLeast(0L)
 
@@ -160,9 +164,17 @@ internal actual object DownloadsPlatformDownloader {
 
                     val finalUri = target.commitPartial()
                     onSuccess(finalUri, totalBytes ?: target.finalSize().takeIf { it > 0L })
+                    return@launch
                 }
             } catch (error: Throwable) {
+                if (job.isActive && error.isTransientDownloadFailure() && retryCount < 5) {
+                    retryCount += 1
+                    delay((retryCount * 2_000L).coerceAtMost(10_000L))
+                    continue
+                }
                 onFailure(error.message ?: runBlocking { getString(Res.string.download_failed) })
+                return@launch
+            }
             }
         }
 
@@ -473,4 +485,19 @@ private fun parseContentRangeTotal(headerValue: String?): Long? {
     val totalPart = value.substring(slashIndex + 1).trim()
     if (totalPart == "*") return null
     return totalPart.toLongOrNull()?.takeIf { it > 0L }
+}
+
+private fun Throwable.isTransientDownloadFailure(): Boolean {
+    val text = buildString {
+        message?.let(::append)
+        cause?.message?.let {
+            append(' ')
+            append(it)
+        }
+    }.lowercase()
+    return text.contains("connection abort") ||
+        text.contains("connection reset") ||
+        text.contains("timeout") ||
+        text.contains("unexpected end") ||
+        text.contains("stream was reset")
 }
