@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -363,11 +365,12 @@ private fun NetflixHeaderTitle(
 ) {
     Row(
         verticalAlignment = Alignment.Top,
+        modifier = Modifier.height(IntrinsicSize.Min),
     ) {
         Box(
             modifier = Modifier
                 .width(5.dp)
-                .height(if (episodeLine.isNullOrBlank()) 38.dp else 50.dp)
+                .fillMaxHeight()
                 .clip(RoundedCornerShape(1.dp))
                 .background(NetflixProgressRed),
         )
