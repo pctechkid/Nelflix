@@ -29,8 +29,13 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -142,6 +147,17 @@ internal actual object EpisodeReleaseNotificationPlatform {
     actual fun availableTimezoneIds(): List<String> =
         TimeZone.getAvailableIDs().toList().sorted()
 
+    actual fun resolveReleaseTriggerEpochMs(rawReleaseValue: String?, timezoneId: String): Long? =
+        releaseTriggerAtEpochMs(rawReleaseValue, timezoneId)
+
+    actual fun formatReleaseTriggerLabel(epochMs: Long, timezoneId: String): String {
+        val zoneId = resolveZoneId(timezoneId)
+        val formatter = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", Locale.US)
+        return Instant.ofEpochMilli(epochMs)
+            .atZone(zoneId)
+            .format(formatter)
+    }
+
     actual suspend fun scheduleEpisodeReleaseNotifications(requests: List<EpisodeReleaseNotificationRequest>) {
         val context = appContext ?: return
         ensureNotificationChannel()
@@ -154,7 +170,9 @@ internal actual object EpisodeReleaseNotificationPlatform {
             val scheduledIds = mutableListOf<String>()
 
             requests.forEach { request ->
-                val triggerAtEpochMs = triggerAtEpochMs(request.releaseDateIso, request.timezoneId) ?: return@forEach
+                val triggerAtEpochMs = request.triggerAtEpochMs
+                    ?: triggerAtEpochMs(request.releaseDateIso, request.timezoneId)
+                    ?: return@forEach
                 val initialDelayMs = triggerAtEpochMs - nowEpochMs
                 if (initialDelayMs <= 0L) return@forEach
 
@@ -284,11 +302,39 @@ internal actual object EpisodeReleaseNotificationPlatform {
     private fun preferences(context: Context) =
         context.getSharedPreferences(platformPreferencesName, Context.MODE_PRIVATE)
 
-    private fun triggerAtEpochMs(releaseDateIso: String, timezoneId: String): Long? = runCatching {
-        val zoneId = timezoneId.trim()
+    private fun resolveZoneId(timezoneId: String): ZoneId =
+        timezoneId.trim()
             .takeIf { it.isNotBlank() }
             ?.let { runCatching { ZoneId.of(it) }.getOrNull() }
             ?: ZoneId.systemDefault()
+
+    private fun releaseTriggerAtEpochMs(rawReleaseValue: String?, timezoneId: String): Long? = runCatching {
+        val value = rawReleaseValue?.trim().takeUnless { it.isNullOrBlank() } ?: return null
+        val zoneId = resolveZoneId(timezoneId)
+
+        parseInstantRelease(value, zoneId)?.toEpochMilli()
+            ?: LocalDate.parse(value.substringBefore('T').substringBefore(' ')).let { date ->
+                date.atTime(EpisodeReleaseNotificationHour, EpisodeReleaseNotificationMinute)
+                    .atZone(zoneId)
+                    .toInstant()
+                    .toEpochMilli()
+            }
+    }.getOrNull()
+
+    private fun parseInstantRelease(value: String, zoneId: ZoneId): Instant? {
+        if (!value.contains('T') && !value.contains(' ')) return null
+        val normalized = value.replace(' ', 'T')
+        return runCatching { Instant.parse(normalized) }.getOrNull()
+            ?: runCatching { OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant() }.getOrNull()
+            ?: runCatching {
+                LocalDateTime.parse(normalized.substringBeforeLast('Z'))
+                    .atZone(zoneId)
+                    .toInstant()
+            }.getOrNull()
+    }
+
+    private fun triggerAtEpochMs(releaseDateIso: String, timezoneId: String): Long? = runCatching {
+        val zoneId = resolveZoneId(timezoneId)
         LocalDate.parse(releaseDateIso)
             .atTime(EpisodeReleaseNotificationHour, EpisodeReleaseNotificationMinute)
             .atZone(zoneId)

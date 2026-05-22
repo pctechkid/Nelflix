@@ -193,6 +193,8 @@ object EpisodeReleaseNotificationsRepository {
                 notificationTitle = target.name,
                 notificationBody = getString(Res.string.notifications_test_preview_body),
                 releaseDateIso = CurrentDateProvider.todayIsoDate(),
+                triggerAtEpochMs = TraktPlatformClock.nowEpochMs() + (testNotificationDelaySeconds * 1000L),
+                triggerTimeLabel = "Test notification",
                 deepLinkUrl = buildMetaDeepLinkUrl(type = target.type, id = target.id),
                 timezoneId = _uiState.value.timezoneId,
                 backdropUrl = target.banner ?: target.poster,
@@ -355,6 +357,7 @@ object EpisodeReleaseNotificationsRepository {
                     isLoading = false,
                     permissionGranted = permissionGranted,
                     scheduledCount = 0,
+                    expectedAlerts = emptyList(),
                     testTargetTitle = currentTestTarget()?.name,
                     errorMessage = if (_uiState.value.isEnabled && !permissionGranted) {
                         "System notifications are currently disabled for NELFLIX."
@@ -376,6 +379,7 @@ object EpisodeReleaseNotificationsRepository {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     scheduledCount = 0,
+                    expectedAlerts = emptyList(),
                     testTargetTitle = currentTestTarget()?.name,
                     errorMessage = null,
                 )
@@ -388,6 +392,7 @@ object EpisodeReleaseNotificationsRepository {
             }
 
             val semaphore = Semaphore(metadataFetchConcurrency)
+            val nowEpochMs = TraktPlatformClock.nowEpochMs()
             val requests = trackedShowsByKey.values.map { trackedShow ->
                 scope.async {
                     semaphore.withPermit {
@@ -395,6 +400,7 @@ object EpisodeReleaseNotificationsRepository {
                     }
                 }
             }.awaitAll().flatten()
+                .filter { request -> (request.triggerAtEpochMs ?: Long.MIN_VALUE) > nowEpochMs }
 
             runCatching {
                 EpisodeReleaseNotificationPlatform.scheduleEpisodeReleaseNotifications(requests)
@@ -406,6 +412,16 @@ object EpisodeReleaseNotificationsRepository {
                 isLoading = false,
                 permissionGranted = true,
                 scheduledCount = requests.size,
+                expectedAlerts = requests
+                    .sortedBy { it.triggerAtEpochMs ?: Long.MAX_VALUE }
+                    .map { request ->
+                        EpisodeReleaseAlertPreview(
+                            requestId = request.requestId,
+                            title = request.notificationTitle,
+                            body = request.notificationBody,
+                            triggerTimeLabel = request.triggerTimeLabel.orEmpty(),
+                        )
+                    },
                 testTargetTitle = currentTestTarget()?.name,
                 errorMessage = null,
             )
@@ -439,6 +455,10 @@ object EpisodeReleaseNotificationsRepository {
         val settings = _uiState.value
         return meta.videos.mapNotNull { episode ->
             val releaseDate = releaseDateIso(episode.released) ?: return@mapNotNull null
+            val triggerAtEpochMs = EpisodeReleaseNotificationPlatform.resolveReleaseTriggerEpochMs(
+                rawReleaseValue = episode.released,
+                timezoneId = settings.timezoneId,
+            ) ?: return@mapNotNull null
             if (releaseDate < trackedShow.followedOnIsoDate) return@mapNotNull null
             if (episode.season == null && episode.episode == null) return@mapNotNull null
             val episodeBody = buildEpisodeReleaseNotificationBody(
@@ -458,6 +478,11 @@ object EpisodeReleaseNotificationsRepository {
                 notificationTitle = showTitle,
                 notificationBody = episodeBody,
                 releaseDateIso = releaseDate,
+                triggerAtEpochMs = triggerAtEpochMs,
+                triggerTimeLabel = EpisodeReleaseNotificationPlatform.formatReleaseTriggerLabel(
+                    epochMs = triggerAtEpochMs,
+                    timezoneId = settings.timezoneId,
+                ),
                 deepLinkUrl = buildMetaDeepLinkUrl(
                     type = trackedShow.contentType,
                     id = trackedShow.contentId,

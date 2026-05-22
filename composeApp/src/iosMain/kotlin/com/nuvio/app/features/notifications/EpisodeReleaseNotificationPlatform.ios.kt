@@ -66,6 +66,16 @@ internal actual object EpisodeReleaseNotificationPlatform {
 
     actual fun availableTimezoneIds(): List<String> = listOf(DefaultEpisodeReleaseTimezoneId, "UTC")
 
+    actual fun resolveReleaseTriggerEpochMs(rawReleaseValue: String?, timezoneId: String): Long? {
+        val releaseDate = releaseDateIso(rawReleaseValue) ?: return null
+        val components = buildDateComponents(releaseDate) ?: return null
+        val date = NSCalendar.currentCalendar.dateFromComponents(components) ?: return null
+        return (date.timeIntervalSince1970 * 1000.0).toLong()
+    }
+
+    actual fun formatReleaseTriggerLabel(epochMs: Long, timezoneId: String): String =
+        NSDate(timeIntervalSince1970 = epochMs.toDouble() / 1000.0).description()
+
     actual suspend fun scheduleEpisodeReleaseNotifications(requests: List<EpisodeReleaseNotificationRequest>) {
         clearScheduledEpisodeReleaseNotifications()
 
@@ -73,15 +83,25 @@ internal actual object EpisodeReleaseNotificationPlatform {
         val scheduledIds = mutableListOf<String>()
 
         requests.forEach { request ->
-            val dateComponents = buildDateComponents(request.releaseDateIso) ?: return@forEach
-            val scheduledDate = NSCalendar.currentCalendar.dateFromComponents(dateComponents) ?: return@forEach
-            if (scheduledDate.timeIntervalSince1970 <= NSDate().timeIntervalSince1970) return@forEach
+            val triggerEpochMs = request.triggerAtEpochMs
+            val delaySeconds = triggerEpochMs?.let { (it / 1000.0) - NSDate().timeIntervalSince1970 }
+            if (delaySeconds != null && delaySeconds <= 0.0) return@forEach
 
             val content = buildNotificationContent(request)
-            val trigger = UNCalendarNotificationTrigger.triggerWithDateMatchingComponents(
-                dateComponents = dateComponents,
-                repeats = false,
-            )
+            val trigger = if (delaySeconds != null) {
+                UNTimeIntervalNotificationTrigger.triggerWithTimeInterval(
+                    timeInterval = delaySeconds,
+                    repeats = false,
+                )
+            } else {
+                val dateComponents = buildDateComponents(request.releaseDateIso) ?: return@forEach
+                val scheduledDate = NSCalendar.currentCalendar.dateFromComponents(dateComponents) ?: return@forEach
+                if (scheduledDate.timeIntervalSince1970 <= NSDate().timeIntervalSince1970) return@forEach
+                UNCalendarNotificationTrigger.triggerWithDateMatchingComponents(
+                    dateComponents = dateComponents,
+                    repeats = false,
+                )
+            }
             val notificationRequest = UNNotificationRequest.requestWithIdentifier(
                 identifier = request.requestId,
                 content = content,

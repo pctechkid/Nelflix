@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.notifications.DefaultEpisodeReleaseTimezoneId
+import com.nuvio.app.features.notifications.EpisodeReleaseAlertPreview
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsUiState
@@ -83,6 +84,14 @@ internal fun LazyListScope.notificationsSettingsContent(
     }
 
     item {
+        ExpectedReleaseAlertsSection(
+            isTablet = isTablet,
+            alerts = uiState.expectedAlerts,
+            isEnabled = uiState.isEnabled,
+        )
+    }
+
+    item {
         SettingsSection(
             title = stringResource(Res.string.settings_notifications_section_test),
             isTablet = isTablet,
@@ -92,6 +101,77 @@ internal fun LazyListScope.notificationsSettingsContent(
             )
         }
     }
+}
+
+@Composable
+private fun ExpectedReleaseAlertsSection(
+    isTablet: Boolean,
+    alerts: List<EpisodeReleaseAlertPreview>,
+    isEnabled: Boolean,
+) {
+    SettingsSection(
+        title = "EXPECTED RELEASE ALERTS",
+        isTablet = isTablet,
+    ) {
+        SettingsGroup(isTablet = isTablet) {
+            if (!isEnabled) {
+                ExpectedReleaseAlertMessage("Episode release alerts are disabled.")
+            } else if (alerts.isEmpty()) {
+                ExpectedReleaseAlertMessage("No upcoming release alerts are scheduled yet.")
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    alerts.take(20).forEach { alert ->
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Text(
+                                text = alert.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = alert.body,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = alert.triggerTimeLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                    if (alerts.size > 20) {
+                        Text(
+                            text = "+${alerts.size - 20} more",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpectedReleaseAlertMessage(text: String) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

@@ -234,7 +234,7 @@ private fun NuvioShelfSectionHeader(
                 Box(
                     modifier = Modifier
                         .width(5.dp)
-                        .height(30.dp)
+                        .height(24.dp)
                         .background(
                             color = NetflixAccentRed,
                             shape = RoundedCornerShape(1.dp),

@@ -20,8 +20,16 @@ data class EpisodeReleaseNotificationsUiState(
     val testTargetTitle: String? = null,
     val isSendingTest: Boolean = false,
     val timezoneId: String = DefaultEpisodeReleaseTimezoneId,
+    val expectedAlerts: List<EpisodeReleaseAlertPreview> = emptyList(),
     val statusMessage: String? = null,
     val errorMessage: String? = null,
+)
+
+data class EpisodeReleaseAlertPreview(
+    val requestId: String,
+    val title: String,
+    val body: String,
+    val triggerTimeLabel: String,
 )
 
 @Serializable
@@ -43,6 +51,8 @@ internal data class EpisodeReleaseNotificationRequest(
     val notificationTitle: String,
     val notificationBody: String,
     val releaseDateIso: String,
+    val triggerAtEpochMs: Long? = null,
+    val triggerTimeLabel: String? = null,
     val deepLinkUrl: String,
     val timezoneId: String = "",
     val backdropUrl: String? = null,
