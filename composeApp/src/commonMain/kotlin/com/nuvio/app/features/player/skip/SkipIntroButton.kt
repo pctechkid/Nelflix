@@ -93,13 +93,13 @@ fun SkipIntroButton(
         exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.8f),
         modifier = modifier,
     ) {
-        val shape = RoundedCornerShape(4.dp)
+        val shape = RoundedCornerShape(5.dp)
         Box(
             modifier = Modifier
                 .width(IntrinsicSize.Max)
                 .clip(shape)
                 .background(Color.Transparent)
-                .border(width = 2.dp, color = Color.White, shape = shape)
+                .border(width = 1.25.dp, color = Color.White, shape = shape)
                 .clickable { onSkip() },
         ) {
             Row(

@@ -104,6 +104,19 @@ private val appUpdaterJson = Json {
     isLenient = true
 }
 
+private fun sanitizeReleaseNotes(notes: String): String {
+    val trimmed = notes.trim()
+    if (trimmed.isEmpty()) return trimmed
+    val filtered = trimmed.lineSequence()
+        .dropWhile { line ->
+            val normalized = line.trim()
+            normalized.isBlank() || normalized == "Nelflix debug APK update."
+        }
+        .joinToString("\n")
+        .trim()
+    return filtered.ifBlank { trimmed }
+}
+
 private class NoDebugApkReleaseException : IllegalStateException(
     "No GitHub release with a debug APK asset has been published yet.",
 )
@@ -175,7 +188,7 @@ private object AppUpdaterRepository {
         AppUpdate(
             tag = tag,
             title = release.name?.takeIf { it.isNotBlank() } ?: tag,
-            notes = release.body.orEmpty(),
+            notes = sanitizeReleaseNotes(release.body.orEmpty()),
             releaseUrl = release.htmlUrl,
             assetName = asset.name,
             assetUrl = asset.browserDownloadUrl,
@@ -529,7 +542,7 @@ fun AppUpdaterHost(
                         if (update.notes.isNotBlank()) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
-                                    text = stringResource(Res.string.updates_release_notes),
+                                    text = "What's new?",
                                     style = MaterialTheme.typography.titleSmall,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = FontWeight.Medium,

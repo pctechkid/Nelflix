@@ -429,7 +429,7 @@ private fun ContinueWatchingLandscapeCard(
                     ),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontSize = layout.wideMetaSize * 0.78f,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Normal,
                         lineHeight = layout.wideMetaSize * 0.9f,
                     ),
                     color = Color.White,
