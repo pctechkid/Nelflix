@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -262,6 +263,9 @@ object HomeRepository {
             return copy(
                 banner = cached.background ?: banner,
                 logo = cached.logo ?: logo,
+                releaseInfo = cached.releaseInfo ?: releaseInfo,
+                rawReleaseDate = cached.released ?: rawReleaseDate,
+                genres = cached.genres.ifEmpty { genres },
             )
         }
         if (aiometadataVisualsCacheMutex.withLock { aiometadataVisualsCache.containsKey(cacheKey) }) {
@@ -270,7 +274,13 @@ object HomeRepository {
 
         val visuals = withTimeoutOrNull(AIOMETADATA_VISUAL_FETCH_TIMEOUT_MS) {
             fetchAiometadataVisuals(type = normalizedType, id = id)
-        }?.takeIf { it.logo != null || it.background != null }
+        }?.takeIf {
+            it.logo != null ||
+                it.background != null ||
+                it.releaseInfo != null ||
+                it.released != null ||
+                it.genres.isNotEmpty()
+        }
 
         aiometadataVisualsCacheMutex.withLock {
             aiometadataVisualsCache[cacheKey] = visuals
@@ -280,6 +290,9 @@ object HomeRepository {
             copy(
                 banner = visuals.background ?: banner,
                 logo = visuals.logo ?: logo,
+                releaseInfo = visuals.releaseInfo ?: releaseInfo,
+                rawReleaseDate = visuals.released ?: rawReleaseDate,
+                genres = visuals.genres.ifEmpty { genres },
             )
         } else {
             this
@@ -302,6 +315,9 @@ object HomeRepository {
             AiometadataVisuals(
                 logo = meta.string("logo"),
                 background = meta.string("background") ?: meta.string("banner"),
+                releaseInfo = meta.string("releaseInfo"),
+                released = meta.string("released"),
+                genres = meta.stringList("genres"),
             )
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -313,10 +329,20 @@ object HomeRepository {
 private data class AiometadataVisuals(
     val logo: String?,
     val background: String?,
+    val releaseInfo: String?,
+    val released: String?,
+    val genres: List<String>,
 )
 
 private fun JsonObject.string(name: String): String? =
     this[name]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotBlank)
+
+private fun JsonObject.stringList(name: String): List<String> =
+    (this[name] as? JsonArray)
+        ?.mapNotNull { element ->
+            element.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank)
+        }
+        .orEmpty()
 
 private const val HOME_HERO_ITEM_LIMIT = 8
 private const val HOME_CATALOG_FETCH_BATCH_SIZE = 4
