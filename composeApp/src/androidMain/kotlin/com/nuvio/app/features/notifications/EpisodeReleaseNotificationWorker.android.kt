@@ -13,6 +13,8 @@ class EpisodeReleaseNotificationWorker(
 
     @SuppressLint("MissingPermission")
     override suspend fun doWork(): Result {
+        EpisodeReleaseNotificationPlatform.initialize(applicationContext)
+
         if (!EpisodeReleaseNotificationPlatform.notificationsAuthorized()) {
             return Result.success()
         }

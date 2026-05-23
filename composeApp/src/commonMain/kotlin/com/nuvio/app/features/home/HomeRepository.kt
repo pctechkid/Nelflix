@@ -1,24 +1,39 @@
 package com.nuvio.app.features.home
 
 import com.nuvio.app.features.addons.ManagedAddon
+import com.nuvio.app.features.addons.buildAddonResourceUrl
+import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.catalog.fetchCatalogPage
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.math.absoluteValue
 import kotlin.random.Random
 
 object HomeRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val aiometadataVisualsJson = Json { ignoreUnknownKeys = true }
+    private val aiometadataVisualsCacheMutex = Mutex()
+    private val aiometadataVisualsCache = mutableMapOf<String, AiometadataVisuals?>()
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -198,7 +213,7 @@ object HomeRepository {
             catalogId = catalogId,
             maxItems = HOME_CATALOG_PREVIEW_FETCH_LIMIT,
         )
-        val items = page.items
+        val items = page.items.withAiometadataVisuals()
         if (items.isEmpty()) {
             return HomeCatalogSection(
                 key = key,
@@ -227,12 +242,89 @@ object HomeRepository {
             supportsPagination = supportsPagination,
         )
     }
+
+    private suspend fun List<MetaPreview>.withAiometadataVisuals(): List<MetaPreview> = coroutineScope {
+        map { item ->
+            async { item.withAiometadataVisuals() }
+        }.awaitAll()
+    }
+
+    private suspend fun MetaPreview.withAiometadataVisuals(): MetaPreview {
+        val normalizedType = type.trim().lowercase()
+        if (normalizedType != "movie" && normalizedType != "series") return this
+        if (id.isBlank()) return this
+
+        val cacheKey = "$normalizedType:$id"
+        val cached = aiometadataVisualsCacheMutex.withLock {
+            if (aiometadataVisualsCache.containsKey(cacheKey)) aiometadataVisualsCache[cacheKey] else null
+        }
+        if (cached != null) {
+            return copy(
+                banner = cached.background ?: banner,
+                logo = cached.logo ?: logo,
+            )
+        }
+        if (aiometadataVisualsCacheMutex.withLock { aiometadataVisualsCache.containsKey(cacheKey) }) {
+            return this
+        }
+
+        val visuals = withTimeoutOrNull(AIOMETADATA_VISUAL_FETCH_TIMEOUT_MS) {
+            fetchAiometadataVisuals(type = normalizedType, id = id)
+        }?.takeIf { it.logo != null || it.background != null }
+
+        aiometadataVisualsCacheMutex.withLock {
+            aiometadataVisualsCache[cacheKey] = visuals
+        }
+
+        return if (visuals != null) {
+            copy(
+                banner = visuals.background ?: banner,
+                logo = visuals.logo ?: logo,
+            )
+        } else {
+            this
+        }
+    }
+
+    private suspend fun fetchAiometadataVisuals(type: String, id: String): AiometadataVisuals? {
+        val url = buildAddonResourceUrl(
+            manifestUrl = AIOMETADATA_MANIFEST_URL,
+            resource = "meta",
+            type = type,
+            id = id,
+        )
+        return try {
+            val payload = httpGetText(url)
+            val root = aiometadataVisualsJson.parseToJsonElement(payload).jsonObject
+            val meta = root["meta"] as? JsonObject
+                ?: (root["data"] as? JsonObject)?.get("meta") as? JsonObject
+                ?: root
+            AiometadataVisuals(
+                logo = meta.string("logo"),
+                background = meta.string("background") ?: meta.string("banner"),
+            )
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            null
+        }
+    }
 }
+
+private data class AiometadataVisuals(
+    val logo: String?,
+    val background: String?,
+)
+
+private fun JsonObject.string(name: String): String? =
+    this[name]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotBlank)
 
 private const val HOME_HERO_ITEM_LIMIT = 8
 private const val HOME_CATALOG_FETCH_BATCH_SIZE = 4
 private const val HOME_CATALOG_PREVIEW_FETCH_LIMIT = 18
 private const val HOME_CATALOG_PUBLISH_INTERVAL = 2
+private const val AIOMETADATA_VISUAL_FETCH_TIMEOUT_MS = 2_500L
+private const val AIOMETADATA_MANIFEST_URL =
+    "https://aiometadata.home.kg/stremio/02253c19-8905-4cee-a5db-8c894551a50a/manifest.json"
 
 private fun prioritizeDefinitions(
     definitions: List<HomeCatalogDefinition>,

@@ -200,10 +200,15 @@ object PlayerSettingsRepository {
         decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
         mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
         tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
-        mpvHardwareDecodingEnabled = PlayerSettingsStorage.loadMpvHardwareDecodingEnabled() ?: true
+        mpvHardwareDecodingEnabled = true
+        PlayerSettingsStorage.saveMpvHardwareDecodingEnabled(true)
         mpvFontsDirectoryUri = PlayerSettingsStorage.loadMpvFontsDirectoryUri()
         mpvConfigDirectoryUri = PlayerSettingsStorage.loadMpvConfigDirectoryUri()
-        mpvConf = PlayerSettingsStorage.loadMpvConf() ?: DefaultMpvConf
+        val storedMpvConf = PlayerSettingsStorage.loadMpvConf()
+        mpvConf = storedMpvConf?.takeIf { it.isNotBlank() } ?: DefaultMpvConf
+        if (storedMpvConf.isNullOrBlank()) {
+            PlayerSettingsStorage.saveMpvConf(DefaultMpvConf)
+        }
         mpvInputConf = PlayerSettingsStorage.loadMpvInputConf() ?: ""
         mpvDemuxerMaxBytesMiB = PlayerSettingsStorage.loadMpvDemuxerMaxBytesMiB()
             ?.coerceIn(128, 4096)

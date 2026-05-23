@@ -5,6 +5,8 @@ actual object AppUpdaterPlatform {
 
     actual fun getSupportedAbis(): List<String> = emptyList()
 
+    actual fun getInstalledAppInfo(): InstalledAppInfo? = null
+
     actual fun getIgnoredTag(): String? = null
 
     actual fun setIgnoredTag(tag: String?) = Unit
@@ -12,6 +14,7 @@ actual object AppUpdaterPlatform {
     actual suspend fun downloadApk(
         assetUrl: String,
         assetName: String,
+        releaseTag: String,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
     ): Result<String> = Result.failure(IllegalStateException("In-app updates are unavailable on this build."))
 
@@ -19,6 +22,6 @@ actual object AppUpdaterPlatform {
 
     actual fun openUnknownSourcesSettings() = Unit
 
-    actual fun installDownloadedApk(path: String): Result<Unit> =
+    actual fun installDownloadedApk(path: String, expectedVersionName: String): Result<Unit> =
         Result.failure(IllegalStateException("In-app updates are unavailable on this build."))
 }

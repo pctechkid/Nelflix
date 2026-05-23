@@ -27,17 +27,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
-private const val SUBTITLE_SYNC_STEP_MS = 50L
+private const val SUBTITLE_SYNC_STEP_MS = 500L
+private const val SUBTITLE_SYNC_REPEAT_DELAY_MS = 320L
+private const val SUBTITLE_SYNC_REPEAT_INTERVAL_MS = 120L
 
 @Composable
 internal fun SubtitleSyncOverlay(
@@ -55,16 +69,16 @@ internal fun SubtitleSyncOverlay(
     ) {
         Column(
             modifier = Modifier
-                .widthIn(min = 320.dp, max = 430.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .widthIn(min = 276.dp, max = 360.dp)
+                .clip(RoundedCornerShape(12.dp))
                 .background(Color.Black.copy(alpha = 0.62f))
-                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(12.dp))
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
                     onClick = {},
                 )
-                .padding(horizontal = 18.dp, vertical = 16.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -74,7 +88,7 @@ internal fun SubtitleSyncOverlay(
                 Text(
                     text = "Subtitle sync",
                     color = Color.White,
-                    fontSize = 21.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 RoundIconButton(
@@ -84,27 +98,28 @@ internal fun SubtitleSyncOverlay(
                 )
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RoundIconButton(
                     icon = Icons.Rounded.Remove,
                     contentDescription = "Decrease subtitle delay",
                     onClick = { onDelayChanged(delayMs - SUBTITLE_SYNC_STEP_MS) },
+                    onLongPressStep = { onDelayChanged(delayMs - SUBTITLE_SYNC_STEP_MS) },
                 )
 
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .height(58.dp)
+                        .height(48.dp)
                         .clip(RoundedCornerShape(5.dp))
                         .border(1.dp, Color.White.copy(alpha = 0.32f), RoundedCornerShape(5.dp))
                         .background(Color.Black.copy(alpha = 0.12f))
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -118,14 +133,14 @@ internal fun SubtitleSyncOverlay(
                         Text(
                             text = delayMs.formatSubtitleDelay(),
                             color = Color.White,
-                            fontSize = 18.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
                         )
                     }
                     Text(
                         text = "ms",
                         color = Color.White.copy(alpha = 0.72f),
-                        fontSize = 16.sp,
+                        fontSize = 14.sp,
                     )
                 }
 
@@ -133,10 +148,11 @@ internal fun SubtitleSyncOverlay(
                     icon = Icons.Rounded.Add,
                     contentDescription = "Increase subtitle delay",
                     onClick = { onDelayChanged(delayMs + SUBTITLE_SYNC_STEP_MS) },
+                    onLongPressStep = { onDelayChanged(delayMs + SUBTITLE_SYNC_STEP_MS) },
                 )
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
 
             Text(
                 text = "Reset",
@@ -148,7 +164,7 @@ internal fun SubtitleSyncOverlay(
                     .clip(RoundedCornerShape(40.dp))
                     .background(MaterialTheme.colorScheme.primaryContainer)
                     .clickable { onDelayChanged(0L) }
-                    .padding(vertical = 12.dp),
+                    .padding(vertical = 9.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
         }
@@ -160,7 +176,18 @@ private fun RoundIconButton(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
+    onLongPressStep: (() -> Unit)? = null,
 ) {
+    val scope = rememberCoroutineScope()
+    var repeatJob by remember { androidx.compose.runtime.mutableStateOf<Job?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            repeatJob?.cancel()
+            repeatJob = null
+        }
+    }
+
     Icon(
         imageVector = icon,
         contentDescription = contentDescription,
@@ -169,7 +196,36 @@ private fun RoundIconButton(
             .size(30.dp)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.18f))
-            .clickable(onClick = onClick)
+            .pointerInput(onClick, onLongPressStep) {
+                if (onLongPressStep == null) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        onClick()
+                        waitForUpOrCancellation()
+                    }
+                } else {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        onClick()
+                        val job = scope.launch {
+                            delay(SUBTITLE_SYNC_REPEAT_DELAY_MS)
+                            while (isActive) {
+                                onLongPressStep()
+                                delay(SUBTITLE_SYNC_REPEAT_INTERVAL_MS)
+                            }
+                        }
+                        repeatJob = job
+                        try {
+                            waitForUpOrCancellation()
+                        } finally {
+                            job.cancel()
+                            if (repeatJob === job) {
+                                repeatJob = null
+                            }
+                        }
+                    }
+                }
+            }
             .padding(5.dp),
     )
 }

@@ -3,6 +3,7 @@ package com.nuvio.app.features.settings
 import com.nuvio.app.core.build.AppFeaturePolicy
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -43,7 +45,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,12 +79,14 @@ import com.nuvio.app.features.tmdb.TmdbSettingsRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesUiState
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.app_logo_wordmark
 import nuvio.composeapp.generated.resources.compose_settings_page_root
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 private val SettingsSearchRevealThreshold = 28.dp
@@ -466,40 +469,49 @@ private fun MobileSettingsScreen(
         ) {
             stickyHeader {
                 val previousPage = page.previousPage()
-                NuvioScreenHeader(
-                    title = stringResource(page.titleRes),
-                    onBack = previousPage?.let { { onPageChange(it) } },
-                )
+                if (page == SettingsPage.Root) {
+                    SettingsWordmarkHeader()
+                } else {
+                    NuvioScreenHeader(
+                        title = stringResource(page.titleRes),
+                        onBack = previousPage?.let { { onPageChange(it) } },
+                    )
+                }
             }
 
             when (page) {
                 SettingsPage.Root -> {
+                    settingsRootContent(
+                        isTablet = false,
+                        onPlaybackClick = { onPageChange(SettingsPage.Playback) },
+                        onAppearanceClick = { onPageChange(SettingsPage.Appearance) },
+                        onNotificationsClick = { onPageChange(SettingsPage.Notifications) },
+                        onContentDiscoveryClick = { onPageChange(SettingsPage.ContentDiscovery) },
+                        onIntegrationsClick = { onPageChange(SettingsPage.Integrations) },
+                        onTraktClick = { onPageChange(SettingsPage.TraktAuthentication) },
+                        onSupportersContributorsClick = onSupportersContributorsClick,
+                        onLicensesAttributionsClick = onLicensesAttributionsClick,
+                        onCheckForUpdatesClick = onCheckForUpdatesClick,
+                        onDownloadsClick = onDownloadsClick,
+                        onAccountClick = onAccountClick,
+                        onSwitchProfileClick = onSwitchProfile,
+                        showSections = settingsSearchQuery.isBlank(),
+                        searchContent = {
+                            SettingsSearchField(
+                                query = settingsSearchQuery,
+                                onQueryChange = { settingsSearchQuery = it },
+                            )
+                        },
+                    )
                     settingsSearchRootContent(
                         query = settingsSearchQuery,
                         entries = searchEntries,
                         isTablet = false,
-                        showSearchField = rootSearchVisible,
+                        showSearchField = false,
                         animateSearchField = rootSearchRevealAnimating,
                         onQueryChange = { settingsSearchQuery = it },
                         onTargetClick = { openSearchTarget(it) },
                     )
-                    if (settingsSearchQuery.isBlank()) {
-                        settingsRootContent(
-                            isTablet = false,
-                            onPlaybackClick = { onPageChange(SettingsPage.Playback) },
-                            onAppearanceClick = { onPageChange(SettingsPage.Appearance) },
-                            onNotificationsClick = { onPageChange(SettingsPage.Notifications) },
-                            onContentDiscoveryClick = { onPageChange(SettingsPage.ContentDiscovery) },
-                            onIntegrationsClick = { onPageChange(SettingsPage.Integrations) },
-                            onTraktClick = { onPageChange(SettingsPage.TraktAuthentication) },
-                            onSupportersContributorsClick = onSupportersContributorsClick,
-                            onLicensesAttributionsClick = onLicensesAttributionsClick,
-                            onCheckForUpdatesClick = onCheckForUpdatesClick,
-                            onDownloadsClick = onDownloadsClick,
-                            onAccountClick = onAccountClick,
-                            onSwitchProfileClick = onSwitchProfile,
-                        )
-                    }
                 }
                 SettingsPage.Account -> accountSettingsContent(
                     isTablet = false,
@@ -609,6 +621,26 @@ private fun MobileSettingsScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsWordmarkHeader() {
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(top = statusBarTop, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            painter = painterResource(Res.drawable.app_logo_wordmark),
+            contentDescription = null,
+            modifier = Modifier
+                .height(30.dp)
+                .padding(start = 4.dp),
+        )
     }
 }
 
@@ -736,15 +768,14 @@ private fun TabletSettingsScreen(
                     .fillMaxSize()
                     .padding(top = topOffset),
             ) {
-                Text(
-                    text = stringResource(Res.string.compose_settings_page_root),
+                Image(
+                    painter = painterResource(Res.drawable.app_logo_wordmark),
+                    contentDescription = null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
+                        .height(34.dp)
                         .padding(bottom = 20.dp),
-                    style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -845,35 +876,40 @@ private fun TabletSettingsScreen(
                 }
                 when (page) {
                     SettingsPage.Root -> {
+                        settingsRootContent(
+                            isTablet = true,
+                            onPlaybackClick = { openInlinePage(SettingsPage.Playback) },
+                            onAppearanceClick = { openInlinePage(SettingsPage.Appearance) },
+                            onNotificationsClick = { openInlinePage(SettingsPage.Notifications) },
+                            onContentDiscoveryClick = { openInlinePage(SettingsPage.ContentDiscovery) },
+                            onIntegrationsClick = { openInlinePage(SettingsPage.Integrations) },
+                            onTraktClick = { openInlinePage(SettingsPage.TraktAuthentication) },
+                            onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
+                            onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
+                            onCheckForUpdatesClick = onCheckForUpdatesClick,
+                            onDownloadsClick = onDownloadsClick,
+                            onAccountClick = { openInlinePage(SettingsPage.Account) },
+                            onSwitchProfileClick = onSwitchProfile,
+                            showAccountSection = activeCategory == SettingsCategory.Account,
+                            showGeneralSection = activeCategory == SettingsCategory.General,
+                            showAboutSection = activeCategory == SettingsCategory.About,
+                            showSections = settingsSearchQuery.isBlank(),
+                            searchContent = {
+                                SettingsSearchField(
+                                    query = settingsSearchQuery,
+                                    onQueryChange = { settingsSearchQuery = it },
+                                )
+                            },
+                        )
                         settingsSearchRootContent(
                             query = settingsSearchQuery,
                             entries = searchEntries,
                             isTablet = true,
-                            showSearchField = rootSearchVisible,
+                            showSearchField = false,
                             animateSearchField = rootSearchRevealAnimating,
                             onQueryChange = { settingsSearchQuery = it },
                             onTargetClick = { openSearchTarget(it) },
                         )
-                        if (settingsSearchQuery.isBlank()) {
-                            settingsRootContent(
-                                isTablet = true,
-                                onPlaybackClick = { openInlinePage(SettingsPage.Playback) },
-                                onAppearanceClick = { openInlinePage(SettingsPage.Appearance) },
-                                onNotificationsClick = { openInlinePage(SettingsPage.Notifications) },
-                                onContentDiscoveryClick = { openInlinePage(SettingsPage.ContentDiscovery) },
-                                onIntegrationsClick = { openInlinePage(SettingsPage.Integrations) },
-                                onTraktClick = { openInlinePage(SettingsPage.TraktAuthentication) },
-                                onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
-                                onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
-                                onCheckForUpdatesClick = onCheckForUpdatesClick,
-                                onDownloadsClick = onDownloadsClick,
-                                onAccountClick = { openInlinePage(SettingsPage.Account) },
-                                onSwitchProfileClick = onSwitchProfile,
-                                showAccountSection = activeCategory == SettingsCategory.Account,
-                                showGeneralSection = activeCategory == SettingsCategory.General,
-                                showAboutSection = activeCategory == SettingsCategory.About,
-                            )
-                        }
                     }
                     SettingsPage.Account -> accountSettingsContent(
                         isTablet = true,

@@ -11,6 +11,7 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,6 +24,7 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.settings.SettingsGroup
 import com.nuvio.app.features.settings.SettingsNavigationRow
+import com.nuvio.app.features.settings.SettingsSection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -252,20 +254,26 @@ internal actual fun PlatformDownloadFolderRow() {
         }
     }
 
-    SettingsGroup(isTablet = false) {
-        SettingsNavigationRow(
-            title = "Download Folder",
-            description = DownloadsPlatformDownloader.downloadFolderLabel(uiState.downloadFolderUri),
-            isTablet = false,
-            onClick = { picker.launch(uiState.downloadFolderUri?.toUri()) },
-            trailingContent = {
-                if (!uiState.downloadFolderUri.isNullOrBlank()) {
-                    IconButton(onClick = { DownloadsRepository.setDownloadFolderUri(null) }) {
-                        Icon(imageVector = Icons.Rounded.Close, contentDescription = "Use default Downloads folder")
+    SettingsSection(
+        title = "Storage",
+        isTablet = false,
+    ) {
+        SettingsGroup(isTablet = false) {
+            SettingsNavigationRow(
+                title = "Download Folder",
+                description = DownloadsPlatformDownloader.downloadFolderLabel(uiState.downloadFolderUri),
+                icon = Icons.Rounded.CloudDownload,
+                isTablet = false,
+                onClick = { picker.launch(uiState.downloadFolderUri?.toUri()) },
+                trailingContent = {
+                    if (!uiState.downloadFolderUri.isNullOrBlank()) {
+                        IconButton(onClick = { DownloadsRepository.setDownloadFolderUri(null) }) {
+                            Icon(imageVector = Icons.Rounded.Close, contentDescription = "Use default Downloads folder")
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        }
     }
 }
 

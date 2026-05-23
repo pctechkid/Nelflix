@@ -54,7 +54,8 @@ object ThemeSettingsRepository {
         }
         _selectedTheme.value = theme
         NativeTabBridge.publishAccentColor(theme.nativeTabAccentHex())
-        _amoledEnabled.value = ThemeSettingsStorage.loadAmoledEnabled() ?: true
+        _amoledEnabled.value = true
+        ThemeSettingsStorage.saveAmoledEnabled(true)
         val liquidGlassEnabled = ThemeSettingsStorage.loadLiquidGlassNativeTabBarEnabled() ?: false
         _liquidGlassNativeTabBarEnabled.value = liquidGlassEnabled
         NativeTabBridge.publishLiquidGlassEnabled(liquidGlassEnabled)
@@ -73,9 +74,9 @@ object ThemeSettingsRepository {
 
     fun setAmoled(enabled: Boolean) {
         ensureLoaded()
-        if (_amoledEnabled.value == enabled) return
-        _amoledEnabled.value = enabled
-        ThemeSettingsStorage.saveAmoledEnabled(enabled)
+        if (_amoledEnabled.value == true) return
+        _amoledEnabled.value = true
+        ThemeSettingsStorage.saveAmoledEnabled(true)
     }
 
     fun setLiquidGlassNativeTabBar(enabled: Boolean) {

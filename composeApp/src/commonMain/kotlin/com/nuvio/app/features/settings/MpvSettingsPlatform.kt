@@ -13,6 +13,8 @@ internal expect fun platformMpvDirectoryLabel(uri: String?): String
 
 internal expect fun clearCachedMpvConfigurations()
 
+internal expect fun restoreDefaultMpvConfigurations()
+
 internal expect fun clearCachedMpvFonts()
 
 internal expect fun readExternalMpvConfigFile(configDirectoryUri: String?, fileName: String): String?

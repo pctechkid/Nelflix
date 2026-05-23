@@ -116,15 +116,7 @@ internal fun LazyListScope.appearanceSettingsContent(
             isTablet = isTablet,
         ) {
             SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_appearance_amoled_black),
-                    description = stringResource(Res.string.settings_appearance_amoled_description),
-                    checked = amoledEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = onAmoledToggle,
-                )
                 if (liquidGlassNativeTabBarSupported) {
-                    SettingsGroupDivider(isTablet = isTablet)
                     SettingsSwitchRow(
                         title = stringResource(Res.string.settings_appearance_liquid_glass),
                         description = stringResource(Res.string.settings_appearance_liquid_glass_description),
@@ -132,8 +124,8 @@ internal fun LazyListScope.appearanceSettingsContent(
                         isTablet = isTablet,
                         onCheckedChange = onLiquidGlassNativeTabBarToggle,
                     )
+                    SettingsGroupDivider(isTablet = isTablet)
                 }
-                SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.settings_appearance_app_language),
                     description = stringResource(selectedAppLanguage.labelRes),
@@ -153,31 +145,6 @@ internal fun LazyListScope.appearanceSettingsContent(
                 },
                 onDismiss = { showLanguageSheet = false },
             )
-        }
-    }
-
-    item {
-        SettingsSection(
-            title = stringResource(Res.string.settings_appearance_section_home),
-            isTablet = isTablet,
-        ) {
-            SettingsGroup(isTablet = isTablet) {
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.compose_settings_page_continue_watching),
-                    description = stringResource(Res.string.settings_appearance_continue_watching_description),
-                    icon = Icons.Rounded.Style,
-                    isTablet = isTablet,
-                    onClick = onContinueWatchingClick,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.compose_settings_page_poster_customization),
-                    description = stringResource(Res.string.settings_appearance_poster_customization_description),
-                    icon = Icons.Rounded.Tune,
-                    isTablet = isTablet,
-                    onClick = onPosterCustomizationClick,
-                )
-            }
         }
     }
 }

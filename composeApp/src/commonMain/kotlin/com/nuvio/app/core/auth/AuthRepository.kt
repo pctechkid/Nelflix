@@ -108,15 +108,16 @@ object AuthRepository {
     suspend fun signOut(): Result<Unit> = runCatching {
         _error.value = null
         val wasAnonymous = AuthStorage.loadAnonymousUserId() != null
-        AuthStorage.clearAnonymousUserId()
         if (!wasAnonymous) {
             SupabaseProvider.client.auth.signOut()
         }
-        _state.value = AuthState.Unauthenticated
-        LocalAccountDataCleaner.wipe()
     }.onFailure { e ->
         log.e(e) { "Sign-out failed" }
         _error.value = e.toFriendlyAuthError(getString(Res.string.auth_sign_out_failed))
+    }.also {
+        AuthStorage.clearAnonymousUserId()
+        _state.value = AuthState.Unauthenticated
+        LocalAccountDataCleaner.wipe()
     }
 
     suspend fun deleteAccount(): Result<Unit> = runCatching {

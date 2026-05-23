@@ -27,6 +27,9 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
 object MetaDetailsRepository {
+    private const val aiometadataManifestUrl =
+        "https://aiometadata.home.kg/stremio/02253c19-8905-4cee-a5db-8c894551a50a/manifest.json"
+
     private data class CachedMetaEntry(
         val baseMeta: MetaDetails,
         val metaScreenMeta: MetaDetails? = null,
@@ -204,6 +207,41 @@ object MetaDetailsRepository {
         }
     }
 
+    suspend fun fetchNotificationReleaseMeta(type: String, id: String): MetaDetails? {
+        val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
+        val aiometadataManifest = AddonRepository.uiState.value.addons
+            .mapNotNull { it.manifest }
+            .firstOrNull { manifest ->
+                manifest.transportUrl.substringBefore("?")
+                    .equals(aiometadataManifestUrl, ignoreCase = true)
+            }
+        val manifests = buildList {
+            aiometadataManifest?.let(::add)
+            addAll(
+                findMetaManifests(type = type, id = metaLookupId)
+                    .filterNot { manifest ->
+                        manifest.transportUrl.substringBefore("?")
+                            .equals(aiometadataManifestUrl, ignoreCase = true)
+                    },
+            )
+        }
+
+        for (manifest in manifests) {
+            val result = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
+                tryFetchMeta(
+                    manifest = manifest,
+                    type = type,
+                    id = metaLookupId,
+                    includeMdbList = false,
+                    enrichWithTmdb = false,
+                )
+            }
+            if (result != null) return result
+        }
+
+        return null
+    }
+
     private const val FETCH_TIMEOUT_MS = 5_000L
     private const val TMDB_ENRICH_TIMEOUT_MS = 5_000L
     private const val MDBLIST_ENRICH_TIMEOUT_MS = 5_000L
@@ -213,6 +251,7 @@ object MetaDetailsRepository {
         type: String,
         id: String,
         includeMdbList: Boolean,
+        enrichWithTmdb: Boolean = true,
     ): MetaDetails? {
         val url = buildAddonResourceUrl(
             manifestUrl = manifest.transportUrl,
@@ -227,13 +266,17 @@ object MetaDetailsRepository {
             val payload = httpGetText(url)
             log.d { "Raw payload length=${payload.length}, first 500 chars: ${payload.take(500)}" }
             val result = MetaDetailsParser.parse(payload)
-            val tmdbEnriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
-                TmdbMetadataService.enrichMeta(
-                    meta = result,
-                    fallbackItemId = id,
-                    settings = TmdbSettingsRepository.snapshot(),
-                )
-            } ?: result
+            val tmdbEnriched = if (enrichWithTmdb) {
+                withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
+                    TmdbMetadataService.enrichMeta(
+                        meta = result,
+                        fallbackItemId = id,
+                        settings = TmdbSettingsRepository.snapshot(),
+                    )
+                } ?: result
+            } else {
+                result
+            }
             val enriched = if (includeMdbList) {
                 MdbListSettingsRepository.ensureLoaded()
                 withTimeoutOrNull(MDBLIST_ENRICH_TIMEOUT_MS) {
@@ -246,12 +289,17 @@ object MetaDetailsRepository {
             } else {
                 tmdbEnriched
             }
-            log.d { "Parsed meta: type=${enriched.type}, name=${enriched.name}, videos=${enriched.videos.size}" }
-            if (enriched.videos.isNotEmpty()) {
-                val first = enriched.videos.first()
+            val logoPreferred = preferAiometadataLogo(
+                meta = enriched,
+                fallbackItemId = id,
+                manifest = manifest,
+            )
+            log.d { "Parsed meta: type=${logoPreferred.type}, name=${logoPreferred.name}, videos=${logoPreferred.videos.size}" }
+            if (logoPreferred.videos.isNotEmpty()) {
+                val first = logoPreferred.videos.first()
                 log.d { "First video: id=${first.id} title=${first.title} s=${first.season} e=${first.episode} embeddedStreams=${first.streams.size}" }
             }
-            enriched
+            logoPreferred
         } catch (e: Throwable) {
             if (e is CancellationException) throw e
             log.e(e) { "Failed to fetch/parse meta from $url (manifest=${manifest.transportUrl})" }
@@ -292,7 +340,42 @@ object MetaDetailsRepository {
                 id = id,
                 settings = TmdbSettingsRepository.snapshot(),
             )
+        }?.let { meta ->
+            preferAiometadataLogo(meta = meta, fallbackItemId = id, manifest = null)
         }
+
+    private suspend fun preferAiometadataLogo(
+        meta: MetaDetails,
+        fallbackItemId: String,
+        manifest: AddonManifest?,
+    ): MetaDetails {
+        if (manifest?.transportUrl?.substringBefore("?")?.equals(aiometadataManifestUrl, ignoreCase = true) == true) {
+            return meta
+        }
+        val normalizedType = meta.type.trim().lowercase()
+        if (normalizedType != "movie" && normalizedType != "series") return meta
+        val lookupId = meta.id.takeIf { it.isNotBlank() } ?: fallbackItemId
+        val aiometadataMeta = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
+            tryFetchAiometadataMeta(type = normalizedType, id = lookupId)
+        }
+        val logo = aiometadataMeta?.logo?.trim()?.takeIf(String::isNotBlank)
+        return if (logo != null) meta.copy(logo = logo) else meta
+    }
+
+    private suspend fun tryFetchAiometadataMeta(type: String, id: String): MetaDetails? {
+        val url = buildAddonResourceUrl(
+            manifestUrl = aiometadataManifestUrl,
+            resource = "meta",
+            type = type,
+            id = id,
+        )
+        return try {
+            MetaDetailsParser.parse(httpGetText(url))
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            null
+        }
+    }
 
     private suspend fun publishLoadedMeta(
         requestKey: String,

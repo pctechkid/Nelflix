@@ -11,6 +11,7 @@ data class MetaDetails(
     val background: String? = null,
     val logo: String? = null,
     val description: String? = null,
+    val released: String? = null,
     val releaseInfo: String? = null,
     /** TV: ISO last air date from TMDB (or addon) for year-range display. */
     val lastAirDate: String? = null,

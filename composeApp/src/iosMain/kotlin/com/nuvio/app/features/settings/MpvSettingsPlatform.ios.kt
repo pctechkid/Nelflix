@@ -14,6 +14,8 @@ internal actual fun platformMpvDirectoryLabel(uri: String?): String =
 
 internal actual fun clearCachedMpvConfigurations() = Unit
 
+internal actual fun restoreDefaultMpvConfigurations() = Unit
+
 internal actual fun clearCachedMpvFonts() = Unit
 
 internal actual fun readExternalMpvConfigFile(configDirectoryUri: String?, fileName: String): String? = null

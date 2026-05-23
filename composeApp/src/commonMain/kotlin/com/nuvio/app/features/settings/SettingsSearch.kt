@@ -652,26 +652,59 @@ internal fun settingsSearchEntries(
         )
     }
 
-    val notificationsAlerts = stringResource(Res.string.settings_notifications_section_alerts)
     addRow(
         page = SettingsPage.Notifications,
-        key = "episode-release-alerts",
-        title = stringResource(Res.string.settings_notifications_episode_release_alerts),
-        description = stringResource(Res.string.settings_notifications_episode_release_alerts_description),
+        key = "release-calendar",
+        title = "Release Calendar",
+        description = "See upcoming episodes and premieres by date",
         pageLabel = notificationsPage,
-        section = notificationsAlerts,
-        icon = Icons.Rounded.Notifications,
-    )
-    addRow(
-        page = SettingsPage.Notifications,
-        key = "notification-test",
-        title = stringResource(Res.string.settings_notifications_test_title),
-        pageLabel = notificationsPage,
-        section = stringResource(Res.string.settings_notifications_section_test),
+        section = "Release Calendar",
         icon = Icons.Rounded.Notifications,
     )
 
-    return entries
+    val hiddenKeys = setOf(
+        "amoled",
+        "continue-watching",
+        "poster-card-style",
+        "plugins",
+        "collections",
+        "external-player",
+        "external-player-app",
+        "preferred-audio",
+        "secondary-audio",
+        "preferred-subtitles",
+        "secondary-subtitles",
+        "decoder-priority",
+        "dv7-hevc",
+        "tunneled-playback",
+        "skip-intro",
+        "anime-skip",
+        "anime-skip-client",
+        "intro-submit",
+        "introdb-key",
+        "auto-play-next",
+        "prefer-binge",
+        "threshold-mode",
+        "threshold-percent",
+        "threshold-minutes",
+        "show-continue-watching",
+        "episode-thumbnails",
+        "up-next",
+        "unaired-next-up",
+        "blur-next-up",
+        "resume-prompt",
+        "home-hero",
+        "home-hide-unreleased",
+        "home-hide-catalog-underline",
+        "tmdb",
+        "mdblist",
+    )
+    return entries.filterNot { entry ->
+        entry.key in hiddenKeys ||
+            entry.key.startsWith("poster-") ||
+            entry.key.startsWith("tmdb-") ||
+            entry.key.startsWith("mdb-")
+    }
 }
 
 private data class PlaybackSearchRow(
@@ -827,14 +860,15 @@ private fun SettingsSearchRevealItem(
 }
 
 @Composable
-private fun SettingsSearchField(
+internal fun SettingsSearchField(
     query: String,
     onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         singleLine = true,
         shape = RoundedCornerShape(14.dp),
         leadingIcon = {

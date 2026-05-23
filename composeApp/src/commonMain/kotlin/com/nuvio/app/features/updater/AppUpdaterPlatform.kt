@@ -5,6 +5,8 @@ expect object AppUpdaterPlatform {
 
     fun getSupportedAbis(): List<String>
 
+    fun getInstalledAppInfo(): InstalledAppInfo?
+
     fun getIgnoredTag(): String?
 
     fun setIgnoredTag(tag: String?)
@@ -12,6 +14,7 @@ expect object AppUpdaterPlatform {
     suspend fun downloadApk(
         assetUrl: String,
         assetName: String,
+        releaseTag: String,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
     ): Result<String>
 
@@ -19,5 +22,11 @@ expect object AppUpdaterPlatform {
 
     fun openUnknownSourcesSettings()
 
-    fun installDownloadedApk(path: String): Result<Unit>
+    fun installDownloadedApk(path: String, expectedVersionName: String): Result<Unit>
 }
+
+data class InstalledAppInfo(
+    val packageName: String,
+    val versionName: String,
+    val versionCode: Long,
+)

@@ -456,7 +456,7 @@ private object NuvioMpvFiles {
         val externalMpvConf = configTree?.findFile("mpv.conf")?.readText(context)
         val externalInputConf = configTree?.findFile("input.conf")?.readText(context)
         val mpvConf = when {
-            playerSettings.mpvConf.isBlank() -> externalMpvConf.orEmpty()
+            playerSettings.mpvConf.isBlank() -> externalMpvConf?.takeIf { it.isNotBlank() } ?: DefaultMpvConf
             playerSettings.mpvConf == DefaultMpvConf && externalMpvConf != null -> externalMpvConf
             else -> playerSettings.mpvConf
         }.withPersistentRegularSubtitleOverrides()
@@ -465,7 +465,9 @@ private object NuvioMpvFiles {
         context.filesDir.resolve("mpv.conf").writeText(mpvConf)
         context.filesDir.resolve("input.conf").writeText(inputConf)
 
-        if ((playerSettings.mpvConf.isBlank() || playerSettings.mpvConf == DefaultMpvConf) && externalMpvConf != null) {
+        if (playerSettings.mpvConf.isBlank() && externalMpvConf.isNullOrBlank()) {
+            PlayerSettingsRepository.setMpvConf(DefaultMpvConf)
+        } else if ((playerSettings.mpvConf.isBlank() || playerSettings.mpvConf == DefaultMpvConf) && externalMpvConf != null) {
             PlayerSettingsRepository.setMpvConf(mpvConf)
         } else if (configTree != null) {
             configTree.writeText(context, "mpv.conf", mpvConf)

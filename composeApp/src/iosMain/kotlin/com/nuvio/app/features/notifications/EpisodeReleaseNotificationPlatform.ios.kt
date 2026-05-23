@@ -66,6 +66,10 @@ internal actual object EpisodeReleaseNotificationPlatform {
 
     actual fun availableTimezoneIds(): List<String> = listOf(DefaultEpisodeReleaseTimezoneId, "UTC")
 
+    actual fun exactAlarmsAllowed(): Boolean = true
+
+    actual fun openExactAlarmSettings(): Boolean = false
+
     actual fun resolveReleaseTriggerEpochMs(rawReleaseValue: String?, timezoneId: String): Long? {
         val releaseDate = releaseDateIso(rawReleaseValue) ?: return null
         val components = buildDateComponents(releaseDate) ?: return null
@@ -124,20 +128,6 @@ internal actual object EpisodeReleaseNotificationPlatform {
                 .removePendingNotificationRequestsWithIdentifiers(identifiers)
         }
         NSUserDefaults.standardUserDefaults.removeObjectForKey(ProfileScopedKey.of(scheduledIdsKey))
-    }
-
-    actual suspend fun showTestNotification(request: EpisodeReleaseNotificationRequest) {
-        val content = buildNotificationContent(request)
-        val trigger = UNTimeIntervalNotificationTrigger.triggerWithTimeInterval(
-            timeInterval = 1.0,
-            repeats = false,
-        )
-        val notificationRequest = UNNotificationRequest.requestWithIdentifier(
-            identifier = request.requestId,
-            content = content,
-            trigger = trigger,
-        )
-        UNUserNotificationCenter.currentNotificationCenter().addNotificationRequest(notificationRequest) { _ -> }
     }
 
     private fun trackedScheduledIds(): List<String> =

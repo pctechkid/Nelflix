@@ -261,7 +261,7 @@ fun HomeHeroSection(
                                 text = stringResource(Res.string.home_view_details),
                                 modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp),
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.Normal,
                             )
                         }
                     }

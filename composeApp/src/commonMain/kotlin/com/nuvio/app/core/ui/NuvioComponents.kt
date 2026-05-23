@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -504,15 +505,16 @@ fun NuvioToastHost(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 96.dp)
+                .padding(bottom = 96.dp)
                 .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.BottomCenter,
         ) {
             Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 6.dp,
-                shadowElevation = 10.dp,
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF151515).copy(alpha = 0.96f),
+                tonalElevation = 0.dp,
+                shadowElevation = 12.dp,
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
             ) {
                 Text(
                     text = currentToast.message,

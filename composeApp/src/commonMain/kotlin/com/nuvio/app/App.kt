@@ -919,14 +919,19 @@ private fun MainAppContent(
                     if (cached != null) {
                         coroutineScope.launch {
                             val cachedHeaders = sanitizePlaybackHeaders(cached.requestHeaders)
-                            val resolvedCached = StreamUrlResolver.resolve(
-                                url = cached.url,
-                                requestHeaders = cachedHeaders,
-                            )
+                            val resolvedLegacyCached = if (cached.rawUrl == null) {
+                                StreamUrlResolver.resolve(cached.url, cachedHeaders)
+                            } else {
+                                null
+                            }
+                            val cachedFinalUrl = resolvedLegacyCached?.url ?: cached.url
+                            val cachedFinalHeaders = sanitizePlaybackHeaders(resolvedLegacyCached?.requestHeaders ?: cachedHeaders)
                             val playerLaunch = PlayerLaunch(
                                 title = title,
-                                sourceUrl = resolvedCached.url,
-                                sourceHeaders = sanitizePlaybackHeaders(resolvedCached.requestHeaders),
+                                sourceUrl = cachedFinalUrl,
+                                fallbackRawSourceUrl = cached.rawUrl ?: cached.url.takeIf { resolvedLegacyCached?.url != cached.url },
+                                sourceHeaders = cachedFinalHeaders,
+                                fallbackRawSourceHeaders = cachedHeaders,
                                 sourceResponseHeaders = sanitizePlaybackResponseHeaders(cached.responseHeaders),
                                 logo = logo,
                                 poster = poster,
@@ -1509,14 +1514,19 @@ private fun MainAppContent(
                         if (cached != null) {
                             StreamsRepository.clear()
                             val cachedHeaders = sanitizePlaybackHeaders(cached.requestHeaders)
-                            val resolvedCached = StreamUrlResolver.resolve(
-                                url = cached.url,
-                                requestHeaders = cachedHeaders,
-                            )
+                            val resolvedLegacyCached = if (cached.rawUrl == null) {
+                                StreamUrlResolver.resolve(cached.url, cachedHeaders)
+                            } else {
+                                null
+                            }
+                            val cachedFinalUrl = resolvedLegacyCached?.url ?: cached.url
+                            val cachedFinalHeaders = sanitizePlaybackHeaders(resolvedLegacyCached?.requestHeaders ?: cachedHeaders)
                             val playerLaunch = PlayerLaunch(
                                     title = launch.title,
-                                    sourceUrl = resolvedCached.url,
-                                    sourceHeaders = sanitizePlaybackHeaders(resolvedCached.requestHeaders),
+                                    sourceUrl = cachedFinalUrl,
+                                    fallbackRawSourceUrl = cached.rawUrl ?: cached.url.takeIf { resolvedLegacyCached?.url != cached.url },
+                                    sourceHeaders = cachedFinalHeaders,
+                                    fallbackRawSourceHeaders = cachedHeaders,
                                     sourceResponseHeaders = sanitizePlaybackResponseHeaders(cached.responseHeaders),
                                     logo = launch.logo,
                                     poster = launch.poster,
@@ -1612,6 +1622,7 @@ private fun MainAppContent(
                             StreamLinkCacheRepository.save(
                                 contentKey = cacheKey,
                                 url = resolvedSourceUrl,
+                                rawUrl = sourceUrl,
                                 streamName = stream.streamLabel,
                                 addonName = stream.addonName,
                                 addonId = stream.addonId,
@@ -1646,6 +1657,8 @@ private fun MainAppContent(
                                 parentMetaType = launch.parentMetaType ?: launch.type,
                                 initialPositionMs = launch.resumePositionMs ?: 0L,
                                 initialProgressFraction = launch.resumeProgressFraction,
+                                fallbackRawSourceUrl = sourceUrl,
+                                fallbackRawSourceHeaders = initialRequestHeaders,
                             )
                         StreamsRepository.consumeAutoPlay()
                         StreamsRepository.cancelLoading()
@@ -1726,6 +1739,7 @@ private fun MainAppContent(
                             StreamLinkCacheRepository.save(
                                 contentKey = cacheKey,
                                 url = resolvedSourceUrl,
+                                rawUrl = sourceUrl,
                                 streamName = stream.streamLabel,
                                 addonName = stream.addonName,
                                 addonId = stream.addonId,
@@ -1739,7 +1753,9 @@ private fun MainAppContent(
                         val playerLaunch = PlayerLaunch(
                             title = launch.title,
                             sourceUrl = resolvedSourceUrl,
+                            fallbackRawSourceUrl = sourceUrl,
                             sourceHeaders = resolvedRequestHeaders,
+                            fallbackRawSourceHeaders = initialRequestHeaders,
                             sourceResponseHeaders = responseHeaders,
                             logo = launch.logo,
                             poster = launch.poster,
@@ -1849,8 +1865,10 @@ private fun MainAppContent(
                     PlayerScreen(
                         title = launch.title,
                         sourceUrl = launch.sourceUrl,
+                        fallbackRawSourceUrl = launch.fallbackRawSourceUrl,
                         sourceAudioUrl = launch.sourceAudioUrl,
                         sourceHeaders = launch.sourceHeaders,
+                        fallbackRawSourceHeaders = launch.fallbackRawSourceHeaders,
                         sourceResponseHeaders = launch.sourceResponseHeaders,
                         logo = launch.logo,
                         poster = launch.poster,
@@ -2273,7 +2291,7 @@ private fun MainAppContent(
 
             NuvioToastHost(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(Alignment.BottomCenter)
                     .zIndex(20f),
             )
 

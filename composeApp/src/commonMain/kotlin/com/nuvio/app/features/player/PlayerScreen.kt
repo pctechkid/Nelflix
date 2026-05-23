@@ -120,8 +120,10 @@ private data class PlayerAccumulatedSeekState(
 fun PlayerScreen(
     title: String,
     sourceUrl: String,
+    fallbackRawSourceUrl: String? = null,
     sourceAudioUrl: String? = null,
     sourceHeaders: Map<String, String> = emptyMap(),
+    fallbackRawSourceHeaders: Map<String, String> = emptyMap(),
     sourceResponseHeaders: Map<String, String> = emptyMap(),
     providerName: String,
     streamTitle: String,
@@ -196,12 +198,17 @@ fun PlayerScreen(
         var playerControlsLocked by rememberSaveable { mutableStateOf(false) }
         // Active playback state (mutable to support source/episode switching)
         var activeSourceUrl by rememberSaveable { mutableStateOf(sourceUrl) }
+        var activeFallbackRawSourceUrl by rememberSaveable { mutableStateOf(fallbackRawSourceUrl) }
+        var activeFallbackAlreadyTried by rememberSaveable(sourceUrl) { mutableStateOf(false) }
         var activeSourceAudioUrl by rememberSaveable { mutableStateOf(sourceAudioUrl) }
         var activeSourceHeaders by remember(sourceUrl, sourceHeaders) {
             mutableStateOf(sanitizePlaybackHeaders(sourceHeaders))
         }
         var activeSourceResponseHeaders by remember(sourceUrl, sourceResponseHeaders) {
             mutableStateOf(sanitizePlaybackResponseHeaders(sourceResponseHeaders))
+        }
+        var activeFallbackRawSourceHeaders by remember(sourceUrl, fallbackRawSourceHeaders) {
+            mutableStateOf(sanitizePlaybackHeaders(fallbackRawSourceHeaders))
         }
         var activeStreamTitle by rememberSaveable { mutableStateOf(streamTitle) }
         var activeStreamSubtitle by rememberSaveable { mutableStateOf(streamSubtitle) }
@@ -943,6 +950,7 @@ fun PlayerScreen(
                     StreamLinkCacheRepository.save(
                         contentKey = cacheKey,
                         url = resolvedUrl,
+                        rawUrl = url,
                         streamName = stream.streamLabel,
                         addonName = stream.addonName,
                         addonId = stream.addonId,
@@ -954,6 +962,9 @@ fun PlayerScreen(
                     )
                 }
                 activeSourceUrl = resolvedUrl
+                activeFallbackRawSourceUrl = url
+                activeFallbackRawSourceHeaders = initialHeaders
+                activeFallbackAlreadyTried = false
                 activeSourceAudioUrl = null
                 activeSourceHeaders = resolvedHeaders
                 activeSourceResponseHeaders = sanitizePlaybackResponseHeaders(stream.behaviorHints.proxyHeaders?.response)
@@ -1032,6 +1043,7 @@ fun PlayerScreen(
                     StreamLinkCacheRepository.save(
                         contentKey = cacheKey,
                         url = resolvedUrl,
+                        rawUrl = url,
                         streamName = stream.streamLabel,
                         addonName = stream.addonName,
                         addonId = stream.addonId,
@@ -1043,6 +1055,9 @@ fun PlayerScreen(
                     )
                 }
                 activeSourceUrl = resolvedUrl
+                activeFallbackRawSourceUrl = url
+                activeFallbackRawSourceHeaders = initialHeaders
+                activeFallbackAlreadyTried = false
                 activeSourceAudioUrl = null
                 activeSourceHeaders = resolvedHeaders
                 activeSourceResponseHeaders = sanitizePlaybackResponseHeaders(stream.behaviorHints.proxyHeaders?.response)
@@ -1270,6 +1285,48 @@ fun PlayerScreen(
             SubtitleRepository.fetchAddonSubtitles(type, videoId)
         }
 
+        fun resolveFallbackRawSource(): Boolean {
+            val rawUrl = activeFallbackRawSourceUrl?.takeIf { it.isNotBlank() } ?: return false
+            if (activeFallbackAlreadyTried || rawUrl == activeSourceUrl) return false
+            activeFallbackAlreadyTried = true
+            scope.launch {
+                val currentPositionMs = playbackSnapshot.positionMs
+                    .takeIf { it > 0L }
+                    ?: activeInitialPositionMs
+                val resolved = StreamUrlResolver.resolve(rawUrl, activeFallbackRawSourceHeaders)
+                val resolvedUrl = resolved.url.takeIf { it.isNotBlank() } ?: return@launch
+                val resolvedHeaders = sanitizePlaybackHeaders(resolved.requestHeaders)
+                if (playerSettingsUiState.streamReuseLastLinkEnabled && activeVideoId != null) {
+                    val cacheKey = StreamLinkCacheRepository.contentKey(
+                        type = contentType ?: parentMetaType,
+                        videoId = activeVideoId!!,
+                        parentMetaId = parentMetaId,
+                        season = activeSeasonNumber,
+                        episode = activeEpisodeNumber,
+                    )
+                    StreamLinkCacheRepository.save(
+                        contentKey = cacheKey,
+                        url = resolvedUrl,
+                        rawUrl = rawUrl,
+                        streamName = activeStreamTitle,
+                        addonName = activeProviderName,
+                        addonId = activeProviderAddonId.orEmpty(),
+                        requestHeaders = resolvedHeaders,
+                        responseHeaders = activeSourceResponseHeaders,
+                        bingeGroup = currentStreamBingeGroup,
+                    )
+                }
+                errorMessage = null
+                activeSourceUrl = resolvedUrl
+                activeSourceHeaders = resolvedHeaders
+                activeInitialPositionMs = currentPositionMs
+                activeInitialProgressFraction = null
+                shouldPlay = true
+                controlsVisible = true
+            }
+            return true
+        }
+
         LaunchedEffect(activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeSourceResponseHeaders) {
             errorMessage = null
             playerController = null
@@ -1295,6 +1352,14 @@ fun PlayerScreen(
             PlayerStreamsRepository.clearEpisodeStreams()
             SubtitleRepository.clear()
             WatchProgressRepository.ensureLoaded()
+        }
+
+        LaunchedEffect(activeSourceUrl, activeFallbackRawSourceUrl) {
+            if (activeFallbackRawSourceUrl.isNullOrBlank() || activeFallbackAlreadyTried) return@LaunchedEffect
+            delay(10_000L)
+            if (!initialLoadCompleted && errorMessage == null && playbackSnapshot.isLoading) {
+                resolveFallbackRawSource()
+            }
         }
 
         LaunchedEffect(activeSourceUrl, addonSubtitleFetchKey) {
@@ -1782,17 +1847,19 @@ fun PlayerScreen(
                 onError = { message ->
                     errorMessage = message
                     if (message != null) {
-                        controlsVisible = !playerControlsLocked
-                        val currentVideoId = activeVideoId
-                        if (currentVideoId != null) {
-                            val cacheKey = StreamLinkCacheRepository.contentKey(
-                                type = contentType ?: parentMetaType,
-                                videoId = currentVideoId,
-                                parentMetaId = parentMetaId,
-                                season = activeSeasonNumber,
-                                episode = activeEpisodeNumber,
-                            )
-                            StreamLinkCacheRepository.remove(cacheKey)
+                        if (!resolveFallbackRawSource()) {
+                            controlsVisible = !playerControlsLocked
+                            val currentVideoId = activeVideoId
+                            if (currentVideoId != null) {
+                                val cacheKey = StreamLinkCacheRepository.contentKey(
+                                    type = contentType ?: parentMetaType,
+                                    videoId = currentVideoId,
+                                    parentMetaId = parentMetaId,
+                                    season = activeSeasonNumber,
+                                    episode = activeEpisodeNumber,
+                                )
+                                StreamLinkCacheRepository.remove(cacheKey)
+                            }
                         }
                     }
                 },

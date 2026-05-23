@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.nuvio.app.features.player.DefaultMpvConf
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import java.io.File
 
@@ -74,14 +75,29 @@ internal actual fun platformMpvDirectoryLabel(uri: String?): String {
 
 internal actual fun clearCachedMpvConfigurations() {
     NuvioSettingsApplicationContext.get()?.let { context ->
-        context.filesDir.resolve("mpv.conf").writeText("")
+        context.filesDir.resolve("mpv.conf").writeText(DefaultMpvConf)
         context.filesDir.resolve("input.conf").writeText("")
         context.filesDir.resolve("scripts").deleteRecursively()
         context.filesDir.resolve("scripts").mkdirs()
         context.filesDir.resolve("shaders").deleteRecursively()
         context.filesDir.resolve("shaders").mkdirs()
-        PlayerSettingsRepository.setMpvConf("")
+        PlayerSettingsRepository.setMpvConf(DefaultMpvConf)
         PlayerSettingsRepository.setMpvInputConf("")
+    }
+}
+
+internal actual fun restoreDefaultMpvConfigurations() {
+    NuvioSettingsApplicationContext.get()?.let { context ->
+        context.filesDir.resolve("mpv.conf").writeText(DefaultMpvConf)
+        context.filesDir.resolve("input.conf").writeText("")
+        context.filesDir.resolve("scripts").mkdirs()
+        context.filesDir.resolve("shaders").mkdirs()
+        PlayerSettingsRepository.setMpvConf(DefaultMpvConf)
+        PlayerSettingsRepository.setMpvInputConf("")
+        val configDirectoryUri = PlayerSettingsRepository.uiState.value.mpvConfigDirectoryUri
+        if (!configDirectoryUri.isNullOrBlank()) {
+            writeExternalMpvConfigFile(configDirectoryUri, "mpv.conf", DefaultMpvConf)
+        }
     }
 }
 

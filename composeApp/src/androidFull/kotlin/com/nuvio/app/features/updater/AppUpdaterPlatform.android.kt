@@ -5,6 +5,8 @@ actual object AppUpdaterPlatform {
 
     actual fun getSupportedAbis(): List<String> = AndroidAppUpdaterPlatform.getSupportedAbis()
 
+    actual fun getInstalledAppInfo(): InstalledAppInfo? = AndroidAppUpdaterPlatform.getInstalledAppInfo()
+
     actual fun getIgnoredTag(): String? = AndroidAppUpdaterPlatform.getIgnoredTag()
 
     actual fun setIgnoredTag(tag: String?) {
@@ -14,8 +16,9 @@ actual object AppUpdaterPlatform {
     actual suspend fun downloadApk(
         assetUrl: String,
         assetName: String,
+        releaseTag: String,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
-    ): Result<String> = AndroidAppUpdaterPlatform.downloadApk(assetUrl, assetName, onProgress)
+    ): Result<String> = AndroidAppUpdaterPlatform.downloadApk(assetUrl, assetName, releaseTag, onProgress)
 
     actual fun canRequestPackageInstalls(): Boolean = AndroidAppUpdaterPlatform.canRequestPackageInstalls()
 
@@ -23,5 +26,6 @@ actual object AppUpdaterPlatform {
         AndroidAppUpdaterPlatform.openUnknownSourcesSettings()
     }
 
-    actual fun installDownloadedApk(path: String): Result<Unit> = AndroidAppUpdaterPlatform.installDownloadedApk(path)
+    actual fun installDownloadedApk(path: String, expectedVersionName: String): Result<Unit> =
+        AndroidAppUpdaterPlatform.installDownloadedApk(path, expectedVersionName)
 }

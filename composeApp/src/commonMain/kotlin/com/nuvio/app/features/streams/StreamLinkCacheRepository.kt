@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class CachedStreamLink(
     val url: String,
+    val rawUrl: String? = null,
     val streamName: String,
     val addonName: String,
     val addonId: String,
@@ -40,6 +41,7 @@ object StreamLinkCacheRepository {
     fun save(
         contentKey: String,
         url: String,
+        rawUrl: String? = null,
         streamName: String,
         addonName: String,
         addonId: String,
@@ -51,6 +53,7 @@ object StreamLinkCacheRepository {
     ) {
         val entry = CachedStreamLink(
             url = url,
+            rawUrl = rawUrl,
             streamName = streamName,
             addonName = addonName,
             addonId = addonId,

@@ -70,14 +70,13 @@ private fun SettingsCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    val isAmoled = colorScheme.background == Color.Black && colorScheme.surface == Color(0xFF050505)
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = if (isAmoled) Color(0xFF0B0B0B) else colorScheme.surface,
-        shape = RoundedCornerShape(if (isTablet) 20.dp else 16.dp),
+        color = Color(0xFF111111),
+        shape = RoundedCornerShape(if (isTablet) 22.dp else 18.dp),
         border = BorderStroke(
             0.5.dp,
-            colorScheme.outlineVariant.copy(alpha = if (isAmoled) 0.24f else 0.16f),
+            colorScheme.primary.copy(alpha = 0.16f),
         ),
     ) {
         Column(content = content)
@@ -149,8 +148,8 @@ internal fun SettingsSidebarItem(
     onClick: () -> Unit,
 ) {
     val primary = MaterialTheme.colorScheme.primary
-    val background = if (selected) primary.copy(alpha = 0.10f) else Color.Transparent
-    val iconChip = if (selected) primary.copy(alpha = 0.15f) else Color.Transparent
+    val background = if (selected) primary.copy(alpha = 0.14f) else Color.Transparent
+    val iconChip = if (selected) primary.copy(alpha = 0.20f) else Color(0xFF151515)
     val contentColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(

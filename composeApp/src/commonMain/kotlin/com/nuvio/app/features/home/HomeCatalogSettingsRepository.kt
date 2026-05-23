@@ -97,14 +97,8 @@ private data class StoredHomeCatalogSettingsPayload(
 object HomeCatalogSettingsRepository {
     const val HERO_SOURCE_SELECTION_LIMIT = 2
     private val STARTUP_CATALOG_STABILIZATION_DELAYS_MS = listOf(5_000L, 15_000L, 30_000L, 60_000L, 120_000L)
-    private const val FORCED_HERO_MOVIES_URL =
-        "https://aiometadata.home.kg/stremio/02253c19-8905-4cee-a5db-8c894551a50a/catalog/movie/mdblist.123095.json"
-    private const val FORCED_HERO_SERIES_URL =
-        "https://aiometadata.home.kg/stremio/02253c19-8905-4cee-a5db-8c894551a50a/catalog/series/mdblist.123093.json"
-    private val FORCED_HERO_CATALOG_URLS = setOf(
-        FORCED_HERO_MOVIES_URL,
-        FORCED_HERO_SERIES_URL,
-    )
+    private const val FORCED_HERO_MOVIES_CATALOG_ID = "tmdb-today"
+    private const val FORCED_HERO_SERIES_CATALOG_ID = "tmdb-today-shows"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -196,7 +190,7 @@ object HomeCatalogSettingsRepository {
 
     fun setHeroEnabled(enabled: Boolean) {
         ensureLoaded()
-        heroEnabled = enabled
+        heroEnabled = true
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
@@ -204,8 +198,8 @@ object HomeCatalogSettingsRepository {
 
     fun setHideUnreleasedContent(enabled: Boolean) {
         ensureLoaded()
-        if (hideUnreleasedContent == enabled) return
-        hideUnreleasedContent = enabled
+        if (!hideUnreleasedContent) return
+        hideUnreleasedContent = false
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
@@ -213,16 +207,16 @@ object HomeCatalogSettingsRepository {
 
     fun setHideCatalogUnderline(enabled: Boolean) {
         ensureLoaded()
-        if (hideCatalogUnderline == enabled) return
-        hideCatalogUnderline = enabled
+        if (!hideCatalogUnderline) return
+        hideCatalogUnderline = false
         publish()
         persist()
     }
 
     fun setShowCatalogTypeLabels(enabled: Boolean) {
         ensureLoaded()
-        if (showCatalogTypeLabels == enabled) return
-        showCatalogTypeLabels = enabled
+        if (!showCatalogTypeLabels) return
+        showCatalogTypeLabels = false
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
@@ -341,10 +335,10 @@ object HomeCatalogSettingsRepository {
         }.getOrNull()
 
         if (parsedPayload != null) {
-            heroEnabled = parsedPayload.heroEnabled
-            hideUnreleasedContent = parsedPayload.hideUnreleasedContent
-            hideCatalogUnderline = parsedPayload.hideCatalogUnderline
-            showCatalogTypeLabels = parsedPayload.showCatalogTypeLabels
+            heroEnabled = true
+            hideUnreleasedContent = false
+            hideCatalogUnderline = false
+            showCatalogTypeLabels = false
             preferences = parsedPayload.items.associateBy { it.key }.toMutableMap()
             enforceForcedHeroCatalogs()
             publish()
@@ -420,7 +414,7 @@ object HomeCatalogSettingsRepository {
 
     private fun enforceForcedHeroCatalogs() {
         val heroKeys = definitions
-            .filter { definition -> definition.sourceUrl.trim() in FORCED_HERO_CATALOG_URLS }
+            .filter { definition -> definition.isForcedHeroCatalog() }
             .mapTo(linkedSetOf()) { it.key }
 
         if (heroKeys.isEmpty()) return
@@ -439,6 +433,13 @@ object HomeCatalogSettingsRepository {
         val normalizedTitle = defaultTitle.trim().lowercase()
         return (normalizedAddon.contains("torbox") && normalizedTitle == "your media") ||
             (normalizedAddon.contains("sootio") && normalizedTitle == "no catalogs")
+    }
+
+    private fun HomeCatalogDefinition.isForcedHeroCatalog(): Boolean {
+        val normalizedAddon = addonName.trim().lowercase()
+        if (!normalizedAddon.contains("betterposters")) return false
+        return (type == "movie" && catalogId == FORCED_HERO_MOVIES_CATALOG_ID) ||
+            (type == "series" && catalogId == FORCED_HERO_SERIES_CATALOG_ID)
     }
 
     private fun publish() {
@@ -584,9 +585,9 @@ object HomeCatalogSettingsRepository {
 
     fun applyFromRemote(payload: SyncHomeCatalogPayload) {
         ensureLoaded()
-        hideUnreleasedContent = payload.hideUnreleasedContent
-        hideCatalogUnderline = payload.hideCatalogUnderline
-        showCatalogTypeLabels = payload.showCatalogTypeLabels
+        hideUnreleasedContent = false
+        hideCatalogUnderline = false
+        showCatalogTypeLabels = false
         if (payload.items.isNotEmpty()) {
             val existingHeroState = preferences.mapValues { it.value.heroSourceEnabled }
             preferences = payload.items.associate { item ->

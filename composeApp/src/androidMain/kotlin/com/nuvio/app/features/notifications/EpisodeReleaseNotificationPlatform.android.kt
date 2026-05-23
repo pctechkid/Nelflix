@@ -2,6 +2,8 @@ package com.nuvio.app.features.notifications
 
 import android.annotation.SuppressLint
 import android.Manifest
+import android.app.Notification
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,7 +12,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -42,6 +47,7 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 internal actual object EpisodeReleaseNotificationPlatform {
     private const val permissionRequestCode = 4607
@@ -49,7 +55,8 @@ internal actual object EpisodeReleaseNotificationPlatform {
     private const val scheduledIdsKey = "scheduled_episode_release_ids"
     private const val launchPermissionPromptedKey = "launch_notification_permission_prompted"
     private const val workTag = "episode_release_notifications"
-    internal const val channelId = "episode_release_notifications"
+    private const val alarmAction = "com.nelflix.ronnel.EPISODE_RELEASE_NOTIFICATION"
+    internal const val channelId = "episode_release_notifications_high"
     internal const val workerRequestIdKey = "request_id"
     internal const val workerTitleKey = "title"
     internal const val workerBodyKey = "body"
@@ -147,11 +154,51 @@ internal actual object EpisodeReleaseNotificationPlatform {
     actual fun availableTimezoneIds(): List<String> =
         TimeZone.getAvailableIDs().toList().sorted()
 
+    actual fun exactAlarmsAllowed(): Boolean {
+        val context = appContext ?: return false
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            ?: return false
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+    }
+
+    actual fun openExactAlarmSettings(): Boolean {
+        val context = currentActivity ?: appContext ?: return false
+        val intents = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(
+                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    },
+                )
+            }
+            add(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                },
+            )
+        }
+
+        val launchContext = currentActivity ?: context
+        intents.forEach { intent ->
+            val launchIntent = intent.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (launchIntent.resolveActivity(context.packageManager) != null) {
+                runCatching {
+                    launchContext.startActivity(launchIntent)
+                }.onSuccess {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     actual fun resolveReleaseTriggerEpochMs(rawReleaseValue: String?, timezoneId: String): Long? =
         releaseTriggerAtEpochMs(rawReleaseValue, timezoneId)
 
     actual fun formatReleaseTriggerLabel(epochMs: Long, timezoneId: String): String {
-        val zoneId = resolveZoneId(timezoneId)
+        val zoneId = ZoneId.systemDefault()
         val formatter = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", Locale.US)
         return Instant.ofEpochMilli(epochMs)
             .atZone(zoneId)
@@ -164,6 +211,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
 
         withContext(Dispatchers.IO) {
             val workManager = WorkManager.getInstance(context)
+            cancelScheduledAlarms(context)
             cancelTrackedWork(workManager)
 
             val nowEpochMs = System.currentTimeMillis()
@@ -173,30 +221,22 @@ internal actual object EpisodeReleaseNotificationPlatform {
                 val triggerAtEpochMs = request.triggerAtEpochMs
                     ?: triggerAtEpochMs(request.releaseDateIso, request.timezoneId)
                     ?: return@forEach
-                val initialDelayMs = triggerAtEpochMs - nowEpochMs
-                if (initialDelayMs <= 0L) return@forEach
+                val rawInitialDelayMs = triggerAtEpochMs - nowEpochMs
+                if (rawInitialDelayMs < -EpisodeReleaseNotificationScheduleGraceMs) return@forEach
+                val initialDelayMs = rawInitialDelayMs.coerceAtLeast(0L)
 
-                val inputData = Data.Builder()
-                    .putString(workerRequestIdKey, request.requestId)
-                    .putString(workerTitleKey, request.notificationTitle)
-                    .putString(workerBodyKey, request.notificationBody)
-                    .putString(workerDeepLinkKey, request.deepLinkUrl)
-                    .putString(workerBackdropUrlKey, request.backdropUrl)
-                    .build()
-
-                val workRequest = OneTimeWorkRequestBuilder<EpisodeReleaseNotificationWorker>()
-                    .setInputData(inputData)
-                    .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
-                    .addTag(workTag)
-                    .build()
-
-                awaitOperation(
-                    workManager.enqueueUniqueWork(
-                        uniqueWorkName(request.requestId),
-                        ExistingWorkPolicy.REPLACE,
-                        workRequest,
-                    ),
+                val scheduledExactly = scheduleExactAlarmIfAllowed(
+                    context = context,
+                    request = request,
+                    triggerAtEpochMs = triggerAtEpochMs,
                 )
+                if (!scheduledExactly) {
+                    scheduleFallbackWork(
+                        workManager = workManager,
+                        request = request,
+                        initialDelayMs = initialDelayMs,
+                    )
+                }
 
                 scheduledIds += request.requestId
             }
@@ -212,23 +252,13 @@ internal actual object EpisodeReleaseNotificationPlatform {
         val context = appContext ?: return
         withContext(Dispatchers.IO) {
             val workManager = WorkManager.getInstance(context)
+            cancelScheduledAlarms(context)
             cancelTrackedWork(workManager)
             preferences(context)
                 .edit()
                 .remove(scheduledIdsKey)
                 .apply()
         }
-    }
-
-    @SuppressLint("MissingPermission")
-    actual suspend fun showTestNotification(request: EpisodeReleaseNotificationRequest) {
-        val context = appContext ?: return
-        ensureNotificationChannel()
-
-        val notification = buildNotification(context, request)
-
-        NotificationManagerCompat.from(context)
-            .notify(kotlin.math.abs(request.requestId.hashCode()), notification)
     }
 
     internal suspend fun buildNotification(
@@ -240,7 +270,8 @@ internal actual object EpisodeReleaseNotificationPlatform {
         val appIconBitmap = BitmapFactory.decodeResource(context.resources, com.nuvio.app.R.drawable.nelflix_splash_logo)
 
         return NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
+            .setSmallIcon(com.nuvio.app.R.drawable.ic_stat_nelflix)
+            .setColor(Color.rgb(229, 9, 20))
             .setContentTitle(request.notificationTitle)
             .setContentText(request.notificationBody)
             .setStyle(
@@ -253,7 +284,10 @@ internal actual object EpisodeReleaseNotificationPlatform {
             )
             .setLargeIcon(appIconBitmap)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .build()
     }
@@ -285,6 +319,135 @@ internal actual object EpisodeReleaseNotificationPlatform {
         )
     }
 
+    @SuppressLint("ScheduleExactAlarm")
+    private fun scheduleExactAlarmIfAllowed(
+        context: Context,
+        request: EpisodeReleaseNotificationRequest,
+        triggerAtEpochMs: Long,
+    ): Boolean {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            ?: return false
+
+        val pendingIntent = buildAlarmPendingIntent(
+            context = context,
+            request = request,
+            flags = PendingIntent.FLAG_UPDATE_CURRENT,
+        ) ?: return false
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            val scheduled = runCatching {
+                alarmManager.setAlarmClock(
+                    AlarmManager.AlarmClockInfo(
+                        triggerAtEpochMs,
+                        buildPendingIntent(context, request),
+                    ),
+                    pendingIntent,
+                )
+            }.isSuccess
+            if (scheduled) return true
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            return false
+        }
+
+        return runCatching {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtEpochMs,
+                        pendingIntent,
+                    )
+                }
+                else -> {
+                    alarmManager.setExact(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtEpochMs,
+                        pendingIntent,
+                    )
+                }
+            }
+        }.isSuccess
+    }
+
+    private fun scheduleFallbackWork(
+        workManager: WorkManager,
+        request: EpisodeReleaseNotificationRequest,
+        initialDelayMs: Long,
+    ) {
+        val workRequest = OneTimeWorkRequestBuilder<EpisodeReleaseNotificationWorker>()
+            .setInputData(buildWorkerInputData(request))
+            .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
+            .addTag(workTag)
+            .build()
+
+        awaitOperation(
+            workManager.enqueueUniqueWork(
+                uniqueWorkName(request.requestId),
+                ExistingWorkPolicy.REPLACE,
+                workRequest,
+            ),
+        )
+    }
+
+    private fun buildWorkerInputData(request: EpisodeReleaseNotificationRequest): Data =
+        Data.Builder()
+            .putString(workerRequestIdKey, request.requestId)
+            .putString(workerTitleKey, request.notificationTitle)
+            .putString(workerBodyKey, request.notificationBody)
+            .putString(workerDeepLinkKey, request.deepLinkUrl)
+            .putString(workerBackdropUrlKey, request.backdropUrl)
+            .build()
+
+    private fun buildAlarmPendingIntent(
+        context: Context,
+        request: EpisodeReleaseNotificationRequest,
+        flags: Int,
+    ): PendingIntent? {
+        val intent = Intent(context, EpisodeReleaseNotificationAlarmReceiver::class.java).apply {
+            action = alarmAction
+            data = android.net.Uri.parse("nelflix://episode-release/${abs(request.requestId.hashCode())}")
+            putExtra(workerRequestIdKey, request.requestId)
+            putExtra(workerTitleKey, request.notificationTitle)
+            putExtra(workerBodyKey, request.notificationBody)
+            putExtra(workerDeepLinkKey, request.deepLinkUrl)
+            putExtra(workerBackdropUrlKey, request.backdropUrl)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            abs(request.requestId.hashCode()),
+            intent,
+            flags or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun cancelScheduledAlarms(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            ?: return
+        preferences(context)
+            .getStringSet(scheduledIdsKey, emptySet())
+            .orEmpty()
+            .forEach { requestId ->
+                val request = EpisodeReleaseNotificationRequest(
+                    requestId = requestId,
+                    notificationTitle = "",
+                    notificationBody = "",
+                    releaseDateIso = "",
+                    deepLinkUrl = "",
+                )
+                val pendingIntent = buildAlarmPendingIntent(
+                    context = context,
+                    request = request,
+                    flags = PendingIntent.FLAG_NO_CREATE,
+                )
+                if (pendingIntent != null) {
+                    alarmManager.cancel(pendingIntent)
+                    pendingIntent.cancel()
+                }
+            }
+    }
+
     private fun cancelTrackedWork(workManager: WorkManager) {
         val context = appContext ?: return
         preferences(context)
@@ -312,14 +475,23 @@ internal actual object EpisodeReleaseNotificationPlatform {
         val value = rawReleaseValue?.trim().takeUnless { it.isNullOrBlank() } ?: return null
         val zoneId = resolveZoneId(timezoneId)
 
-        parseInstantRelease(value, zoneId)?.toEpochMilli()
+        parseReleaseWallTime(value, zoneId)?.plusHours(EpisodeReleaseNotificationDelayHours)?.atZone(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
             ?: LocalDate.parse(value.substringBefore('T').substringBefore(' ')).let { date ->
                 date.atTime(EpisodeReleaseNotificationHour, EpisodeReleaseNotificationMinute)
-                    .atZone(zoneId)
+                    .plusHours(EpisodeReleaseNotificationDelayHours)
+                    .atZone(ZoneId.systemDefault())
                     .toInstant()
                     .toEpochMilli()
             }
     }.getOrNull()
+
+    private fun parseReleaseWallTime(value: String, zoneId: ZoneId): LocalDateTime? {
+        if (!value.contains('T') && !value.contains(' ')) return null
+        val normalized = value.replace(' ', 'T')
+        return runCatching { LocalDateTime.parse(normalized.substringBeforeLast('Z')) }.getOrNull()
+            ?: runCatching { OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toLocalDateTime() }.getOrNull()
+            ?: parseInstantRelease(value, zoneId)?.atZone(zoneId)?.toLocalDateTime()
+    }
 
     private fun parseInstantRelease(value: String, zoneId: ZoneId): Instant? {
         if (!value.contains('T') && !value.contains(' ')) return null
@@ -334,10 +506,10 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     private fun triggerAtEpochMs(releaseDateIso: String, timezoneId: String): Long? = runCatching {
-        val zoneId = resolveZoneId(timezoneId)
         LocalDate.parse(releaseDateIso)
             .atTime(EpisodeReleaseNotificationHour, EpisodeReleaseNotificationMinute)
-            .atZone(zoneId)
+            .plusHours(EpisodeReleaseNotificationDelayHours)
+            .atZone(ZoneId.systemDefault())
             .toInstant()
             .toEpochMilli()
     }.getOrNull()
@@ -354,12 +526,16 @@ internal actual object EpisodeReleaseNotificationPlatform {
         val channel = NotificationChannel(
             channelId,
             runBlocking { getString(Res.string.notifications_channel_episode_releases_name) },
-            NotificationManager.IMPORTANCE_DEFAULT,
+            NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = runBlocking { getString(Res.string.notifications_channel_episode_releases_description) }
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            enableVibration(true)
+            enableLights(true)
         }
         notificationManager.createNotificationChannel(channel)
     }
 
-    private fun uniqueWorkName(requestId: String): String = "$workTag:$requestId"
 }
+
+private fun uniqueWorkName(requestId: String): String = "episode_release_notifications:$requestId"

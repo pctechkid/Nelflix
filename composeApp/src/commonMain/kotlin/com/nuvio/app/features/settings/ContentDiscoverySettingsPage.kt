@@ -44,15 +44,6 @@ internal fun LazyListScope.contentDiscoveryContent(
                     isTablet = isTablet,
                     onClick = onAddonsClick,
                 )
-                if (showPluginsEntry) {
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.compose_settings_page_plugins),
-                        description = stringResource(Res.string.settings_content_discovery_plugins_description),
-                        icon = Icons.Rounded.Hub,
-                        isTablet = isTablet,
-                        onClick = onPluginsClick,
-                    )
-                }
             }
         }
     }
@@ -75,13 +66,6 @@ internal fun LazyListScope.contentDiscoveryContent(
                     icon = Icons.Rounded.Tune,
                     isTablet = isTablet,
                     onClick = onMetaScreenClick,
-                )
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.collections_header),
-                    description = stringResource(Res.string.settings_content_discovery_collections_description),
-                    icon = Icons.Rounded.CollectionsBookmark,
-                    isTablet = isTablet,
-                    onClick = onCollectionsClick,
                 )
             }
         }

@@ -33,8 +33,14 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,6 +70,7 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileSelectionScreen(
     onProfileSelected: (NuvioProfile) -> Unit,
@@ -76,6 +83,8 @@ fun ProfileSelectionScreen(
     val scope = rememberCoroutineScope()
     var pinDialogProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var isEditMode by remember { mutableStateOf(false) }
+    var showSignOutConfirm by remember { mutableStateOf(false) }
+    var isSigningOut by remember { mutableStateOf(false) }
 
     val titleAlpha = remember { Animatable(0f) }
     val titleOffset = remember { Animatable(20f) }
@@ -272,7 +281,96 @@ fun ProfileSelectionScreen(
                 )
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = { showSignOutConfirm = true },
+                enabled = !isSigningOut,
+                modifier = Modifier
+                    .fillMaxWidth(if (isTabletLayout) 0.42f else 1f),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.42f),
+                ),
+            ) {
+                Text(
+                    text = stringResource(Res.string.settings_account_sign_out),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
             Spacer(modifier = Modifier.height(if (isTabletLayout) 0.dp else 32.dp))
+        }
+    }
+
+    if (showSignOutConfirm) {
+        BasicAlertDialog(
+            onDismissRequest = { if (!isSigningOut) showSignOutConfirm = false },
+        ) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.18f),
+                ),
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Sign out?",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "You’ll return to the login screen.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = { showSignOutConfirm = false },
+                            enabled = !isSigningOut,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(stringResource(Res.string.action_cancel))
+                        }
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isSigningOut = true
+                                    try {
+                                        AuthRepository.signOut()
+                                    } finally {
+                                        isSigningOut = false
+                                        showSignOutConfirm = false
+                                    }
+                                }
+                            },
+                            enabled = !isSigningOut,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            Text(stringResource(Res.string.settings_account_sign_out))
+                        }
+                    }
+                }
+            }
         }
     }
 

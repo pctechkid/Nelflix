@@ -17,8 +17,6 @@ data class EpisodeReleaseNotificationsUiState(
     val isLoading: Boolean = false,
     val permissionGranted: Boolean = false,
     val scheduledCount: Int = 0,
-    val testTargetTitle: String? = null,
-    val isSendingTest: Boolean = false,
     val timezoneId: String = DefaultEpisodeReleaseTimezoneId,
     val expectedAlerts: List<EpisodeReleaseAlertPreview> = emptyList(),
     val statusMessage: String? = null,
@@ -30,6 +28,8 @@ data class EpisodeReleaseAlertPreview(
     val title: String,
     val body: String,
     val triggerTimeLabel: String,
+    val imageUrl: String? = null,
+    val deepLinkUrl: String? = null,
 )
 
 @Serializable
@@ -60,7 +60,9 @@ internal data class EpisodeReleaseNotificationRequest(
 
 internal const val EpisodeReleaseNotificationHour = 9
 internal const val EpisodeReleaseNotificationMinute = 0
-internal const val DefaultEpisodeReleaseTimezoneId = "Asia/Manila"
+internal const val EpisodeReleaseNotificationDelayHours = 13L
+internal const val EpisodeReleaseNotificationScheduleGraceMs = 15L * 60L * 1000L
+internal const val DefaultEpisodeReleaseTimezoneId = "UTC"
 internal const val MinReasonableSavedAtEpochMs = 946684800000L
 
 internal fun buildTrackedShowKey(
@@ -70,10 +72,14 @@ internal fun buildTrackedShowKey(
 
 internal fun normalizeSeriesType(type: String): String = when (type.trim().lowercase()) {
     "tv", "show", "series", "tvshow" -> "series"
+    "film", "movie", "movies" -> "movie"
     else -> type.trim().lowercase()
 }
 
 internal fun isSeriesLibraryType(type: String): Boolean = normalizeSeriesType(type) == "series"
+internal fun isMovieLibraryType(type: String): Boolean = normalizeSeriesType(type) == "movie"
+internal fun isReleaseAlertLibraryType(type: String): Boolean =
+    isSeriesLibraryType(type) || isMovieLibraryType(type)
 
 internal fun releaseDateIso(rawValue: String?): String? {
     val value = rawValue

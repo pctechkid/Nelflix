@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -98,7 +99,8 @@ internal actual object DownloadsLiveStatusPlatform {
         )
 
         val notificationBuilder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
+            .setSmallIcon(com.nuvio.app.R.drawable.ic_stat_nelflix)
+            .setColor(Color.rgb(229, 9, 20))
             .setContentTitle(item.title)
             .setContentText(subtitle)
             .setStyle(NotificationCompat.BigTextStyle().bigText(subtitle))

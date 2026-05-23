@@ -1,6 +1,7 @@
 package com.nuvio.app.features.updater
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
@@ -29,10 +31,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import co.touchlab.kermit.Logger
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.AppUpdaterConfig
 import com.nuvio.app.core.build.AppVersionConfig
@@ -56,6 +60,7 @@ import org.jetbrains.compose.resources.stringResource
 private val gitHubOwner: String get() = AppUpdaterConfig.GITHUB_OWNER
 private val gitHubRepo: String get() = AppUpdaterConfig.GITHUB_REPO
 private val gitHubApiBase: String get() = AppUpdaterConfig.GITHUB_API_BASE_URL.trimEnd('/')
+private val log = Logger.withTag("AppUpdater")
 
 data class AppUpdate(
     val tag: String,
@@ -65,6 +70,7 @@ data class AppUpdate(
     val assetName: String,
     val assetUrl: String,
     val assetSizeBytes: Long?,
+    val versionCode: Long?,
 )
 
 data class AppUpdaterUiState(
@@ -74,6 +80,7 @@ data class AppUpdaterUiState(
     val isDownloading: Boolean = false,
     val downloadProgress: Float? = null,
     val downloadedApkPath: String? = null,
+    val downloadedReleaseTag: String? = null,
     val showDialog: Boolean = false,
     val showUnknownSourcesDialog: Boolean = false,
     val errorMessage: String? = null,
@@ -185,6 +192,10 @@ private object AppUpdaterRepository {
         val asset = chooseBestApkAsset(release.assets)
             ?: error("No debug APK asset found in the latest release")
 
+        log.d {
+            "Selected updater release tag=$tag asset=${asset.name} url=${asset.browserDownloadUrl} size=${asset.size}"
+        }
+
         AppUpdate(
             tag = tag,
             title = release.name?.takeIf { it.isNotBlank() } ?: tag,
@@ -193,7 +204,19 @@ private object AppUpdaterRepository {
             assetName = asset.name,
             assetUrl = asset.browserDownloadUrl,
             assetSizeBytes = asset.size,
+            versionCode = parseVersionCode(asset.name),
         )
+    }
+
+    private fun parseVersionCode(assetName: String): Long? {
+        val patterns = listOf(
+            Regex("versionCode(\\d+)", RegexOption.IGNORE_CASE),
+            Regex("version-code-(\\d+)", RegexOption.IGNORE_CASE),
+            Regex("vc(\\d+)", RegexOption.IGNORE_CASE),
+        )
+        return patterns.firstNotNullOfOrNull { pattern ->
+            pattern.find(assetName)?.groupValues?.getOrNull(1)?.toLongOrNull()
+        }
     }
 
     private fun chooseBestApkAsset(assets: List<GitHubAssetDto>): GitHubAssetDto? {
@@ -252,6 +275,10 @@ class AppUpdaterController internal constructor(
         }
 
         scope.launch {
+            val installedAppInfo = AppUpdaterPlatform.getInstalledAppInfo()
+            val localVersionName = installedAppInfo?.versionName?.takeIf { it.isNotBlank() }
+                ?: AppVersionConfig.VERSION_NAME
+            val localVersionCode = installedAppInfo?.versionCode
             _uiState.update { state ->
                 state.copy(
                     isChecking = true,
@@ -264,7 +291,11 @@ class AppUpdaterController internal constructor(
             val result = AppUpdaterRepository.getLatestChannelUpdate()
 
             result.onSuccess { update ->
-                val remoteNewer = VersionUtils.isRemoteNewer(update.tag, AppVersionConfig.VERSION_NAME)
+                val remoteNewer = if (update.versionCode != null && localVersionCode != null) {
+                    update.versionCode > localVersionCode
+                } else {
+                    VersionUtils.isRemoteNewer(update.tag, localVersionName)
+                }
                 val ignored = ignoredTag != null && ignoredTag == update.tag
                 val shouldShowDialog = force || (remoteNewer && !ignored)
 
@@ -275,11 +306,16 @@ class AppUpdaterController internal constructor(
                         isUpdateAvailable = remoteNewer,
                         isDownloading = false,
                         downloadProgress = null,
-                        downloadedApkPath = state.downloadedApkPath.takeIf { remoteNewer },
+                        downloadedApkPath = state.downloadedApkPath.takeIf { remoteNewer && state.downloadedReleaseTag == update.tag },
+                        downloadedReleaseTag = state.downloadedReleaseTag.takeIf { remoteNewer && state.downloadedReleaseTag == update.tag },
                         showDialog = shouldShowDialog,
                         showUnknownSourcesDialog = false,
                         errorMessage = null,
                     )
+                }
+
+                if (localVersionCode != null) {
+                    log.d { "Installed updater version=$localVersionName ($localVersionCode) remote=${update.tag}" }
                 }
 
                 if (showNoUpdateFeedback && !remoteNewer) {
@@ -292,6 +328,7 @@ class AppUpdaterController internal constructor(
                         isDownloading = false,
                         downloadProgress = null,
                         downloadedApkPath = null,
+                        downloadedReleaseTag = null,
                         update = null,
                         isUpdateAvailable = false,
                         showDialog = force && error !is NoDebugApkReleaseException,
@@ -336,12 +373,15 @@ class AppUpdaterController internal constructor(
                     isDownloading = true,
                     downloadProgress = 0f,
                     errorMessage = null,
+                    downloadedApkPath = null,
+                    downloadedReleaseTag = null,
                 )
             }
 
             AppUpdaterPlatform.downloadApk(
                 assetUrl = update.assetUrl,
                 assetName = update.assetName,
+                releaseTag = update.tag,
             ) { downloadedBytes, totalBytes ->
                 val progress = if (totalBytes != null && totalBytes > 0L) {
                     (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
@@ -355,6 +395,7 @@ class AppUpdaterController internal constructor(
                         isDownloading = false,
                         downloadProgress = 1f,
                         downloadedApkPath = path,
+                        downloadedReleaseTag = update.tag,
                         errorMessage = null,
                     )
                 }
@@ -365,6 +406,7 @@ class AppUpdaterController internal constructor(
                         isDownloading = false,
                         downloadProgress = null,
                         downloadedApkPath = null,
+                        downloadedReleaseTag = null,
                         errorMessage = error.message ?: getString(Res.string.updates_download_failed),
                         showDialog = true,
                     )
@@ -375,18 +417,21 @@ class AppUpdaterController internal constructor(
 
     fun installDownloadedUpdate() {
         val apkPath = _uiState.value.downloadedApkPath ?: return
+        val expectedVersionName = _uiState.value.downloadedReleaseTag ?: _uiState.value.update?.tag ?: return
         if (!AppUpdaterPlatform.canRequestPackageInstalls()) {
             _uiState.update { state -> state.copy(showUnknownSourcesDialog = true, showDialog = true) }
             return
         }
 
-        AppUpdaterPlatform.installDownloadedApk(apkPath).onSuccess {
+        AppUpdaterPlatform.installDownloadedApk(apkPath, expectedVersionName).onSuccess {
             _uiState.update { state -> state.copy(showUnknownSourcesDialog = false) }
         }.onFailure { error ->
             scope.launch {
                 val fallbackMessage = error.message ?: getString(Res.string.updates_install_failed)
                 _uiState.update { state ->
                     state.copy(
+                        downloadedApkPath = null,
+                        downloadedReleaseTag = null,
                         errorMessage = fallbackMessage,
                         showDialog = true,
                     )
@@ -434,13 +479,17 @@ fun AppUpdaterHost(
             }
         },
     ) {
+        val nelflixRed = Color(0xFFE50914)
+        val dialogSurface = Color(0xFF111111)
+        val dialogInset = Color(0xFF1A1A1A)
         Surface(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp),
             shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp,
+            color = dialogSurface,
+            border = BorderStroke(0.5.dp, nelflixRed.copy(alpha = 0.18f)),
+            tonalElevation = 0.dp,
             shadowElevation = 16.dp,
         ) {
             Column(
@@ -489,7 +538,7 @@ fun AppUpdaterHost(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(18.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .background(dialogInset)
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -497,6 +546,7 @@ fun AppUpdaterHost(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
                                     strokeWidth = 2.dp,
+                                    color = nelflixRed,
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                             }
@@ -523,6 +573,8 @@ fun AppUpdaterHost(
                                 LinearProgressIndicator(
                                     progress = { (state.downloadProgress ?: 0f).coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth(),
+                                    color = nelflixRed,
+                                    trackColor = Color.White.copy(alpha = 0.18f),
                                 )
                                 Text(
                                     text = if (state.downloadProgress != null) {
@@ -553,7 +605,7 @@ fun AppUpdaterHost(
                                         .fillMaxWidth()
                                         .height(180.dp)
                                         .clip(RoundedCornerShape(18.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                        .background(Color(0xFF151515))
                                         .padding(14.dp)
                                         .verticalScroll(rememberScrollState()),
                                     style = MaterialTheme.typography.bodyMedium,
@@ -571,6 +623,12 @@ fun AppUpdaterHost(
                     if (showPrimaryAction) {
                         Button(
                             modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = nelflixRed,
+                                contentColor = Color.White,
+                                disabledContainerColor = Color(0xFF2A2A2A),
+                                disabledContentColor = Color.White.copy(alpha = 0.52f),
+                            ),
                             onClick = {
                                 when {
                                     state.showUnknownSourcesDialog -> controller.resumeInstallation()
@@ -598,6 +656,10 @@ fun AppUpdaterHost(
                     if (!state.isDownloading) {
                         OutlinedButton(
                             modifier = Modifier.fillMaxWidth(),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color.White,
+                            ),
                             onClick = controller::dismissDialog,
                         ) {
                             Text(stringResource(Res.string.action_later))

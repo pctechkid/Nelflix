@@ -51,6 +51,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.player.AudioLanguageOption
 import com.nuvio.app.features.player.AvailableLanguageOptions
@@ -286,6 +287,7 @@ fun ValueBox(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlaybackSettingsSection(
     isTablet: Boolean,
@@ -322,6 +324,7 @@ private fun PlaybackSettingsSection(
     var showMpvConfDialog by remember { mutableStateOf(false) }
     var showMpvInputConfDialog by remember { mutableStateOf(false) }
     var showMpvDemuxerCacheDialog by remember { mutableStateOf(false) }
+    var showResetMpvConfigDialog by remember { mutableStateOf(false) }
     val pluginsEnabled = AppFeaturePolicy.pluginsEnabled
     val autoPlayPlayerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
     val availableExternalPlayers = ExternalPlayerPlatform.availablePlayers()
@@ -355,52 +358,11 @@ private fun PlaybackSettingsSection(
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_external_player),
-                    description = stringResource(
-                        if (isIos) {
-                            Res.string.settings_playback_external_player_description_ios
-                        } else {
-                            Res.string.settings_playback_external_player_description_android
-                        },
-                    ),
-                    checked = autoPlayPlayerSettings.externalPlayerEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = { enabled ->
-                        PlayerSettingsRepository.setExternalPlayerEnabled(enabled)
-                        if (enabled && isIos) {
-                            showExternalPlayerDialog = true
-                        }
-                    },
-                )
-                if (isIos && autoPlayPlayerSettings.externalPlayerEnabled) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_external_player_app),
-                        description = selectedExternalPlayer?.name
-                            ?: if (availableExternalPlayers.isEmpty()) {
-                                stringResource(Res.string.settings_playback_external_player_none_available)
-                            } else {
-                                stringResource(Res.string.settings_playback_not_set)
-                            },
-                        isTablet = isTablet,
-                        onClick = { showExternalPlayerDialog = true },
-                    )
-                }
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_hold_to_speed),
                     description = stringResource(Res.string.settings_playback_hold_to_speed_description),
                     checked = holdToSpeedEnabled,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setHoldToSpeedEnabled,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = "Use clearlogo in player",
-                    description = "Show clearlogo artwork in the player header when available.",
-                    checked = autoPlayPlayerSettings.useClearlogoInPlayer,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setUseClearlogoInPlayer,
                 )
                 if (holdToSpeedEnabled) {
                     SettingsGroupDivider(isTablet = isTablet)
@@ -409,90 +371,6 @@ private fun PlaybackSettingsSection(
                         description = formatPlaybackSpeedLabel(holdToSpeedValue),
                         isTablet = isTablet,
                         onClick = { showHoldToSpeedValueDialog = true },
-                    )
-                }
-            }
-        }
-
-        SettingsSection(
-            title = stringResource(Res.string.settings_playback_section_subtitle_audio),
-            isTablet = isTablet,
-        ) {
-            SettingsGroup(isTablet = isTablet) {
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_preferred_audio_language),
-                    description = when (preferredAudioLanguage) {
-                        AudioLanguageOption.DEFAULT -> stringResource(Res.string.settings_playback_option_default)
-                        AudioLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-                        else -> languageLabelForCode(preferredAudioLanguage)
-                    },
-                    isTablet = isTablet,
-                    onClick = { showPreferredAudioDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_secondary_audio_language),
-                    description = languageLabelForCode(secondaryPreferredAudioLanguage),
-                    isTablet = isTablet,
-                    onClick = { showSecondaryAudioDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_preferred_subtitle_language),
-                    description = when (preferredSubtitleLanguage) {
-                        SubtitleLanguageOption.NONE -> stringResource(Res.string.settings_playback_option_none)
-                        SubtitleLanguageOption.DEVICE -> stringResource(Res.string.settings_playback_option_device_language)
-                        SubtitleLanguageOption.FORCED -> stringResource(Res.string.settings_playback_option_forced)
-                        else -> languageLabelForCode(preferredSubtitleLanguage)
-                    },
-                    isTablet = isTablet,
-                    onClick = { showPreferredSubtitleDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_secondary_subtitle_language),
-                    description = languageLabelForCode(secondaryPreferredSubtitleLanguage),
-                    isTablet = isTablet,
-                    onClick = { showSecondarySubtitleDialog = true },
-                )
-            }
-        }
-
-        if (!isIos) {
-            SettingsSection(
-                title = stringResource(Res.string.settings_playback_section_decoder),
-                isTablet = isTablet,
-            ) {
-                SettingsGroup(isTablet = isTablet) {
-                    SettingsSwitchRow(
-                        title = "Try mpv hardware decoding",
-                        description = "Use mpv hwdec=auto. Turn this off to force software decoding.",
-                        checked = autoPlayPlayerSettings.mpvHardwareDecodingEnabled,
-                        isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setMpvHardwareDecodingEnabled,
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_decoder_priority),
-                        description = decoderPriorityLabel(decoderPriority),
-                        isTablet = isTablet,
-                        onClick = { showDecoderPriorityDialog = true },
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_playback_map_dv7_to_hevc),
-                        description = stringResource(Res.string.settings_playback_map_dv7_to_hevc_description),
-                        checked = mapDV7ToHevc,
-                        isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setMapDV7ToHevc,
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_playback_tunneled_playback),
-                        description = stringResource(Res.string.settings_playback_tunneled_playback_description),
-                        checked = tunnelingEnabled,
-                        isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setTunnelingEnabled,
                     )
                 }
             }
@@ -532,6 +410,13 @@ private fun PlaybackSettingsSection(
                     )
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
+                        title = "Reset MPV configuration",
+                        description = "Restore the default Nelflix MPV playback configuration.",
+                        isTablet = isTablet,
+                        onClick = { showResetMpvConfigDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
                         title = "Clear cached mpv configurations",
                         description = "Delete mirrored mpv.conf, input.conf, and bundled scripts",
                         isTablet = isTablet,
@@ -544,79 +429,6 @@ private fun PlaybackSettingsSection(
                         isTablet = isTablet,
                         onClick = { clearCachedMpvFonts() },
                     )
-                }
-            }
-        }
-
-        SettingsSection(
-            title = stringResource(Res.string.settings_playback_section_skip_segments),
-            isTablet = isTablet,
-        ) {
-            SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_skip_intro_outro_recap),
-                    description = stringResource(Res.string.settings_playback_skip_intro_outro_recap_description),
-                    checked = autoPlayPlayerSettings.skipIntroEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setSkipIntroEnabled,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_anime_skip),
-                    description = stringResource(Res.string.settings_playback_anime_skip_description),
-                    checked = autoPlayPlayerSettings.animeSkipEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setAnimeSkipEnabled,
-                )
-                if (autoPlayPlayerSettings.animeSkipEnabled) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    var showAnimeSkipClientIdDialog by remember { mutableStateOf(false) }
-                    val notSetLabel = stringResource(Res.string.settings_playback_not_set)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_anime_skip_client_id),
-                        description = autoPlayPlayerSettings.animeSkipClientId.ifBlank { notSetLabel },
-                        isTablet = isTablet,
-                        onClick = { showAnimeSkipClientIdDialog = true },
-                    )
-                    if (showAnimeSkipClientIdDialog) {
-                        AnimeSkipClientIdDialog(
-                            initialValue = autoPlayPlayerSettings.animeSkipClientId,
-                            onSave = {
-                                PlayerSettingsRepository.setAnimeSkipClientId(it)
-                                showAnimeSkipClientIdDialog = false
-                            },
-                            onDismiss = { showAnimeSkipClientIdDialog = false },
-                        )
-                    }
-                }
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_intro_submit_enabled),
-                    description = stringResource(Res.string.settings_playback_intro_submit_enabled_description),
-                    checked = autoPlayPlayerSettings.introSubmitEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setIntroSubmitEnabled,
-                )
-                if (autoPlayPlayerSettings.introSubmitEnabled) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    var showIntroDbApiKeyDialog by remember { mutableStateOf(false) }
-                    val notSetLabel = stringResource(Res.string.settings_playback_not_set)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_introdb_api_key),
-                        description = autoPlayPlayerSettings.introDbApiKey.ifBlank { notSetLabel },
-                        isTablet = isTablet,
-                        onClick = { showIntroDbApiKeyDialog = true },
-                    )
-                    if (showIntroDbApiKeyDialog) {
-                        IntroDbApiKeyDialog(
-                            initialValue = autoPlayPlayerSettings.introDbApiKey,
-                            onSave = {
-                                PlayerSettingsRepository.setIntroDbApiKey(it)
-                                showIntroDbApiKeyDialog = false
-                            },
-                            onDismiss = { showIntroDbApiKeyDialog = false },
-                        )
-                    }
                 }
             }
         }
@@ -640,6 +452,52 @@ private fun PlaybackSettingsSection(
             },
             onDismiss = { showMpvConfDialog = false },
         )
+    }
+
+    if (showResetMpvConfigDialog) {
+        BasicAlertDialog(
+            onDismissRequest = { showResetMpvConfigDialog = false },
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Text(
+                        text = "Reset MPV configuration?",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "This will restore the default Nelflix MPV playback configuration.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = { showResetMpvConfigDialog = false }) {
+                            Text("Cancel")
+                        }
+                        TextButton(
+                            onClick = {
+                                restoreDefaultMpvConfigurations()
+                                showResetMpvConfigDialog = false
+                                NuvioToastController.show("MPV configuration reset to default")
+                            },
+                        ) {
+                            Text("Reset")
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (showMpvInputConfDialog) {

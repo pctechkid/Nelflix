@@ -10,8 +10,10 @@ data class PlayerRoute(
 data class PlayerLaunch(
     val title: String,
     val sourceUrl: String,
+    val fallbackRawSourceUrl: String? = null,
     val sourceAudioUrl: String? = null,
     val sourceHeaders: Map<String, String> = emptyMap(),
+    val fallbackRawSourceHeaders: Map<String, String> = emptyMap(),
     val sourceResponseHeaders: Map<String, String> = emptyMap(),
     val logo: String? = null,
     val poster: String? = null,

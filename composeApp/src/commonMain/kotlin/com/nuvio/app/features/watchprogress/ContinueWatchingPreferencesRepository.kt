@@ -68,13 +68,13 @@ object ContinueWatchingPreferencesRepository {
     ) {
         ensureLoaded()
         _uiState.value = _uiState.value.copy(
-            isVisible = isVisible,
-            style = style,
-            upNextFromFurthestEpisode = upNextFromFurthestEpisode,
-            useEpisodeThumbnails = useEpisodeThumbnails,
-            useClearlogo = useClearlogo,
+            isVisible = true,
+            style = ContinueWatchingSectionStyle.Wide,
+            upNextFromFurthestEpisode = true,
+            useEpisodeThumbnails = true,
+            useClearlogo = true,
             showUnairedNextUp = DefaultShowUnairedNextUp,
-            blurNextUp = blurNextUp,
+            blurNextUp = false,
             dismissedNextUpKeys = dismissedNextUpKeys
                 .map(String::trim)
                 .filter(String::isNotBlank)
@@ -100,15 +100,15 @@ object ContinueWatchingPreferencesRepository {
 
         _uiState.value = if (stored != null) {
             ContinueWatchingPreferencesUiState(
-                isVisible = stored.isVisible,
-                style = stored.style,
-                upNextFromFurthestEpisode = stored.upNextFromFurthestEpisode,
-                useEpisodeThumbnails = stored.useEpisodeThumbnails,
-                useClearlogo = stored.useClearlogo,
+                isVisible = true,
+                style = ContinueWatchingSectionStyle.Wide,
+                upNextFromFurthestEpisode = true,
+                useEpisodeThumbnails = true,
+                useClearlogo = true,
                 showUnairedNextUp = DefaultShowUnairedNextUp,
-                blurNextUp = stored.blurNextUp,
+                blurNextUp = false,
                 dismissedNextUpKeys = stored.dismissedNextUpKeys,
-                showResumePromptOnLaunch = stored.showResumePromptOnLaunch,
+                showResumePromptOnLaunch = true,
                 sortMode = DefaultContinueWatchingSortMode,
             )
         } else {
@@ -119,31 +119,31 @@ object ContinueWatchingPreferencesRepository {
 
     fun setVisible(isVisible: Boolean) {
         ensureLoaded()
-        _uiState.value = _uiState.value.copy(isVisible = isVisible)
+        _uiState.value = _uiState.value.copy(isVisible = true)
         persist()
     }
 
     fun setStyle(style: ContinueWatchingSectionStyle) {
         ensureLoaded()
-        _uiState.value = _uiState.value.copy(style = style)
+        _uiState.value = _uiState.value.copy(style = ContinueWatchingSectionStyle.Wide)
         persist()
     }
 
     fun setUpNextFromFurthestEpisode(enabled: Boolean) {
         ensureLoaded()
-        _uiState.value = _uiState.value.copy(upNextFromFurthestEpisode = enabled)
+        _uiState.value = _uiState.value.copy(upNextFromFurthestEpisode = true)
         persist()
     }
 
     fun setUseEpisodeThumbnails(enabled: Boolean) {
         ensureLoaded()
-        _uiState.value = _uiState.value.copy(useEpisodeThumbnails = enabled)
+        _uiState.value = _uiState.value.copy(useEpisodeThumbnails = true)
         persist()
     }
 
     fun setUseClearlogo(enabled: Boolean) {
         ensureLoaded()
-        _uiState.value = _uiState.value.copy(useClearlogo = enabled)
+        _uiState.value = _uiState.value.copy(useClearlogo = true)
         persist()
     }
 
@@ -156,7 +156,7 @@ object ContinueWatchingPreferencesRepository {
 
     fun setBlurNextUp(enabled: Boolean) {
         ensureLoaded()
-        _uiState.value = _uiState.value.copy(blurNextUp = enabled)
+        _uiState.value = _uiState.value.copy(blurNextUp = false)
         persist()
     }
 
@@ -172,7 +172,7 @@ object ContinueWatchingPreferencesRepository {
 
     fun setShowResumePromptOnLaunch(enabled: Boolean) {
         ensureLoaded()
-        _uiState.value = _uiState.value.copy(showResumePromptOnLaunch = enabled)
+        _uiState.value = _uiState.value.copy(showResumePromptOnLaunch = true)
         persist()
     }
 
@@ -198,15 +198,15 @@ object ContinueWatchingPreferencesRepository {
         ContinueWatchingPreferencesStorage.savePayload(
             json.encodeToString(
                 StoredContinueWatchingPreferences(
-                    isVisible = _uiState.value.isVisible,
-                    style = _uiState.value.style,
-                    upNextFromFurthestEpisode = _uiState.value.upNextFromFurthestEpisode,
-                    useEpisodeThumbnails = _uiState.value.useEpisodeThumbnails,
-                    useClearlogo = _uiState.value.useClearlogo,
-                    showUnairedNextUp = DefaultShowUnairedNextUp,
-                    blurNextUp = _uiState.value.blurNextUp,
-                    dismissedNextUpKeys = _uiState.value.dismissedNextUpKeys,
-                    showResumePromptOnLaunch = _uiState.value.showResumePromptOnLaunch,
+            isVisible = true,
+            style = ContinueWatchingSectionStyle.Wide,
+            upNextFromFurthestEpisode = true,
+            useEpisodeThumbnails = true,
+            useClearlogo = true,
+            showUnairedNextUp = DefaultShowUnairedNextUp,
+            blurNextUp = false,
+            dismissedNextUpKeys = _uiState.value.dismissedNextUpKeys,
+            showResumePromptOnLaunch = true,
                     sortMode = DefaultContinueWatchingSortMode,
                 ),
             ),

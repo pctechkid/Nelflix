@@ -14,28 +14,4 @@ internal fun LazyListScope.integrationsContent(
     onTmdbClick: () -> Unit,
     onMdbListClick: () -> Unit,
 ) {
-    item {
-        SettingsSection(
-            title = stringResource(Res.string.settings_integrations_section_title),
-            isTablet = isTablet,
-        ) {
-            SettingsGroup(isTablet = isTablet) {
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.compose_settings_page_tmdb_enrichment),
-                    description = stringResource(Res.string.settings_integrations_tmdb_description),
-                    iconPainter = integrationLogoPainter(IntegrationLogo.Tmdb),
-                    isTablet = isTablet,
-                    onClick = onTmdbClick,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.compose_settings_page_mdblist_ratings),
-                    description = stringResource(Res.string.settings_integrations_mdblist_description),
-                    iconPainter = integrationLogoPainter(IntegrationLogo.MdbList),
-                    isTablet = isTablet,
-                    onClick = onMdbListClick,
-                )
-            }
-        }
-    }
 }

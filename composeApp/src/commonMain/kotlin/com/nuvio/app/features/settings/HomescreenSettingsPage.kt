@@ -82,46 +82,6 @@ internal fun LazyListScope.homescreenSettingsContent(
         )
     }
     item {
-        SettingsSection(
-            title = stringResource(Res.string.settings_homescreen_section_hero),
-            isTablet = isTablet,
-        ) {
-            SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_homescreen_show_hero),
-                    description = stringResource(Res.string.settings_homescreen_show_hero_description),
-                    checked = heroEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = HomeCatalogSettingsRepository::setHeroEnabled,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.layout_hide_unreleased),
-                    description = stringResource(Res.string.layout_hide_unreleased_sub),
-                    checked = hideUnreleasedContent,
-                    isTablet = isTablet,
-                    onCheckedChange = HomeCatalogSettingsRepository::setHideUnreleasedContent,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_homescreen_hide_catalog_underline),
-                    description = stringResource(Res.string.settings_homescreen_hide_catalog_underline_description),
-                    checked = hideCatalogUnderline,
-                    isTablet = isTablet,
-                    onCheckedChange = HomeCatalogSettingsRepository::setHideCatalogUnderline,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = "Show catalog type labels",
-                    description = "Append - Movies or - Series after catalog titles.",
-                    checked = showCatalogTypeLabels,
-                    isTablet = isTablet,
-                    onCheckedChange = HomeCatalogSettingsRepository::setShowCatalogTypeLabels,
-                )
-            }
-        }
-    }
-    item {
         if (items.isEmpty()) {
             HomeEmptyStateCard(
                 modifier = Modifier.fillMaxWidth(),
