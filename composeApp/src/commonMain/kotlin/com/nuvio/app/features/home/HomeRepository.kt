@@ -138,6 +138,28 @@ object HomeRepository {
         }
     }
 
+    fun recoverIfEmpty(addons: List<ManagedAddon>): Boolean {
+        val state = _uiState.value
+        if (state.isLoading || state.sections.isNotEmpty() || state.heroItems.isNotEmpty()) {
+            return false
+        }
+
+        val requests = buildHomeCatalogDefinitions(addons)
+        if (requests.isEmpty()) return false
+
+        val requestKeys = requests.mapTo(mutableSetOf(), HomeCatalogDefinition::key)
+        if (currentDefinitions.isNotEmpty() && requestKeys.all(cachedSections::containsKey)) {
+            applyCurrentSettings()
+            val recoveredState = _uiState.value
+            if (recoveredState.sections.isNotEmpty() || recoveredState.heroItems.isNotEmpty()) {
+                return true
+            }
+        }
+
+        refresh(addons, force = true)
+        return true
+    }
+
     fun applyCurrentSettings() {
         publishCurrentState(
             isLoading = _uiState.value.isLoading,

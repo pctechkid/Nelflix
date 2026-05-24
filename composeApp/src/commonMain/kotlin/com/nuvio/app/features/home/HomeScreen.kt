@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -13,7 +14,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
@@ -291,11 +295,36 @@ fun HomeScreen(
             }
             .sorted()
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(catalogRefreshKey) {
         if (catalogRefreshKey.isEmpty()) return@LaunchedEffect
         HomeCatalogSettingsRepository.syncCatalogs(addonsUiState.addons)
         HomeRepository.refresh(addonsUiState.addons)
+    }
+
+    DisposableEffect(
+        lifecycleOwner,
+        catalogRefreshKey,
+        addonsUiState.addons,
+        homeUiState.isLoading,
+        homeUiState.sections.size,
+        homeUiState.heroItems.size,
+    ) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+            if (catalogRefreshKey.isEmpty()) return@LifecycleEventObserver
+            if (homeUiState.isLoading || homeUiState.sections.isNotEmpty() || homeUiState.heroItems.isNotEmpty()) {
+                return@LifecycleEventObserver
+            }
+
+            HomeCatalogSettingsRepository.syncCatalogs(addonsUiState.addons)
+            HomeRepository.recoverIfEmpty(addonsUiState.addons)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     LaunchedEffect(collections) {
