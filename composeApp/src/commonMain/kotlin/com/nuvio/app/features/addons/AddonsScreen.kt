@@ -43,6 +43,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.ui.NuvioIconActionButton
 import com.nuvio.app.core.ui.NuvioInfoBadge
 import com.nuvio.app.core.ui.NuvioInputField
@@ -52,6 +54,7 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioSurfaceCard
+import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -80,11 +83,25 @@ fun AddonsScreen(
 internal fun AddonsSettingsPageContent(
     modifier: Modifier = Modifier,
 ) {
-    LaunchedEffect(Unit) {
+    val authState by AuthRepository.state.collectAsStateWithLifecycle()
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
+    val uiState by AddonRepository.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(
+        (authState as? AuthState.Authenticated)?.userId,
+        (authState as? AuthState.Authenticated)?.isAnonymous,
+        profileState.activeProfile?.profileIndex,
+        profileState.activeProfile?.usesPrimaryAddons,
+    ) {
         AddonRepository.initialize()
+        val authenticatedState = authState as? AuthState.Authenticated ?: return@LaunchedEffect
+        if (authenticatedState.isAnonymous) return@LaunchedEffect
+
+        val activeProfileId = profileState.activeProfile?.profileIndex
+            ?: ProfileRepository.activeProfileId
+        AddonRepository.pullFromServer(activeProfileId)
     }
 
-    val uiState by AddonRepository.uiState.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     var addonUrl by rememberSaveable { mutableStateOf("") }

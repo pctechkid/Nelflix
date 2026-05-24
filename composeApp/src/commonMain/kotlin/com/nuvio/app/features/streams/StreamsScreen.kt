@@ -84,8 +84,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
+import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.launch
 import kotlin.math.round
@@ -125,6 +129,8 @@ fun StreamsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val authState by AuthRepository.state.collectAsStateWithLifecycle()
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val uiState by StreamsRepository.uiState.collectAsStateWithLifecycle()
     val playerSettings by remember {
         PlayerSettingsRepository.ensureLoaded()
@@ -172,7 +178,26 @@ fun StreamsScreen(
         }
     }
 
-    LaunchedEffect(type, videoId, seasonNumber, episodeNumber, manualSelection) {
+    LaunchedEffect(
+        type,
+        videoId,
+        seasonNumber,
+        episodeNumber,
+        manualSelection,
+        (authState as? AuthState.Authenticated)?.userId,
+        (authState as? AuthState.Authenticated)?.isAnonymous,
+        profileState.activeProfile?.profileIndex,
+        profileState.activeProfile?.usesPrimaryAddons,
+    ) {
+        AddonRepository.initialize()
+        val authenticatedState = authState as? AuthState.Authenticated
+        if (authenticatedState != null && !authenticatedState.isAnonymous) {
+            val activeProfileId = profileState.activeProfile?.profileIndex
+                ?: ProfileRepository.activeProfileId
+            AddonRepository.pullFromServer(activeProfileId)
+            AddonRepository.awaitManifestsLoaded()
+        }
+
         StreamsRepository.load(
             type = type,
             videoId = videoId,

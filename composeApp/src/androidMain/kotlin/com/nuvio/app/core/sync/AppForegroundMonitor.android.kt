@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.callbackFlow
 internal actual object AppForegroundMonitor {
     actual fun events(): Flow<Unit> = callbackFlow {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            trySend(Unit)
+        }
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
                 trySend(Unit)

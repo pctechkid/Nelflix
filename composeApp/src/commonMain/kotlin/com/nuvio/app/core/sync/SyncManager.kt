@@ -102,7 +102,15 @@ object SyncManager {
 
     private fun pullForegroundForProfile(profileId: Int) {
         scope.launch {
-            log.i { "pullForegroundForProfile($profileId) — syncing watch progress + library" }
+            log.i { "pullForegroundForProfile($profileId) — syncing addons + watch progress + library" }
+
+            runCatching { AddonRepository.pullFromServer(profileId) }
+                .onFailure { log.e(it) { "Foreground addon pull failed" } }
+
+            if (AppFeaturePolicy.pluginsEnabled) {
+                runCatching { PluginRepository.pullFromServer(profileId) }
+                    .onFailure { log.e(it) { "Foreground plugin pull failed" } }
+            }
 
             launch {
                 runCatching { LibraryRepository.pullFromServer(profileId) }
