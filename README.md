@@ -1,4 +1,6 @@
-# Nelflix
+<p align="center">
+  <img src="composeApp/src/commonMain/composeResources/drawable/app_logo_wordmark.png" alt="Nelflix" width="360">
+</p>
 
 > Ronnel's independent Android media app, built with Kotlin Multiplatform and Compose Multiplatform.
 
@@ -113,4 +115,3 @@ Contributions, bug reports, and focused fixes are welcome. Please read [CONTRIBU
 ## 📄 License
 
 Nelflix is licensed under the [GNU General Public License v3.0](LICENSE).
-
