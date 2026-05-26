@@ -124,8 +124,8 @@ private fun sanitizeReleaseNotes(notes: String): String {
     return filtered.ifBlank { trimmed }
 }
 
-private class NoDebugApkReleaseException : IllegalStateException(
-    "No GitHub release with a debug APK asset has been published yet.",
+private class NoApkReleaseException : IllegalStateException(
+    "No GitHub release with an APK asset has been published yet.",
 )
 
 private object VersionUtils {
@@ -183,14 +183,14 @@ private object AppUpdaterRepository {
         val releases = appUpdaterJson.decodeFromString<List<GitHubReleaseDto>>(response.body)
         val release = releases.firstOrNull { release ->
             !release.draft && chooseBestApkAsset(release.assets) != null
-        } ?: throw NoDebugApkReleaseException()
+        } ?: throw NoApkReleaseException()
 
         val tag = release.tagName?.takeIf { it.isNotBlank() }
             ?: release.name?.takeIf { it.isNotBlank() }
             ?: error("Release has no tag or name")
 
         val asset = chooseBestApkAsset(release.assets)
-            ?: error("No debug APK asset found in the latest release")
+            ?: error("No APK asset found in the latest release")
 
         log.d {
             "Selected updater release tag=$tag asset=${asset.name} url=${asset.browserDownloadUrl} size=${asset.size}"
@@ -222,11 +222,15 @@ private object AppUpdaterRepository {
     private fun chooseBestApkAsset(assets: List<GitHubAssetDto>): GitHubAssetDto? {
         val apkAssets = assets.filter { asset ->
             val name = asset.name.lowercase()
-            (name.endsWith(".apk") || asset.contentType == "application/vnd.android.package-archive") &&
-                name.contains("debug")
+            name.endsWith(".apk") || asset.contentType == "application/vnd.android.package-archive"
         }
         if (apkAssets.isEmpty()) return null
         if (apkAssets.size == 1) return apkAssets.first()
+
+        apkAssets.firstOrNull { asset ->
+            val name = asset.name.lowercase()
+            name.contains("full-release") || name.contains("fullrelease")
+        }?.let { return it }
 
         apkAssets.firstOrNull { asset ->
             val name = asset.name.lowercase()
@@ -331,9 +335,9 @@ class AppUpdaterController internal constructor(
                         downloadedReleaseTag = null,
                         update = null,
                         isUpdateAvailable = false,
-                        showDialog = force && error !is NoDebugApkReleaseException,
+                        showDialog = force && error !is NoApkReleaseException,
                         showUnknownSourcesDialog = false,
-                        errorMessage = if (force && error !is NoDebugApkReleaseException) {
+                        errorMessage = if (force && error !is NoApkReleaseException) {
                             error.message ?: getString(Res.string.updates_check_failed)
                         } else {
                             null
@@ -341,7 +345,7 @@ class AppUpdaterController internal constructor(
                     )
                 }
 
-                if (showNoUpdateFeedback || error is NoDebugApkReleaseException) {
+                if (showNoUpdateFeedback || error is NoApkReleaseException) {
                     NuvioToastController.show(error.message ?: getString(Res.string.updates_check_failed))
                 }
             }
