@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -87,12 +88,12 @@ private fun ReleaseCalendarScreen(
                 .thenBy { it.timeLabel })
     }
     val today = remember { parseIsoDate(CurrentDateProvider.todayIsoDate()) }
-    val initialDate = releases.firstOrNull()?.date ?: today ?: CalendarDate(2026, 5, 1)
+    val initialDate = today ?: releases.firstOrNull()?.date ?: CalendarDate(2026, 5, 1)
     var visibleMonth by remember { mutableStateOf(CalendarMonth(initialDate.year, initialDate.month)) }
     var selectedDate by remember { mutableStateOf(initialDate) }
 
     LaunchedEffect(releases) {
-        val nextInitialDate = releases.firstOrNull()?.date ?: today ?: selectedDate
+        val nextInitialDate = today ?: releases.firstOrNull()?.date ?: selectedDate
         visibleMonth = CalendarMonth(nextInitialDate.year, nextInitialDate.month)
         selectedDate = nextInitialDate
     }
@@ -104,8 +105,15 @@ private fun ReleaseCalendarScreen(
         title = "RELEASE CALENDAR",
         isTablet = isTablet,
     ) {
+        val calendarModifier = if (isTablet) {
+            Modifier
+                .fillMaxWidth()
+                .widthIn(max = 560.dp)
+        } else {
+            Modifier.fillMaxWidth()
+        }
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = calendarModifier,
             shape = RoundedCornerShape(if (isTablet) 28.dp else 22.dp),
             color = CalendarBackground,
         ) {
@@ -288,12 +296,12 @@ private fun CalendarDayCell(
 ) {
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            isSelected -> NetflixRed
-            isToday -> Color.White.copy(alpha = 0.10f)
+            isToday -> NetflixRed
+            isSelected -> Color.White.copy(alpha = 0.10f)
             else -> Color.Transparent
         },
     )
-    val borderColor = if (isToday && !isSelected) Color.White.copy(alpha = 0.22f) else Color.Transparent
+    val borderColor = if (isSelected && !isToday) Color.White.copy(alpha = 0.22f) else Color.Transparent
 
     Box(
         modifier = modifier

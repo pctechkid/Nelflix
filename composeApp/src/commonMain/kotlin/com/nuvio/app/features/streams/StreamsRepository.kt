@@ -29,9 +29,12 @@ import kotlinx.coroutines.flow.update
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 object StreamsRepository {
     private val log = Logger.withTag("StreamsRepo")
+    private const val MaxConcurrentStreamFetches = 8
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _uiState = MutableStateFlow(StreamsUiState())
     val uiState: StateFlow<StreamsUiState> = _uiState.asStateFlow()
@@ -218,6 +221,7 @@ object StreamsRepository {
 
         activeJob = scope.launch {
             val completions = Channel<StreamLoadCompletion>(capacity = Channel.BUFFERED)
+            val fetchLimiter = Semaphore(MaxConcurrentStreamFetches)
             val pluginRemainingByAddonId = pluginProviderGroups
                 .associate { it.addonId to it.scrapers.size }
                 .toMutableMap()
@@ -281,44 +285,46 @@ object StreamsRepository {
 
             streamAddons.forEach { addon ->
                 launch {
-                    val url = buildAddonResourceUrl(
-                        manifestUrl = addon.manifest.transportUrl,
-                        resource = "stream",
-                        type = type,
-                        id = videoId,
-                    )
-                    log.d { "Fetching streams from: $url" }
-
-                    val displayName = addon.addonName
-                    val group = runCatchingUnlessCancelled {
-                        val payload = httpGetText(url)
-                        StreamParser.parse(
-                            payload = payload,
-                            addonName = displayName,
-                            addonId = addon.addonId,
+                    fetchLimiter.withPermit {
+                        val url = buildAddonResourceUrl(
+                            manifestUrl = addon.manifest.transportUrl,
+                            resource = "stream",
+                            type = type,
+                            id = videoId,
                         )
-                    }.fold(
-                        onSuccess = { streams ->
-                            log.d { "Got ${streams.size} streams from ${displayName}" }
-                            AddonStreamGroup(
+                        log.d { "Fetching streams from: $url" }
+
+                        val displayName = addon.addonName
+                        val group = runCatchingUnlessCancelled {
+                            val payload = httpGetText(url)
+                            StreamParser.parse(
+                                payload = payload,
                                 addonName = displayName,
                                 addonId = addon.addonId,
-                                streams = streams,
-                                isLoading = false,
                             )
-                        },
-                        onFailure = { err ->
-                            log.w(err) { "Failed to fetch streams from ${displayName}" }
-                            AddonStreamGroup(
-                                addonName = displayName,
-                                addonId = addon.addonId,
-                                streams = emptyList(),
-                                isLoading = false,
-                                error = err.message,
-                            )
-                        },
-                    )
-                    publishCompletion(StreamLoadCompletion.Addon(group))
+                        }.fold(
+                            onSuccess = { streams ->
+                                log.d { "Got ${streams.size} streams from ${displayName}" }
+                                AddonStreamGroup(
+                                    addonName = displayName,
+                                    addonId = addon.addonId,
+                                    streams = streams,
+                                    isLoading = false,
+                                )
+                            },
+                            onFailure = { err ->
+                                log.w(err) { "Failed to fetch streams from ${displayName}" }
+                                AddonStreamGroup(
+                                    addonName = displayName,
+                                    addonId = addon.addonId,
+                                    streams = emptyList(),
+                                    isLoading = false,
+                                    error = err.message,
+                                )
+                            },
+                        )
+                        publishCompletion(StreamLoadCompletion.Addon(group))
+                    }
                 }
             }
 
@@ -326,55 +332,59 @@ object StreamsRepository {
                 val includeScraperNameInSubtitle = false
                 providerGroup.scrapers.forEach { scraper ->
                     launch {
-                        val completion = PluginRepository.executeScraper(
-                            scraper = scraper,
-                            tmdbId = pluginContentId(
-                                videoId = videoId,
+                        fetchLimiter.withPermit {
+                            val completion = PluginRepository.executeScraper(
+                                scraper = scraper,
+                                tmdbId = pluginContentId(
+                                    videoId = videoId,
+                                    season = season,
+                                    episode = episode,
+                                ),
+                                mediaType = type,
                                 season = season,
                                 episode = episode,
-                            ),
-                            mediaType = type,
-                            season = season,
-                            episode = episode,
-                        ).fold(
-                            onSuccess = { results ->
-                                StreamLoadCompletion.PluginScraper(
-                                    addonId = providerGroup.addonId,
-                                    streams = results.map { result ->
-                                        result.toStreamItem(
-                                            scraper = scraper,
-                                            addonName = providerGroup.addonName,
-                                            addonId = providerGroup.addonId,
-                                            includeScraperNameInSubtitle = includeScraperNameInSubtitle,
-                                        )
-                                    },
-                                    error = null,
-                                )
-                            },
-                            onFailure = { error ->
-                                StreamLoadCompletion.PluginScraper(
-                                    addonId = providerGroup.addonId,
-                                    streams = emptyList(),
-                                    error = error.message ?: getString(Res.string.streams_failed_to_load_scraper, scraper.name),
-                                )
-                            },
-                        )
-                        publishCompletion(completion)
+                            ).fold(
+                                onSuccess = { results ->
+                                    StreamLoadCompletion.PluginScraper(
+                                        addonId = providerGroup.addonId,
+                                        streams = results.map { result ->
+                                            result.toStreamItem(
+                                                scraper = scraper,
+                                                addonName = providerGroup.addonName,
+                                                addonId = providerGroup.addonId,
+                                                includeScraperNameInSubtitle = includeScraperNameInSubtitle,
+                                            )
+                                        },
+                                        error = null,
+                                    )
+                                },
+                                onFailure = { error ->
+                                    StreamLoadCompletion.PluginScraper(
+                                        addonId = providerGroup.addonId,
+                                        streams = emptyList(),
+                                        error = error.message ?: getString(Res.string.streams_failed_to_load_scraper, scraper.name),
+                                    )
+                                },
+                            )
+                            publishCompletion(completion)
+                        }
                     }
                 }
             }
 
             debridTargets.forEach { target ->
                 launch {
-                    publishCompletion(
-                        StreamLoadCompletion.Debrid(
-                            DirectDebridStreamSource.fetchProviderStreams(
-                                type = type,
-                                videoId = videoId,
-                                target = target,
+                    fetchLimiter.withPermit {
+                        publishCompletion(
+                            StreamLoadCompletion.Debrid(
+                                DirectDebridStreamSource.fetchProviderStreams(
+                                    type = type,
+                                    videoId = videoId,
+                                    target = target,
+                                ),
                             ),
-                        ),
-                    )
+                        )
+                    }
                 }
             }
 

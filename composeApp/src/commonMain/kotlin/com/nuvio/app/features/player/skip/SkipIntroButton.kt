@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
@@ -97,8 +98,9 @@ fun SkipIntroButton(
         Box(
             modifier = Modifier
                 .width(IntrinsicSize.Max)
+                .shadow(elevation = 12.dp, shape = shape, clip = false)
                 .clip(shape)
-                .background(Color.Transparent)
+                .background(Color.White)
                 .border(width = 1.25.dp, color = Color.White, shape = shape)
                 .clickable { onSkip() },
         ) {
@@ -108,7 +110,7 @@ fun SkipIntroButton(
             ) {
                 Text(
                     text = skipLabel(lastType).uppercase(),
-                    color = Color.White,
+                    color = Color.Black,
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                 )
             }

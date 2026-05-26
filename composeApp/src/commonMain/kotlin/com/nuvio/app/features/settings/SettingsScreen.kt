@@ -774,7 +774,7 @@ private fun TabletSettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
-                        .height(34.dp)
+                        .height(48.dp)
                         .padding(bottom = 20.dp),
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

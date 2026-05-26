@@ -2093,85 +2093,6 @@ private fun IntroDbApiKeyDialog(
     }
 }
 
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun NextEpisodeThresholdModeDialog(
-    selected: com.nuvio.app.features.player.skip.NextEpisodeThresholdMode,
-    onSelect: (com.nuvio.app.features.player.skip.NextEpisodeThresholdMode) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val options = com.nuvio.app.features.player.skip.NextEpisodeThresholdMode.entries
-
-    BasicAlertDialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.settings_playback_threshold_mode),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                )
-
-                options.forEach { mode ->
-                    val isSelected = mode == selected
-                    val containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    }
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(mode) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = containerColor,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = stringResource(mode.labelRes),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Box(
-                                modifier = Modifier.size(24.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Check,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(Res.string.settings_playback_dialog_close),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
 private fun decoderPriorityRes(priority: Int): StringResource = when (priority) {
     0 -> Res.string.settings_playback_decoder_device_only
     1 -> Res.string.settings_playback_decoder_prefer_device
@@ -2204,14 +2125,6 @@ private val StreamAutoPlayMode.labelRes: StringResource
         StreamAutoPlayMode.MANUAL -> Res.string.settings_playback_stream_selection_mode_manual
         StreamAutoPlayMode.FIRST_STREAM -> Res.string.settings_playback_stream_selection_mode_first_stream
         StreamAutoPlayMode.REGEX_MATCH -> Res.string.settings_playback_stream_selection_mode_regex
-    }
-
-private val com.nuvio.app.features.player.skip.NextEpisodeThresholdMode.labelRes: StringResource
-    get() = when (this) {
-        com.nuvio.app.features.player.skip.NextEpisodeThresholdMode.PERCENTAGE ->
-            Res.string.settings_playback_threshold_mode_percentage
-        com.nuvio.app.features.player.skip.NextEpisodeThresholdMode.MINUTES_BEFORE_END ->
-            Res.string.settings_playback_threshold_mode_minutes_before_end
     }
 
 private fun libassRenderTypeRes(renderType: String): StringResource = when (renderType) {

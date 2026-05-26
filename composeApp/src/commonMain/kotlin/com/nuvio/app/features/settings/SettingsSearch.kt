@@ -395,7 +395,6 @@ internal fun settingsSearchEntries(
     val playbackSubtitleAudio = stringResource(Res.string.settings_playback_section_subtitle_audio)
     val playbackDecoder = stringResource(Res.string.settings_playback_section_decoder)
     val playbackSkipSegments = stringResource(Res.string.settings_playback_section_skip_segments)
-    val playbackNextEpisode = stringResource(Res.string.settings_playback_section_next_episode)
     addPlaybackRows(
         addRow = ::addRow,
         pageLabel = playbackPage,
@@ -462,20 +461,6 @@ internal fun settingsSearchEntries(
             PlaybackSearchRow("introdb-key", stringResource(Res.string.settings_playback_introdb_api_key), stringResource(Res.string.settings_playback_introdb_api_key_description)),
         ),
     )
-    addPlaybackRows(
-        addRow = ::addRow,
-        pageLabel = playbackPage,
-        section = playbackNextEpisode,
-        icon = Icons.Rounded.PlayArrow,
-        rows = listOf(
-            PlaybackSearchRow("auto-play-next", stringResource(Res.string.settings_playback_auto_play_next_episode), stringResource(Res.string.settings_playback_auto_play_next_episode_description)),
-            PlaybackSearchRow("prefer-binge", stringResource(Res.string.settings_playback_prefer_binge_group), stringResource(Res.string.settings_playback_prefer_binge_group_description)),
-            PlaybackSearchRow("threshold-mode", stringResource(Res.string.settings_playback_threshold_mode)),
-            PlaybackSearchRow("threshold-percent", stringResource(Res.string.settings_playback_threshold_percentage), stringResource(Res.string.settings_playback_threshold_percentage_description)),
-            PlaybackSearchRow("threshold-minutes", stringResource(Res.string.settings_playback_minutes_before_end), stringResource(Res.string.settings_playback_minutes_before_end_description)),
-        ),
-    )
-
     addContinueWatchingRows(
         addRow = ::addRow,
         pageLabel = continueWatchingPage,

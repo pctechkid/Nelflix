@@ -193,6 +193,7 @@ internal fun LazyListScope.settingsRootContent(
                         isTablet = isTablet,
                         onClick = onCheckForUpdatesClick,
                     )
+                    PlatformDebugLogExportRows(isTablet = isTablet)
                 }
             }
         }

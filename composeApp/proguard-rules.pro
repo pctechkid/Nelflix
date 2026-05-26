@@ -25,6 +25,13 @@
 -keep class com.dokar.quickjs.** { *; }
 -keep class com.nuvio.app.features.plugins.** { *; }
 
+# MPV's native libplayer.so looks up this Java bridge by exact class and
+# method names. Release shrinking can otherwise rename or remove callbacks.
+-keep class is.xyz.mpv.** { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
 # Media3 / ExoPlayer classes from local AAR decoders and stock modules.
 -dontwarn androidx.media3.**
 -keep class androidx.media3.** { *; }

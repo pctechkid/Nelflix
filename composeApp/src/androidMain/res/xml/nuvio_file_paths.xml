@@ -3,6 +3,9 @@
     <cache-path
         name="nuvio_updates"
         path="updates/" />
+    <cache-path
+        name="nuvio_debug_logs"
+        path="debug_logs/" />
     <files-path
         name="nuvio_downloads"
         path="downloads/" />

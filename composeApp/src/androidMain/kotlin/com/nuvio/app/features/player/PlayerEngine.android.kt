@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -30,15 +31,26 @@ import `is`.xyz.mpv.BaseMPVView
 import `is`.xyz.mpv.MPVLib
 import `is`.xyz.mpv.MPVNode
 import `is`.xyz.mpv.Utils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.net.URI
+import java.util.Collections
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "NuvioMpvPlayer"
+private const val MpvSnapshotIntervalMs = 1_000L
+private const val MpvSnapshotTimeoutMs = 750L
+private const val MpvReadTimeoutMs = 1_200L
 
 @Composable
 actual fun PlatformPlayerSurface(
@@ -57,6 +69,7 @@ actual fun PlatformPlayerSurface(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     val latestOnSnapshot = rememberUpdatedState(onSnapshot)
     val latestOnError = rememberUpdatedState(onError)
     val sanitizedSourceHeaders = sanitizePlaybackHeaders(sourceHeaders)
@@ -80,23 +93,32 @@ actual fun PlatformPlayerSurface(
 
     DisposableEffect(playerSourceKey) {
         val observer = NuvioMpvObserver(
-            onSnapshot = { latestOnSnapshot.value(it) },
+            requestSnapshot = {
+                scope.launch {
+                    MpvCalls.callOrNull(MpvSnapshotTimeoutMs) { MPVLib.snapshot() }
+                        ?.let { latestOnSnapshot.value(it) }
+                }
+            },
             onError = { latestOnError.value(it) },
         )
         MPVLib.addObserver(observer)
         onDispose {
-            playerView?.isReleasing = true
+            playerView?.prepareForRelease()
             MPVLib.removeObserver(observer)
-            runCatching { MPVLib.command("stop") }
-            runCatching { MPVLib.destroy() }
+            MpvCalls.execute {
+                runCatching { MPVLib.setPropertyBoolean("pause", true) }
+                runCatching { MPVLib.command("stop") }
+                runCatching { MPVLib.destroy() }
+                ContentFdRegistry.closeAll()
+            }
         }
     }
 
     DisposableEffect(playerSourceKey, lifecycleOwner, playWhenReady) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> if (playWhenReady) MPVLib.setPropertyBoolean("pause", false)
-                Lifecycle.Event.ON_STOP -> MPVLib.setPropertyBoolean("pause", true)
+                Lifecycle.Event.ON_START -> if (playWhenReady) MpvCalls.execute { MPVLib.setPropertyBoolean("pause", false) }
+                Lifecycle.Event.ON_STOP -> MpvCalls.execute { MPVLib.setPropertyBoolean("pause", true) }
                 else -> Unit
             }
         }
@@ -105,8 +127,10 @@ actual fun PlatformPlayerSurface(
     }
 
     LaunchedEffect(playerSourceKey, playWhenReady) {
-        MPVLib.setPropertyBoolean("pause", !playWhenReady)
-        latestOnSnapshot.value(MPVLib.snapshot())
+        MpvCalls.callOrNull(MpvReadTimeoutMs) {
+            MPVLib.setPropertyBoolean("pause", !playWhenReady)
+            MPVLib.snapshot()
+        }?.let { latestOnSnapshot.value(it) }
     }
 
     LaunchedEffect(playerSourceKey) {
@@ -115,8 +139,10 @@ actual fun PlatformPlayerSurface(
 
     LaunchedEffect(playerSourceKey) {
         while (isActive) {
-            latestOnSnapshot.value(MPVLib.snapshot())
-            delay(250L)
+            withContext(Dispatchers.Default) {
+                MpvCalls.callOrNull(MpvSnapshotTimeoutMs) { MPVLib.snapshot() }
+            }?.let { latestOnSnapshot.value(it) }
+            delay(MpvSnapshotIntervalMs)
         }
     }
 
@@ -151,6 +177,12 @@ class NuvioMpvView(
     attrs: AttributeSet,
 ) : BaseMPVView(context, attrs) {
     var isReleasing: Boolean = false
+        private set
+
+    fun prepareForRelease() {
+        isReleasing = true
+        holder.removeCallback(this)
+    }
 
     internal fun initializeForNuvio(source: MpvSource, playWhenReady: Boolean) {
         NuvioMpvFiles.prepare(context)
@@ -169,16 +201,20 @@ class NuvioMpvView(
     override fun initOptions() {
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
-        setVo("gpu-next")
+        setVo("gpu")
         MPVLib.setOptionString("profile", "fast")
         MPVLib.setOptionString("hwdec", if (playerSettings.mpvHardwareDecodingEnabled) "auto" else "no")
+        MPVLib.setOptionString("vd-lavc-dr", "no")
         MPVLib.setOptionString("keep-open", "yes")
         MPVLib.setOptionString("input-default-bindings", "yes")
         MPVLib.setOptionString("tls-verify", "yes")
         MPVLib.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
         val demuxerBytes = playerSettings.mpvDemuxerMaxBytesMiB.coerceIn(128, 4096) * 1024L * 1024L
+        val demuxerBackBytes = playerSettings.mpvDemuxerMaxBytesMiB
+            .coerceIn(128, 4096)
+            .coerceAtMost(DefaultMpvDemuxerMaxBackBytesMiB) * 1024L * 1024L
         MPVLib.setOptionString("demuxer-max-bytes", "$demuxerBytes")
-        MPVLib.setOptionString("demuxer-max-back-bytes", "$demuxerBytes")
+        MPVLib.setOptionString("demuxer-max-back-bytes", "$demuxerBackBytes")
         MPVLib.setOptionString("sub-fonts-dir", "${context.cacheDir.path}/fonts/")
         MPVLib.setOptionString("sub-ass-override", "force")
         MPVLib.setOptionString("sub-ass-justify", "yes")
@@ -196,19 +232,29 @@ class NuvioMpvView(
 
     override fun postInitOptions() = Unit
 
+    override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+        if (!isReleasing) {
+            super.surfaceDestroyed(holder)
+            return
+        }
+        Log.w(TAG, "surface destroyed during release; MPV stop/destroy already queued")
+    }
+
     fun applyResizeMode(resizeMode: PlayerResizeMode) {
-        when (resizeMode) {
-            PlayerResizeMode.Fit -> {
-                MPVLib.setPropertyDouble("panscan", 0.0)
-                MPVLib.setPropertyDouble("video-aspect-override", -1.0)
-            }
-            PlayerResizeMode.Fill -> {
-                MPVLib.setPropertyDouble("panscan", 0.0)
-                MPVLib.setPropertyString("video-aspect-override", "no")
-            }
-            PlayerResizeMode.Zoom -> {
-                MPVLib.setPropertyDouble("panscan", 1.0)
-                MPVLib.setPropertyDouble("video-aspect-override", -1.0)
+        MpvCalls.execute {
+            when (resizeMode) {
+                PlayerResizeMode.Fit -> {
+                    MPVLib.setPropertyDouble("panscan", 0.0)
+                    MPVLib.setPropertyString("video-aspect-override", "no")
+                }
+                PlayerResizeMode.Fill -> {
+                    MPVLib.setPropertyDouble("panscan", 0.0)
+                    MPVLib.setPropertyString("video-aspect-override", "no")
+                }
+                PlayerResizeMode.Zoom -> {
+                    MPVLib.setPropertyDouble("panscan", 1.0)
+                    MPVLib.setPropertyString("video-aspect-override", "no")
+                }
             }
         }
     }
@@ -229,42 +275,54 @@ class NuvioMpvView(
 }
 
 private class NuvioMpvObserver(
-    private val onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
+    private val requestSnapshot: () -> Unit,
     private val onError: (String?) -> Unit,
 ) : MPVLib.EventObserver {
+    private val lastSnapshotRequestMs = AtomicLong(0L)
+
     override fun eventProperty(property: String) {
-        onSnapshot(MPVLib.snapshot())
+        requestSnapshotThrottled()
     }
 
     override fun eventProperty(property: String, value: Long) {
-        onSnapshot(MPVLib.snapshot())
+        requestSnapshotThrottled()
     }
 
     override fun eventProperty(property: String, value: Boolean) {
-        onSnapshot(MPVLib.snapshot())
+        requestSnapshotThrottled()
     }
 
     override fun eventProperty(property: String, value: String) {
-        onSnapshot(MPVLib.snapshot())
+        requestSnapshotThrottled()
     }
 
     override fun eventProperty(property: String, value: Double) {
-        onSnapshot(MPVLib.snapshot())
+        requestSnapshotThrottled()
     }
 
     override fun eventProperty(property: String, value: MPVNode) {
-        onSnapshot(MPVLib.snapshot())
+        requestSnapshotThrottled()
     }
 
     override fun event(eventId: Int) {
         when (eventId) {
             MPVLib.mpvEventId.MPV_EVENT_FILE_LOADED -> {
-                applyRegularSubtitleOverride()
+                MpvCalls.execute { applyRegularSubtitleOverride() }
                 onError(null)
+                requestSnapshotThrottled(force = true)
             }
             MPVLib.mpvEventId.MPV_EVENT_SHUTDOWN -> Unit
-            MPVLib.mpvEventId.MPV_EVENT_END_FILE -> onSnapshot(MPVLib.snapshot())
+            MPVLib.mpvEventId.MPV_EVENT_END_FILE -> requestSnapshotThrottled(force = true)
             else -> Unit
+        }
+    }
+
+    private fun requestSnapshotThrottled(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val previous = lastSnapshotRequestMs.get()
+        if (!force && now - previous < MpvSnapshotIntervalMs) return
+        if (lastSnapshotRequestMs.compareAndSet(previous, now)) {
+            requestSnapshot()
         }
     }
 }
@@ -273,32 +331,34 @@ private class MpvPlayerEngineController(
     private val context: Context,
 ) : PlayerEngineController {
     override fun play() {
-        MPVLib.setPropertyBoolean("pause", false)
+        MpvCalls.execute { MPVLib.setPropertyBoolean("pause", false) }
     }
 
     override fun pause() {
-        MPVLib.setPropertyBoolean("pause", true)
+        MpvCalls.execute { MPVLib.setPropertyBoolean("pause", true) }
     }
 
     override fun seekTo(positionMs: Long) {
-        MPVLib.command("seek", (positionMs / 1000.0).toString(), "absolute+exact")
+        MpvCalls.execute { MPVLib.command("seek", (positionMs / 1000.0).toString(), "absolute+exact") }
     }
 
     override fun seekBy(offsetMs: Long) {
-        MPVLib.command("seek", (offsetMs / 1000.0).toString(), "relative+exact")
+        MpvCalls.execute { MPVLib.command("seek", (offsetMs / 1000.0).toString(), "relative+exact") }
     }
 
     override fun retry() {
-        MPVLib.command("playlist-play-index", "current")
-        MPVLib.setPropertyBoolean("pause", false)
+        MpvCalls.execute {
+            MPVLib.command("playlist-play-index", "current")
+            MPVLib.setPropertyBoolean("pause", false)
+        }
     }
 
     override fun setPlaybackSpeed(speed: Float) {
-        MPVLib.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0))
+        MpvCalls.execute { MPVLib.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0)) }
     }
 
     override fun getAudioTracks(): List<AudioTrack> =
-        mpvTracks()
+        MpvCalls.callBlocking(MpvReadTimeoutMs, emptyList()) { mpvTracks() }
             .filter { it.isAudio }
             .mapIndexed { index, track ->
                 AudioTrack(
@@ -311,7 +371,7 @@ private class MpvPlayerEngineController(
             }
 
     override fun getSubtitleTracks(): List<SubtitleTrack> =
-        mpvTracks()
+        MpvCalls.callBlocking(MpvReadTimeoutMs, emptyList()) { mpvTracks() }
             .filter { it.isSubtitle }
             .mapIndexed { index, track ->
                 SubtitleTrack(
@@ -325,7 +385,7 @@ private class MpvPlayerEngineController(
             }
 
     override fun getChapters(): List<PlayerChapter> =
-        mpvChapters().mapIndexed { index, chapter ->
+        MpvCalls.callBlocking(MpvReadTimeoutMs, emptyList()) { mpvChapters() }.mapIndexed { index, chapter ->
             PlayerChapter(
                 index = index,
                 title = chapter.title?.takeIf { it.isNotBlank() } ?: "Chapter ${index + 1}",
@@ -334,55 +394,73 @@ private class MpvPlayerEngineController(
         }
 
     override fun selectAudioTrack(index: Int) {
-        val track = mpvTracks().filter { it.isAudio }.getOrNull(index) ?: return
-        MPVLib.setPropertyInt("aid", track.id)
+        MpvCalls.execute {
+            val track = mpvTracks().filter { it.isAudio }.getOrNull(index) ?: return@execute
+            MPVLib.setPropertyInt("aid", track.id)
+        }
     }
 
     override fun selectSubtitleTrack(index: Int) {
-        if (index < 0) {
-            MPVLib.setPropertyString("sid", "no")
-            return
+        MpvCalls.execute {
+            if (index < 0) {
+                MPVLib.setPropertyString("sid", "no")
+                return@execute
+            }
+            val track = mpvTracks().filter { it.isSubtitle }.getOrNull(index) ?: return@execute
+            MPVLib.setPropertyInt("sid", track.id)
+            applyRegularSubtitleOverride()
         }
-        val track = mpvTracks().filter { it.isSubtitle }.getOrNull(index) ?: return
-        MPVLib.setPropertyInt("sid", track.id)
-        applyRegularSubtitleOverride()
     }
 
     override fun selectChapter(index: Int) {
-        MPVLib.setPropertyInt("chapter", index.coerceAtLeast(0))
+        MpvCalls.execute { MPVLib.setPropertyInt("chapter", index.coerceAtLeast(0)) }
     }
 
     override fun setSubtitleUri(url: String) {
-        MPVLib.command("sub-add", url.toPlayablePath(context), "select")
-        applyRegularSubtitleOverride()
+        MpvCalls.execute {
+            MPVLib.command("sub-add", url.toPlayablePath(context), "select")
+            applyRegularSubtitleOverride()
+        }
     }
 
     override fun clearExternalSubtitle() {
-        MPVLib.command("sub-remove")
+        MpvCalls.execute { MPVLib.command("sub-remove") }
     }
 
     override fun clearExternalSubtitleAndSelect(trackIndex: Int) {
-        clearExternalSubtitle()
-        selectSubtitleTrack(trackIndex)
+        MpvCalls.execute {
+            MPVLib.command("sub-remove")
+            if (trackIndex < 0) {
+                MPVLib.setPropertyString("sid", "no")
+            } else {
+                val track = mpvTracks().filter { it.isSubtitle }.getOrNull(trackIndex) ?: return@execute
+                MPVLib.setPropertyInt("sid", track.id)
+                applyRegularSubtitleOverride()
+            }
+        }
     }
 
     override fun getSubtitleDelayMs(): Long =
-        ((MPVLib.getPropertyDouble("sub-delay") ?: 0.0) * 1000.0).toLong()
+        MpvCalls.callBlocking(MpvReadTimeoutMs, 0L) {
+            ((MPVLib.getPropertyDouble("sub-delay") ?: 0.0) * 1000.0).toLong()
+        }
 
     override fun setSubtitleDelayMs(delayMs: Long) {
-        MPVLib.setPropertyDouble("sub-delay", delayMs.toDouble() / 1000.0)
+        MpvCalls.execute { MPVLib.setPropertyDouble("sub-delay", delayMs.toDouble() / 1000.0) }
     }
 
     override fun applySubtitleStyle(style: SubtitleStyleState) {
-        MPVLib.setPropertyString("sub-color", style.textColor.toMpvColor())
-        MPVLib.setPropertyInt("sub-font-size", style.fontSizeSp)
-        MPVLib.setPropertyString("sub-border-style", if (style.outlineEnabled) "outline-and-shadow" else "none")
-        MPVLib.setPropertyInt("sub-pos", (1000 - style.bottomOffset).coerceIn(0, 1000) / 10)
-        applyRegularSubtitleOverride()
+        MpvCalls.execute {
+            MPVLib.setPropertyString("sub-color", style.textColor.toMpvColor())
+            MPVLib.setPropertyInt("sub-font-size", style.fontSizeSp)
+            MPVLib.setPropertyString("sub-border-style", if (style.outlineEnabled) "outline-and-shadow" else "none")
+            MPVLib.setPropertyInt("sub-pos", (1000 - style.bottomOffset).coerceIn(0, 1000) / 10)
+            applyRegularSubtitleOverride()
+        }
     }
 
     override fun toggleSilenceSkip() {
-        MPVLib.command("script-message", "toggle")
+        MpvCalls.execute { MPVLib.command("script-message", "toggle") }
     }
 }
 
@@ -521,12 +599,19 @@ private object NuvioMpvFiles {
             ?.resolve("mpv")
             ?: return
         runCatching {
-            publicMpvDir.mkdirs()
+            if (!publicMpvDir.exists() && !publicMpvDir.mkdirs()) {
+                Log.w(TAG, "Skipping public /mpv defaults because the directory could not be created")
+                return
+            }
             val publicConf = publicMpvDir.resolve("mpv.conf")
             if (!publicConf.exists()) {
                 publicConf.writeText(DefaultMpvConf)
             }
-            val publicFontsDir = publicMpvDir.resolve("fonts").apply { mkdirs() }
+            val publicFontsDir = publicMpvDir.resolve("fonts")
+            if (!publicFontsDir.exists() && !publicFontsDir.mkdirs()) {
+                Log.w(TAG, "Skipping public /mpv fonts because the directory could not be created")
+                return
+            }
             val publicHelvetica = publicFontsDir.resolve("Helvetica.ttf")
             if (!publicHelvetica.exists()) {
                 context.assets.open("Helvetica.ttf").use { input ->
@@ -634,8 +719,61 @@ private fun String.toPlayablePath(context: Context): String {
 
 private fun Uri.openContentFd(context: Context): String? =
     context.contentResolver.openFileDescriptor(this, "r")?.detachFd()?.let { fd ->
-        Utils.findRealPath(fd)?.also { ParcelFileDescriptor.adoptFd(fd).close() } ?: "fd://$fd"
+        Utils.findRealPath(fd)?.also {
+            runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
+        } ?: ContentFdRegistry.register(fd)
     }
+
+private object MpvCalls {
+    private val executor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "NuvioMpvCalls").apply { isDaemon = true }
+    }
+
+    fun execute(block: () -> Unit) {
+        executor.execute {
+            runCatching(block)
+                .onFailure { Log.w(TAG, "MPV call failed", it) }
+        }
+    }
+
+    suspend fun <T> callOrNull(timeoutMs: Long, block: () -> T): T? = withContext(Dispatchers.IO) {
+        val future = executor.submit(Callable { block() })
+        runCatching {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS)
+        }.onFailure { error ->
+            future.cancel(true)
+            Log.w(TAG, "MPV call timed out or failed", error)
+        }.getOrNull()
+    }
+
+    fun <T> callBlocking(timeoutMs: Long, fallback: T, block: () -> T): T {
+        val future = executor.submit(Callable { block() })
+        return runCatching {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS)
+        }.onFailure { error ->
+            future.cancel(true)
+            Log.w(TAG, "MPV blocking call timed out or failed", error)
+        }.getOrDefault(fallback)
+    }
+}
+
+private object ContentFdRegistry {
+    private val fds = Collections.synchronizedSet(mutableSetOf<Int>())
+
+    fun register(fd: Int): String {
+        fds += fd
+        return "fd://$fd"
+    }
+
+    fun closeAll() {
+        val snapshot = synchronized(fds) {
+            fds.toList().also { fds.clear() }
+        }
+        snapshot.forEach { fd ->
+            runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
+        }
+    }
+}
 
 private val json = Json {
     ignoreUnknownKeys = true

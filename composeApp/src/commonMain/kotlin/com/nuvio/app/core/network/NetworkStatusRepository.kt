@@ -73,7 +73,9 @@ object NetworkStatusRepository {
     }
 
     fun requestRefresh(force: Boolean = false) {
-        ensureStarted()
+        if (!started) {
+            started = true
+        }
         if (probeInFlight) {
             if (force) pendingProbeAfterCurrent = true
             return

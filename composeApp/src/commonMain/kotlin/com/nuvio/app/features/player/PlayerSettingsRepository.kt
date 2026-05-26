@@ -206,13 +206,19 @@ object PlayerSettingsRepository {
         mpvConfigDirectoryUri = PlayerSettingsStorage.loadMpvConfigDirectoryUri()
         val storedMpvConf = PlayerSettingsStorage.loadMpvConf()
         mpvConf = storedMpvConf?.takeIf { it.isNotBlank() } ?: DefaultMpvConf
-        if (storedMpvConf.isNullOrBlank()) {
+        if (storedMpvConf.isNullOrBlank() ||
+            storedMpvConf == LegacyDefaultMpvConf ||
+            storedMpvConf == LegacyGpuNextDefaultMpvConf ||
+            storedMpvConf == LegacyForwardOnlyDefaultMpvConf
+        ) {
+            mpvConf = DefaultMpvConf
             PlayerSettingsStorage.saveMpvConf(DefaultMpvConf)
         }
         mpvInputConf = PlayerSettingsStorage.loadMpvInputConf() ?: ""
         mpvDemuxerMaxBytesMiB = PlayerSettingsStorage.loadMpvDemuxerMaxBytesMiB()
             ?.coerceIn(128, 4096)
             ?: DefaultMpvDemuxerMaxBytesMiB
+        PlayerSettingsStorage.saveMpvDemuxerMaxBytesMiB(mpvDemuxerMaxBytesMiB)
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
         PlayerSettingsStorage.saveStreamAutoPlayMode(StreamAutoPlayMode.MANUAL.name)
         streamAutoPlaySource = PlayerSettingsStorage.loadStreamAutoPlaySource()
@@ -659,8 +665,102 @@ object PlayerSettingsRepository {
 }
 
 const val DefaultMpvDemuxerMaxBytesMiB = 1024
+const val DefaultMpvDemuxerMaxBackBytesMiB = 128
 
-const val DefaultMpvConf = """vo=gpu-next
+const val DefaultMpvConf = """vo=gpu
+save-position-on-quit
+volume=100
+volume-max=100
+alang=jpn,jp,jap,Japanese,eng,en,enUS,en-US,English
+audio-file-auto=fuzzy
+sub-ass-override=force
+sub-visibility=yes
+sub-font="Helvetica"
+sub-font-size=35
+sub-border-style=opaque-box
+sub-line-spacing=12.5
+sub-ass-line-spacing=12.5
+sub-shadow-offset=1
+sub-back-color="#82000000"
+sub-color="#ffffff"
+sub-border-size=0
+sub-pos=93
+sub-ass-force-style=FontName=Helvetica
+slang=eng,en,enUS,en-US,English
+vd-lavc-dr=no
+demuxer-max-bytes=1024MiB
+demuxer-max-back-bytes=128MiB
+cache=yes
+blend-subtitles=yes
+osd-font-size=18
+sub-auto=fuzzy
+sub-ass-force-style=Bold=0,Italic=0
+sub-bold=no
+sub-italic=no
+"""
+
+private const val LegacyGpuNextDefaultMpvConf = """vo=gpu-next
+save-position-on-quit
+volume=100
+volume-max=100
+alang=jpn,jp,jap,Japanese,eng,en,enUS,en-US,English
+audio-file-auto=fuzzy
+sub-ass-override=force
+sub-visibility=yes
+sub-font="Helvetica"
+sub-font-size=35
+sub-border-style=opaque-box
+sub-line-spacing=12.5
+sub-ass-line-spacing=12.5
+sub-shadow-offset=1
+sub-back-color="#82000000"
+sub-color="#ffffff"
+sub-border-size=0
+sub-pos=93
+sub-ass-force-style=FontName=Helvetica
+slang=eng,en,enUS,en-US,English
+demuxer-max-bytes=1024MiB
+demuxer-max-back-bytes=128MiB
+cache=yes
+blend-subtitles=yes
+osd-font-size=18
+sub-auto=fuzzy
+sub-ass-force-style=Bold=0,Italic=0
+sub-bold=no
+sub-italic=no
+"""
+
+private const val LegacyForwardOnlyDefaultMpvConf = """vo=gpu-next
+save-position-on-quit
+volume=100
+volume-max=100
+alang=jpn,jp,jap,Japanese,eng,en,enUS,en-US,English
+audio-file-auto=fuzzy
+sub-ass-override=force
+sub-visibility=yes
+sub-font="Helvetica"
+sub-font-size=35
+sub-border-style=opaque-box
+sub-line-spacing=12.5
+sub-ass-line-spacing=12.5
+sub-shadow-offset=1
+sub-back-color="#82000000"
+sub-color="#ffffff"
+sub-border-size=0
+sub-pos=93
+sub-ass-force-style=FontName=Helvetica
+slang=eng,en,enUS,en-US,English
+demuxer-max-bytes=1024MiB
+cache=yes
+blend-subtitles=yes
+osd-font-size=18
+sub-auto=fuzzy
+sub-ass-force-style=Bold=0,Italic=0
+sub-bold=no
+sub-italic=no
+"""
+
+private const val LegacyDefaultMpvConf = """vo=gpu-next
 save-position-on-quit
 volume=100
 volume-max=100
