@@ -76,13 +76,28 @@ private fun readLogcat(): String {
     val process = ProcessBuilder(command)
         .redirectErrorStream(true)
         .start()
-    val completed = process.waitFor(8, TimeUnit.SECONDS)
+    val completed = process.waitForCompat(8, TimeUnit.SECONDS)
     val output = process.inputStream.bufferedReader().use { it.readText() }
     if (!completed) {
         process.destroy()
     }
     return output.ifBlank {
         "No logcat output was available to this app. Android may be restricting log access on this device.\n"
+    }
+}
+
+private fun Process.waitForCompat(timeout: Long, unit: TimeUnit): Boolean {
+    val timeoutNanos = unit.toNanos(timeout)
+    val deadline = System.nanoTime() + timeoutNanos
+    while (true) {
+        try {
+            exitValue()
+            return true
+        } catch (_: IllegalThreadStateException) {
+            val remainingNanos = deadline - System.nanoTime()
+            if (remainingNanos <= 0L) return false
+            Thread.sleep(TimeUnit.NANOSECONDS.toMillis(remainingNanos).coerceIn(1L, 100L))
+        }
     }
 }
 

@@ -10,6 +10,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Close
@@ -352,6 +353,7 @@ private class SafDownloadTarget(
     override fun resolveFinalUri(): String? = tree.findFile(fileName)?.takeIf { it.isFile }?.uri?.toString()
 }
 
+@RequiresApi(Build.VERSION_CODES.Q)
 private class MediaStoreDownloadTarget(
     private val context: Context,
     private val fileName: String,

@@ -301,20 +301,21 @@ declare
   deleted_rooms integer := 0;
 begin
   delete from public.watch_together_members as m
-  where m.last_seen_at < now() - interval '1 day';
+  where m.last_seen_at < now() - interval '30 minutes';
   get diagnostics deleted_members = row_count;
 
   delete from public.watch_together_rooms as r
   where
-    (r.closed_at is not null and r.closed_at < now() - interval '1 day')
+    (r.closed_at is not null and r.closed_at < now() - interval '15 minutes')
+    or (r.playback_state = 'ended' and r.updated_at < now() - interval '15 minutes')
     or (
       r.closed_at is null
-      and r.updated_at < now() - interval '12 hours'
+      and r.updated_at < now() - interval '45 minutes'
       and not exists (
         select 1
         from public.watch_together_members as m
         where m.room_id = r.id
-          and m.last_seen_at > now() - interval '10 minutes'
+          and m.last_seen_at > now() - interval '5 minutes'
       )
     );
   get diagnostics deleted_rooms = row_count;
