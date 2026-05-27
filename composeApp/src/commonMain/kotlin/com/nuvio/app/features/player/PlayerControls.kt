@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Replay10
@@ -98,6 +99,7 @@ internal fun PlayerControlsShell(
     onAudioClick: () -> Unit,
     onChaptersClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
+    onWatchTogetherClick: (() -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
     maturityRatingCode: String? = null,
     maturityGenresLine: String? = null,
@@ -168,6 +170,7 @@ internal fun PlayerControlsShell(
                 metrics = metrics,
                 isLocked = isLocked,
                 showActions = showPlaybackControls,
+                onWatchTogetherClick = onWatchTogetherClick,
                 onSubmitIntroClick = onSubmitIntroClick,
                 maturityRatingCode = maturityRatingCode,
                 maturityGenresLine = maturityGenresLine,
@@ -236,6 +239,7 @@ private fun PlayerHeader(
     metrics: PlayerLayoutMetrics,
     isLocked: Boolean,
     showActions: Boolean,
+    onWatchTogetherClick: (() -> Unit)?,
     onSubmitIntroClick: (() -> Unit)?,
     maturityRatingCode: String?,
     maturityGenresLine: String?,
@@ -321,6 +325,15 @@ private fun PlayerHeader(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (onWatchTogetherClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = Icons.Rounded.Groups,
+                            contentDescription = "Watch Together",
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onWatchTogetherClick,
+                        )
+                    }
                     if (onSubmitIntroClick != null) {
                         PlayerHeaderIconButton(
                             icon = Icons.Rounded.Flag,

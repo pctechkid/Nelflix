@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -84,6 +85,7 @@ fun SearchScreen(
     modifier: Modifier = Modifier,
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
+    onWatchTogetherClick: (() -> Unit)? = null,
     searchFocusRequestCount: Int = 0,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
 ) {
@@ -247,6 +249,17 @@ fun SearchScreen(
                 NuvioScreenHeader(
                     title = headerTitle,
                     modifier = Modifier.padding(horizontal = 16.dp),
+                    actions = {
+                        if (onWatchTogetherClick != null) {
+                            IconButton(onClick = onWatchTogetherClick) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Groups,
+                                    contentDescription = "Watch Together",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                )
+                            }
+                        }
+                    },
                 )
                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(6.dp))
                 androidx.compose.foundation.layout.Box(modifier = Modifier.padding(horizontal = 16.dp)) {

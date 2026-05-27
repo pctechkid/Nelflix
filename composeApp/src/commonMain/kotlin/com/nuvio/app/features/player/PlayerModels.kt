@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.watchtogether.WatchTogetherRoomState
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -34,6 +35,7 @@ data class PlayerLaunch(
     val parentMetaType: String,
     val initialPositionMs: Long = 0L,
     val initialProgressFraction: Float? = null,
+    val initialWatchTogetherRoom: WatchTogetherRoomState? = null,
 )
 
 object PlayerLaunchStore {

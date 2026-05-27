@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -36,9 +39,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -173,6 +179,8 @@ import com.nuvio.app.features.trakt.TraktListTab
 import com.nuvio.app.features.updater.AppUpdaterHost
 import com.nuvio.app.features.updater.rememberAppUpdaterController
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watchtogether.WatchTogetherRepository
+import com.nuvio.app.features.watchtogether.WatchTogetherRoomState
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watchprogress.ResumePromptRepository
@@ -565,6 +573,10 @@ private fun MainAppContent(
         var pickerMembership by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
         var pickerPending by remember { mutableStateOf(false) }
         var pickerError by remember { mutableStateOf<String?>(null) }
+        var showWatchTogetherJoinDialog by rememberSaveable { mutableStateOf(false) }
+        var watchTogetherJoinCode by rememberSaveable { mutableStateOf("") }
+        var watchTogetherJoinBusy by remember { mutableStateOf(false) }
+        var watchTogetherJoinError by remember { mutableStateOf<String?>(null) }
         val addonsUiState by remember {
             AddonRepository.initialize()
             AddonRepository.uiState
@@ -803,6 +815,81 @@ private fun MainAppContent(
 
                     null -> Unit
                 }
+            }
+        }
+
+        fun watchTogetherMessage(error: Throwable, fallback: String): String {
+            val message = error.message.orEmpty()
+            return when {
+                message.contains("Room not found", ignoreCase = true) -> "Room not found."
+                message.contains("Authentication required", ignoreCase = true) -> "Sign in to use Watch Together."
+                message.contains("playable stream", ignoreCase = true) -> "This room does not have a playable stream yet."
+                else -> fallback
+            }
+        }
+
+        fun launchWatchTogetherRoom(room: WatchTogetherRoomState) {
+            val metadata = room.contentMetadata
+            val parentMetaId = metadata.parentMetaId
+            if (room.sourceUrl.isBlank() || parentMetaId.isBlank()) {
+                watchTogetherJoinError = "This room does not have enough playback metadata yet."
+                showWatchTogetherJoinDialog = true
+                return
+            }
+
+            val parentMetaType = metadata.parentMetaType
+                .ifBlank { metadata.contentType }
+                .ifBlank { "movie" }
+            val title = metadata.title.ifBlank { room.title.ifBlank { "Watch Together" } }
+            val playerLaunch = PlayerLaunch(
+                title = title,
+                sourceUrl = room.sourceUrl,
+                sourceHeaders = sanitizePlaybackHeaders(room.sourceHeaders),
+                sourceResponseHeaders = emptyMap(),
+                logo = metadata.logo,
+                poster = metadata.poster,
+                background = metadata.background,
+                seasonNumber = metadata.seasonNumber,
+                episodeNumber = metadata.episodeNumber,
+                episodeTitle = metadata.episodeTitle,
+                episodeThumbnail = metadata.episodeThumbnail,
+                streamTitle = room.streamTitle.ifBlank { title },
+                streamSubtitle = null,
+                pauseDescription = metadata.pauseDescription,
+                providerName = room.providerName,
+                providerAddonId = null,
+                contentType = metadata.contentType.ifBlank { parentMetaType },
+                videoId = metadata.videoId,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                initialPositionMs = room.expectedPositionMs,
+                initialProgressFraction = null,
+                initialWatchTogetherRoom = room,
+            )
+            val launchId = PlayerLaunchStore.put(playerLaunch)
+            navController.navigate(PlayerRoute(launchId = launchId))
+        }
+
+        fun joinWatchTogetherFromDiscover() {
+            if (watchTogetherJoinBusy || watchTogetherJoinCode.isBlank()) return
+            watchTogetherJoinBusy = true
+            watchTogetherJoinError = null
+            coroutineScope.launch {
+                val result = WatchTogetherRepository.joinRoom(
+                    roomCode = watchTogetherJoinCode,
+                    profileId = ProfileRepository.activeProfileId,
+                    displayName = profileState.activeProfile?.name.orEmpty(),
+                )
+                result
+                    .onSuccess { room ->
+                        showWatchTogetherJoinDialog = false
+                        watchTogetherJoinCode = ""
+                        launchWatchTogetherRoom(room)
+                    }
+                    .onFailure { error ->
+                        watchTogetherJoinError = watchTogetherMessage(error, "Could not join room.")
+                    }
+                watchTogetherJoinBusy = false
             }
         }
 
@@ -1219,6 +1306,10 @@ private fun MainAppContent(
                                         onLibrarySectionViewAllClick = onLibrarySectionViewAllClick,
                                         onContinueWatchingClick = onContinueWatchingClick,
                                         onContinueWatchingLongPress = onContinueWatchingLongPress,
+                                        onWatchTogetherClick = {
+                                            watchTogetherJoinError = null
+                                            showWatchTogetherJoinDialog = true
+                                        },
                                         onSwitchProfile = onSwitchProfile,
                                         onHomescreenSettingsClick = { navController.navigate(HomescreenSettingsRoute) },
                                         onMetaScreenSettingsClick = { navController.navigate(MetaScreenSettingsRoute) },
@@ -1889,6 +1980,7 @@ private fun MainAppContent(
                         parentMetaType = launch.parentMetaType,
                         initialPositionMs = launch.initialPositionMs,
                         initialProgressFraction = launch.initialProgressFraction,
+                        initialWatchTogetherRoom = launch.initialWatchTogetherRoom,
                         onBack = {
                             ResumePromptRepository.markPlayerExitedNormally()
                             PlayerLaunchStore.remove(route.launchId)
@@ -2239,6 +2331,100 @@ private fun MainAppContent(
                 },
             )
 
+            if (showWatchTogetherJoinDialog) {
+                val watchTogetherRed = Color(0xFFE50914)
+                AlertDialog(
+                    onDismissRequest = {
+                        if (!watchTogetherJoinBusy) {
+                            showWatchTogetherJoinDialog = false
+                            watchTogetherJoinError = null
+                        }
+                    },
+                    containerColor = Color(0xFF111111),
+                    titleContentColor = Color.White,
+                    textContentColor = Color(0xFFD6D6D6),
+                    shape = RoundedCornerShape(18.dp),
+                    title = {
+                        Text("Watch Together")
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            val message = when {
+                                !WatchTogetherRepository.canUseWatchTogether() ->
+                                    "Sign in with an account to use Watch Together."
+                                watchTogetherJoinError != null -> watchTogetherJoinError
+                                else -> "Enter a room code to open the stream and sync playback."
+                            }
+                            if (!message.isNullOrBlank()) {
+                                Text(
+                                    text = message,
+                                    color = if (watchTogetherJoinError != null) {
+                                        Color(0xFFFF8A8A)
+                                    } else {
+                                        Color(0xFFD6D6D6)
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                            OutlinedTextField(
+                                value = watchTogetherJoinCode,
+                                onValueChange = { value ->
+                                    watchTogetherJoinCode = value
+                                        .filter { it.isLetterOrDigit() }
+                                        .uppercase()
+                                        .take(8)
+                                    watchTogetherJoinError = null
+                                },
+                                enabled = !watchTogetherJoinBusy,
+                                singleLine = true,
+                                label = { Text("Room code") },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    disabledTextColor = Color(0xFF777777),
+                                    focusedContainerColor = Color(0xFF050505),
+                                    unfocusedContainerColor = Color(0xFF050505),
+                                    disabledContainerColor = Color(0xFF050505),
+                                    focusedBorderColor = watchTogetherRed,
+                                    unfocusedBorderColor = Color(0xFF595959),
+                                    disabledBorderColor = Color(0xFF333333),
+                                    focusedLabelColor = Color.White,
+                                    unfocusedLabelColor = Color(0xFFBDBDBD),
+                                    cursorColor = watchTogetherRed,
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            enabled = WatchTogetherRepository.canUseWatchTogether() &&
+                                !watchTogetherJoinBusy &&
+                                watchTogetherJoinCode.length >= 4,
+                            onClick = ::joinWatchTogetherFromDiscover,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = watchTogetherRed,
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            Text(if (watchTogetherJoinBusy) "Joining..." else "Join")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            enabled = !watchTogetherJoinBusy,
+                            onClick = {
+                                showWatchTogetherJoinDialog = false
+                                watchTogetherJoinError = null
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                        ) {
+                            Text("Close")
+                        }
+                    },
+                )
+            }
+
             NuvioStatusModal(
                 title = stringResource(Res.string.app_exit_title),
                 message = stringResource(Res.string.app_exit_message),
@@ -2343,6 +2529,7 @@ private fun AppTabHost(
     onLibrarySectionViewAllClick: ((LibrarySection) -> Unit)? = null,
     onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
     onContinueWatchingLongPress: ((ContinueWatchingItem) -> Unit)? = null,
+    onWatchTogetherClick: (() -> Unit)? = null,
     onSwitchProfile: (() -> Unit)? = null,
     onHomescreenSettingsClick: () -> Unit = {},
     onMetaScreenSettingsClick: () -> Unit = {},
@@ -2383,6 +2570,7 @@ private fun AppTabHost(
                         modifier = Modifier.fillMaxSize(),
                         onPosterClick = onPosterClick,
                         onPosterLongClick = onPosterLongClick,
+                        onWatchTogetherClick = onWatchTogetherClick,
                         searchFocusRequestCount = searchFocusRequestCount,
                         scrollToTopRequests = searchScrollToTopRequests,
                     )

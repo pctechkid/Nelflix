@@ -46,6 +46,7 @@ import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.player.skip.SkipIntroButton
 import com.nuvio.app.features.player.skip.SkipIntroRepository
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamUrlResolver
 import com.nuvio.app.features.tmdb.TmdbService
@@ -55,6 +56,12 @@ import com.nuvio.app.features.watchprogress.WatchProgressClock
 import com.nuvio.app.features.watchprogress.WatchProgressPlaybackSession
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import com.nuvio.app.features.watchtogether.WatchTogetherDialog
+import com.nuvio.app.features.watchtogether.WatchTogetherContentMetadata
+import com.nuvio.app.features.watchtogether.WatchTogetherPlaybackPayload
+import com.nuvio.app.features.watchtogether.WatchTogetherPlaybackState
+import com.nuvio.app.features.watchtogether.WatchTogetherRepository
+import com.nuvio.app.features.watchtogether.WatchTogetherRoomState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -71,6 +78,11 @@ private const val PlayerLockedOverlayDurationMs = 2_000L
 private const val PlayerLeftGestureBoundary = 0.4f
 private const val PlayerRightGestureBoundary = 0.6f
 private const val PlayerVerticalGestureSensitivity = 1f
+private const val WatchTogetherSoftSyncThresholdMs = 450L
+private const val WatchTogetherSoftSyncSettledMs = 200L
+private const val WatchTogetherHardSyncThresholdMs = 1_100L
+private const val WatchTogetherHardSyncCooldownMs = 3_000L
+private const val WatchTogetherSyncPollMs = 600L
 private val PlayerSliderOverlayGap = 12.dp
 private val PlayerTimeRowHeight = 36.dp
 private val PlayerActionRowHeight = 50.dp
@@ -132,6 +144,7 @@ fun PlayerScreen(
     providerAddonId: String? = null,
     initialPositionMs: Long = 0L,
     initialProgressFraction: Float? = null,
+    initialWatchTogetherRoom: WatchTogetherRoomState? = null,
 ) {
     LockPlayerToLandscape()
     val playerSettingsUiState by remember {
@@ -150,6 +163,9 @@ fun PlayerScreen(
         WatchProgressRepository.ensureLoaded()
         WatchProgressRepository.uiState
     }.collectAsStateWithLifecycle()
+    val profileState by remember {
+        ProfileRepository.state
+    }.collectAsStateWithLifecycle()
 
     BoxWithConstraints(
         modifier = modifier
@@ -161,7 +177,6 @@ fun PlayerScreen(
         val sliderEdgePadding = horizontalSafePadding + metrics.horizontalPadding
         val overlayBottomPadding = sliderOverlayBottomPadding(metrics)
         val scope = rememberCoroutineScope()
-        val playerHeaderLogo = logo.takeIf { playerSettingsUiState.useClearlogoInPlayer }
         val hapticFeedback = LocalHapticFeedback.current
         val resizeModeFitLabel = stringResource(Res.string.compose_player_resize_fit)
         val resizeModeFillLabel = stringResource(Res.string.compose_player_resize_fill)
@@ -183,6 +198,15 @@ fun PlayerScreen(
         var controlsVisible by rememberSaveable { mutableStateOf(true) }
         var playerControlsLocked by rememberSaveable { mutableStateOf(false) }
         // Active playback state (mutable to support source/episode switching)
+        var activeTitle by rememberSaveable { mutableStateOf(title) }
+        var activeContentType by rememberSaveable { mutableStateOf(contentType ?: parentMetaType) }
+        var activeParentMetaId by rememberSaveable { mutableStateOf(parentMetaId) }
+        var activeParentMetaType by rememberSaveable { mutableStateOf(parentMetaType) }
+        var activeLogo by rememberSaveable { mutableStateOf(logo) }
+        var activePoster by rememberSaveable { mutableStateOf(poster) }
+        var activeBackground by rememberSaveable { mutableStateOf(background) }
+        var activePauseDescription by rememberSaveable { mutableStateOf(pauseDescription) }
+        val playerHeaderLogo = activeLogo.takeIf { playerSettingsUiState.useClearlogoInPlayer }
         var activeSourceUrl by rememberSaveable { mutableStateOf(sourceUrl) }
         var activeFallbackRawSourceUrl by rememberSaveable { mutableStateOf(fallbackRawSourceUrl) }
         var activeFallbackAlreadyTried by rememberSaveable(sourceUrl) { mutableStateOf(false) }
@@ -217,6 +241,14 @@ fun PlayerScreen(
         var playerController by remember { mutableStateOf<PlayerEngineController?>(null) }
         var playerControllerSourceUrl by remember { mutableStateOf<String?>(null) }
         var errorMessage by remember { mutableStateOf<String?>(null) }
+        var showWatchTogetherDialog by rememberSaveable { mutableStateOf(false) }
+        var watchTogetherJoinCode by rememberSaveable { mutableStateOf("") }
+        var watchTogetherSession by remember { mutableStateOf(initialWatchTogetherRoom) }
+        var watchTogetherBusy by remember { mutableStateOf(false) }
+        var watchTogetherError by remember { mutableStateOf<String?>(null) }
+        var lastAppliedWatchTogetherUpdateMs by remember { mutableStateOf(0L) }
+        var lastWatchTogetherHardSyncAtMs by remember { mutableStateOf(0L) }
+        var watchTogetherSoftSyncActive by remember { mutableStateOf(false) }
         val keepScreenAwake = errorMessage == null &&
             (playbackSnapshot.isPlaying || (shouldPlay && playbackSnapshot.isLoading))
         EnterImmersivePlayerMode(keepScreenAwake = keepScreenAwake)
@@ -253,7 +285,7 @@ fun PlayerScreen(
             activeSeasonNumber,
             activeEpisodeNumber,
         ) { mutableStateOf(false) }
-        val backdropArtwork = background ?: poster
+        val backdropArtwork = activeBackground ?: activePoster
         val displayedPositionMs = scrubbingPositionMs ?: playbackSnapshot.positionMs
         val isEpisode = activeSeasonNumber != null && activeEpisodeNumber != null
         val currentGestureFeedback = liveGestureFeedback ?: gestureFeedback
@@ -269,12 +301,12 @@ fun PlayerScreen(
         var submitIntroStartTimeStr by rememberSaveable { mutableStateOf("00:00") }
         var submitIntroEndTimeStr by rememberSaveable { mutableStateOf("00:00") }
         val metaUiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
-        val isSeries = parentMetaType == "series"
+        val isSeries = activeParentMetaType == "series"
         val maturityRatingCode = metaUiState.meta
-            ?.takeIf { it.id == parentMetaId && it.type == parentMetaType }
+            ?.takeIf { it.id == activeParentMetaId && it.type == activeParentMetaType }
             ?.ageRating
         val maturityGenresLine = metaUiState.meta
-            ?.takeIf { it.id == parentMetaId && it.type == parentMetaType }
+            ?.takeIf { it.id == activeParentMetaId && it.type == activeParentMetaType }
             ?.genres
             ?.take(4)
             ?.joinToString(", ")
@@ -297,14 +329,14 @@ fun PlayerScreen(
         )
 
         val playbackSession = remember(
-            contentType,
-            parentMetaId,
-            parentMetaType,
+            activeContentType,
+            activeParentMetaId,
+            activeParentMetaType,
             activeVideoId,
-            title,
-            logo,
-            poster,
-            background,
+            activeTitle,
+            activeLogo,
+            activePoster,
+            activeBackground,
             activeSeasonNumber,
             activeEpisodeNumber,
             activeEpisodeTitle,
@@ -313,24 +345,24 @@ fun PlayerScreen(
             activeProviderAddonId,
             activeStreamTitle,
             activeStreamSubtitle,
-            pauseDescription,
+            activePauseDescription,
             activeSourceUrl,
             activeSourceAudioUrl,
         ) {
             WatchProgressPlaybackSession(
-                contentType = contentType ?: parentMetaType,
-                parentMetaId = parentMetaId,
-                parentMetaType = parentMetaType,
+                contentType = activeContentType,
+                parentMetaId = activeParentMetaId,
+                parentMetaType = activeParentMetaType,
                 videoId = activeVideoId?.takeIf { it.isNotBlank() } ?: buildPlaybackVideoId(
-                    parentMetaId = parentMetaId,
+                    parentMetaId = activeParentMetaId,
                     seasonNumber = activeSeasonNumber,
                     episodeNumber = activeEpisodeNumber,
                     fallbackVideoId = activeVideoId,
                 ),
-                title = title,
-                logo = logo,
-                poster = poster,
-                background = background,
+                title = activeTitle,
+                logo = activeLogo,
+                poster = activePoster,
+                background = activeBackground,
                 seasonNumber = activeSeasonNumber,
                 episodeNumber = activeEpisodeNumber,
                 episodeTitle = activeEpisodeTitle,
@@ -339,7 +371,7 @@ fun PlayerScreen(
                 providerAddonId = activeProviderAddonId,
                 lastStreamTitle = activeStreamTitle,
                 lastStreamSubtitle = activeStreamSubtitle,
-                pauseDescription = pauseDescription,
+                pauseDescription = activePauseDescription,
                 lastSourceUrl = activeSourceUrl,
             )
         }
@@ -351,10 +383,10 @@ fun PlayerScreen(
         }
 
         suspend fun currentTraktScrobbleItem() = TraktScrobbleRepository.buildItem(
-            contentType = contentType ?: parentMetaType,
-            parentMetaId = parentMetaId,
+            contentType = activeContentType,
+            parentMetaId = activeParentMetaId,
             videoId = activeVideoId,
-            title = title,
+            title = activeTitle,
             seasonNumber = activeSeasonNumber,
             episodeNumber = activeEpisodeNumber,
             episodeTitle = activeEpisodeTitle,
@@ -419,12 +451,12 @@ fun PlayerScreen(
         }
 
         suspend fun resolveParentalGuideImdbId(): String? {
-            val candidates = listOf(parentMetaId, activeVideoId)
+            val candidates = listOf(activeParentMetaId, activeVideoId)
             candidates.firstNotNullOfOrNull(::extractParentalGuideImdbId)?.let { return it }
             val tmdbId = candidates.firstNotNullOfOrNull(::extractParentalGuideTmdbId) ?: return null
             return TmdbService.tmdbToImdb(
                 tmdbId = tmdbId,
-                mediaType = contentType ?: parentMetaType,
+                mediaType = activeContentType,
             )
         }
 
@@ -470,7 +502,7 @@ fun PlayerScreen(
         val addonsUiState by AddonRepository.uiState.collectAsStateWithLifecycle()
         val addonSubtitles by SubtitleRepository.addonSubtitles.collectAsStateWithLifecycle()
         val isLoadingAddonSubtitles by SubtitleRepository.isLoading.collectAsStateWithLifecycle()
-        val activeAddonSubtitleType = contentType ?: parentMetaType
+        val activeAddonSubtitleType = activeContentType
         val addonSubtitleFetchKey = remember(
             addonsUiState.addons,
             activeAddonSubtitleType,
@@ -691,6 +723,198 @@ fun PlayerScreen(
             }
         }
 
+        fun currentWatchTogetherPayload(): WatchTogetherPlaybackPayload =
+            WatchTogetherPlaybackPayload(
+                title = activeTitle,
+                contentMetadata = WatchTogetherContentMetadata(
+                    contentType = activeContentType,
+                    parentMetaId = activeParentMetaId,
+                    parentMetaType = activeParentMetaType,
+                    videoId = activeVideoId,
+                    title = activeTitle,
+                    logo = activeLogo,
+                    poster = activePoster,
+                    background = activeBackground,
+                    seasonNumber = activeSeasonNumber,
+                    episodeNumber = activeEpisodeNumber,
+                    episodeTitle = activeEpisodeTitle,
+                    episodeThumbnail = activeEpisodeThumbnail,
+                    pauseDescription = activePauseDescription,
+                ),
+                sourceUrl = activeSourceUrl,
+                sourceHeaders = activeSourceHeaders,
+                streamTitle = activeStreamTitle,
+                providerName = activeProviderName,
+                playbackState = when {
+                    playbackSnapshot.isEnded -> WatchTogetherPlaybackState.Ended
+                    playbackSnapshot.isLoading -> WatchTogetherPlaybackState.Loading
+                    playbackSnapshot.isPlaying -> WatchTogetherPlaybackState.Playing
+                    else -> WatchTogetherPlaybackState.Paused
+                },
+                positionMs = playbackSnapshot.positionMs,
+                durationMs = playbackSnapshot.durationMs,
+                playbackSpeed = playbackSnapshot.playbackSpeed,
+            )
+
+        fun watchTogetherMessage(error: Throwable, fallback: String): String {
+            val message = error.message.orEmpty()
+            return when {
+                message.contains("Room not found", ignoreCase = true) -> "Room not found."
+                message.contains("Authentication required", ignoreCase = true) -> "Sign in to use Watch Together."
+                message.contains("Only the host", ignoreCase = true) -> "Only the host can control this room."
+                else -> fallback
+            }
+        }
+
+        fun createWatchTogetherRoom() {
+            if (watchTogetherBusy) return
+            watchTogetherBusy = true
+            watchTogetherError = null
+            scope.launch {
+                val result = WatchTogetherRepository.createRoom(
+                    profileId = ProfileRepository.activeProfileId,
+                    payload = currentWatchTogetherPayload(),
+                )
+                result
+                    .onSuccess { room ->
+                        watchTogetherSession = room
+                        watchTogetherJoinCode = room.roomCode
+                    }
+                    .onFailure { error -> watchTogetherError = watchTogetherMessage(error, "Could not create room.") }
+                watchTogetherBusy = false
+            }
+        }
+
+        fun applyWatchTogetherState(room: WatchTogetherRoomState) {
+            if (room.isHost || room.updatedAtMs <= lastAppliedWatchTogetherUpdateMs) return
+            lastAppliedWatchTogetherUpdateMs = room.updatedAtMs
+
+            if (room.sourceUrl.isBlank()) {
+                watchTogetherError = "This room does not have a playable stream yet."
+                return
+            }
+
+            val metadata = room.contentMetadata
+            if (metadata.parentMetaId.isNotBlank()) {
+                activeTitle = metadata.title.ifBlank { room.title.ifBlank { activeTitle } }
+                activeContentType = metadata.contentType.ifBlank { metadata.parentMetaType.ifBlank { activeContentType } }
+                activeParentMetaId = metadata.parentMetaId
+                activeParentMetaType = metadata.parentMetaType.ifBlank { activeContentType }
+                activeLogo = metadata.logo
+                activePoster = metadata.poster
+                activeBackground = metadata.background
+                activePauseDescription = metadata.pauseDescription
+                activeSeasonNumber = metadata.seasonNumber
+                activeEpisodeNumber = metadata.episodeNumber
+                activeEpisodeTitle = metadata.episodeTitle
+                activeEpisodeThumbnail = metadata.episodeThumbnail
+                activeVideoId = metadata.videoId
+            } else if (room.title.isNotBlank()) {
+                activeTitle = room.title
+            }
+
+            if (room.sourceUrl.isNotBlank() && room.sourceUrl != activeSourceUrl) {
+                playerController?.pause()
+                playerController = null
+                playerControllerSourceUrl = null
+                errorMessage = null
+                activeSourceUrl = room.sourceUrl
+                activeSourceAudioUrl = null
+                activeFallbackRawSourceUrl = null
+                activeFallbackAlreadyTried = false
+                activeSourceHeaders = sanitizePlaybackHeaders(room.sourceHeaders)
+                activeSourceResponseHeaders = emptyMap()
+                activeFallbackRawSourceHeaders = emptyMap()
+                activeStreamTitle = room.streamTitle.ifBlank { activeStreamTitle }
+                activeProviderName = room.providerName.ifBlank { activeProviderName }
+                activeInitialPositionMs = room.expectedPositionMs
+                activeInitialProgressFraction = null
+                initialLoadCompleted = false
+                shouldPlay = room.playbackState == WatchTogetherPlaybackState.Playing
+                return
+            }
+
+            val controller = playerController ?: return
+            if (playbackSnapshot.isLoading) return
+
+            val targetPositionMs = room.expectedPositionMs
+            val driftMs = playbackSnapshot.positionMs - targetPositionMs
+            val absoluteDriftMs = abs(driftMs)
+            val nowMs = WatchProgressClock.nowEpochMs()
+            if (
+                absoluteDriftMs > WatchTogetherHardSyncThresholdMs &&
+                nowMs - lastWatchTogetherHardSyncAtMs > WatchTogetherHardSyncCooldownMs
+            ) {
+                lastWatchTogetherHardSyncAtMs = nowMs
+                watchTogetherSoftSyncActive = false
+                controller.seekTo(targetPositionMs)
+                controller.setPlaybackSpeed(room.playbackSpeed)
+            } else if (room.playbackState == WatchTogetherPlaybackState.Playing) {
+                val targetSpeed = when {
+                    absoluteDriftMs <= WatchTogetherSoftSyncSettledMs -> room.playbackSpeed
+                    driftMs < -WatchTogetherSoftSyncThresholdMs -> (room.playbackSpeed * 1.06f).coerceAtMost(4f)
+                    driftMs > WatchTogetherSoftSyncThresholdMs -> (room.playbackSpeed * 0.94f).coerceAtLeast(0.25f)
+                    watchTogetherSoftSyncActive -> room.playbackSpeed
+                    else -> playbackSnapshot.playbackSpeed
+                }
+                if (abs(playbackSnapshot.playbackSpeed - targetSpeed) > 0.01f) {
+                    controller.setPlaybackSpeed(targetSpeed)
+                }
+                watchTogetherSoftSyncActive = targetSpeed != room.playbackSpeed
+            } else if (watchTogetherSoftSyncActive || abs(playbackSnapshot.playbackSpeed - room.playbackSpeed) > 0.01f) {
+                watchTogetherSoftSyncActive = false
+                controller.setPlaybackSpeed(room.playbackSpeed)
+            }
+
+            when (room.playbackState) {
+                WatchTogetherPlaybackState.Playing -> {
+                    shouldPlay = true
+                    if (!playbackSnapshot.isPlaying) controller.play()
+                }
+                WatchTogetherPlaybackState.Paused,
+                WatchTogetherPlaybackState.Ended -> {
+                    shouldPlay = false
+                    if (playbackSnapshot.isPlaying) controller.pause()
+                }
+                WatchTogetherPlaybackState.Loading -> Unit
+            }
+        }
+
+        fun joinWatchTogetherRoom() {
+            if (watchTogetherBusy || watchTogetherJoinCode.isBlank()) return
+            watchTogetherBusy = true
+            watchTogetherError = null
+            scope.launch {
+                val result = WatchTogetherRepository.joinRoom(
+                    roomCode = watchTogetherJoinCode,
+                    profileId = ProfileRepository.activeProfileId,
+                    displayName = profileState.activeProfile?.name.orEmpty(),
+                )
+                result
+                    .onSuccess { room ->
+                        watchTogetherSession = room
+                        showWatchTogetherDialog = false
+                        runCatching { applyWatchTogetherState(room) }
+                            .onFailure { error ->
+                                watchTogetherError = watchTogetherMessage(error, "Could not switch to the room stream.")
+                                showWatchTogetherDialog = true
+                            }
+                    }
+                    .onFailure { error -> watchTogetherError = watchTogetherMessage(error, "Could not join room.") }
+                watchTogetherBusy = false
+            }
+        }
+
+        fun leaveWatchTogetherRoom() {
+            val roomId = watchTogetherSession?.roomId
+            watchTogetherSession = null
+            watchTogetherError = null
+            watchTogetherJoinCode = ""
+            if (roomId != null) {
+                scope.launch { WatchTogetherRepository.leaveRoom(roomId) }
+            }
+        }
+
         fun handleDoubleTapSeek(direction: PlayerSeekDirection) {
             val currentPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
             val nextState = if (accumulatedSeekState?.direction == direction) {
@@ -850,9 +1074,9 @@ fun PlayerScreen(
                 val resolvedHeaders = sanitizePlaybackHeaders(resolved.requestHeaders)
                 if (playerSettingsUiState.streamReuseLastLinkEnabled && activeVideoId != null) {
                     val cacheKey = StreamLinkCacheRepository.contentKey(
-                        type = contentType ?: parentMetaType,
+                        type = activeContentType,
                         videoId = activeVideoId!!,
-                        parentMetaId = parentMetaId,
+                        parentMetaId = activeParentMetaId,
                         season = activeSeasonNumber,
                         episode = activeEpisodeNumber,
                     )
@@ -1079,7 +1303,7 @@ fun PlayerScreen(
         }
 
         // Fetch parental guide when the playable item changes.
-        LaunchedEffect(activeVideoId, activeSeasonNumber, activeEpisodeNumber, parentMetaId, parentMetaType) {
+        LaunchedEffect(activeVideoId, activeSeasonNumber, activeEpisodeNumber, activeParentMetaId, activeParentMetaType) {
             parentalWarnings = emptyList()
             imdbMaturityGenresLine = null
             showParentalGuide = false
@@ -1118,7 +1342,7 @@ fun PlayerScreen(
             if (season == null || episode == null) return@LaunchedEffect
 
             launch {
-                val ids = listOfNotNull(activeVideoId, parentMetaId)
+                val ids = listOfNotNull(activeVideoId, activeParentMetaId)
                 val imdbId = resolveParentalGuideImdbId()
                 val malId = ids.firstNotNullOfOrNull { id -> extractProviderId(id, "mal") ?: extractProviderId(id, "myanimelist") }
                 val anilistId = ids.firstNotNullOfOrNull { id -> extractProviderId(id, "anilist") }
@@ -1162,6 +1386,29 @@ fun PlayerScreen(
         DisposableEffect(playbackSession.videoId, activeSourceUrl, activeSourceAudioUrl) {
             onDispose {
                 flushWatchProgress()
+            }
+        }
+
+        LaunchedEffect(watchTogetherSession?.roomId, watchTogetherSession?.isHost) {
+            while (true) {
+                val room = watchTogetherSession ?: return@LaunchedEffect
+                if (room.isHost) {
+                    delay(WatchTogetherSyncPollMs)
+                    WatchTogetherRepository.pushState(room.roomId, currentWatchTogetherPayload())
+                        .onSuccess { watchTogetherSession = it }
+                        .onFailure { watchTogetherError = watchTogetherMessage(it, "Watch Together sync failed.") }
+                } else {
+                    delay(WatchTogetherSyncPollMs)
+                    WatchTogetherRepository.refreshRoom(room.roomId)
+                        .onSuccess { refreshed ->
+                            watchTogetherSession = refreshed
+                            runCatching { applyWatchTogetherState(refreshed) }
+                                .onFailure { error ->
+                                    watchTogetherError = watchTogetherMessage(error, "Watch Together sync failed.")
+                                }
+                        }
+                        .onFailure { watchTogetherError = watchTogetherMessage(it, "Watch Together sync failed.") }
+                }
             }
         }
 
@@ -1327,9 +1574,9 @@ fun PlayerScreen(
                             val currentVideoId = activeVideoId
                             if (currentVideoId != null) {
                                 val cacheKey = StreamLinkCacheRepository.contentKey(
-                                    type = contentType ?: parentMetaType,
+                                    type = activeContentType,
                                     videoId = currentVideoId,
-                                    parentMetaId = parentMetaId,
+                                    parentMetaId = activeParentMetaId,
                                     season = activeSeasonNumber,
                                     episode = activeEpisodeNumber,
                                 )
@@ -1346,13 +1593,13 @@ fun PlayerScreen(
                 exit = fadeOut(animationSpec = tween(durationMillis = 180)),
             ) {
                 PauseMetadataOverlay(
-                    title = title,
-                    logo = logo,
+                    title = activeTitle,
+                    logo = activeLogo,
                     isEpisode = isEpisode,
                     seasonNumber = activeSeasonNumber,
                     episodeNumber = activeEpisodeNumber,
                     episodeTitle = activeEpisodeTitle,
-                    pauseDescription = pauseDescription ?: activeStreamSubtitle,
+                    pauseDescription = activePauseDescription ?: activeStreamSubtitle,
                     metrics = metrics,
                     horizontalSafePadding = horizontalSafePadding,
                     modifier = Modifier.fillMaxSize(),
@@ -1365,7 +1612,7 @@ fun PlayerScreen(
                 exit = fadeOut(),
             ) {
                 PlayerControlsShell(
-                    title = title,
+                    title = activeTitle,
                     logo = playerHeaderLogo,
                     streamTitle = activeStreamTitle,
                     seasonNumber = activeSeasonNumber,
@@ -1409,6 +1656,7 @@ fun PlayerScreen(
                         null
                     },
                     onSourcesClick = null,
+                    onWatchTogetherClick = { showWatchTogetherDialog = true },
                     onSubmitIntroClick = if (isSeries && playerSettingsUiState.introSubmitEnabled && playerSettingsUiState.introDbApiKey.isNotBlank()) { { showSubmitIntroModal = true } } else null,
                     maturityRatingCode = maturityRatingCode,
                     maturityGenresLine = imdbMaturityGenresLine ?: maturityGenresLine,
@@ -1451,8 +1699,8 @@ fun PlayerScreen(
             ) {
                 OpeningOverlay(
                     artwork = backdropArtwork,
-                    logo = logo,
-                    title = title,
+                    logo = activeLogo,
+                    title = activeTitle,
                     onBack = onBackWithProgress,
                     horizontalSafePadding = horizontalSafePadding,
                     modifier = Modifier.fillMaxSize(),
@@ -1584,7 +1832,7 @@ fun PlayerScreen(
             val season = activeSeasonNumber
             val episode = activeEpisodeNumber
             val imdbId = activeVideoId?.split(":")?.firstOrNull()?.takeIf { it.startsWith("tt") }
-                ?: parentMetaId.takeIf { it.startsWith("tt") }
+                ?: activeParentMetaId.takeIf { it.startsWith("tt") }
                 ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
 
             if (showSubmitIntroModal && season != null && episode != null && !imdbId.isNullOrBlank()) {
@@ -1606,6 +1854,21 @@ fun PlayerScreen(
                         submitIntroSegmentType = "intro"
                         showSubmitIntroModal = false
                     }
+                )
+            }
+
+            if (showWatchTogetherDialog) {
+                WatchTogetherDialog(
+                    session = watchTogetherSession,
+                    joinCode = watchTogetherJoinCode,
+                    isBusy = watchTogetherBusy,
+                    errorMessage = watchTogetherError,
+                    canUseWatchTogether = WatchTogetherRepository.canUseWatchTogether(),
+                    onJoinCodeChange = { watchTogetherJoinCode = it },
+                    onCreateRoom = ::createWatchTogetherRoom,
+                    onJoinRoom = ::joinWatchTogetherRoom,
+                    onLeaveRoom = ::leaveWatchTogetherRoom,
+                    onDismiss = { showWatchTogetherDialog = false },
                 )
             }
         }

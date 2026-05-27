@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,6 +50,7 @@ private const val TAG = "NuvioMpvPlayer"
 private const val MpvSnapshotIntervalMs = 1_000L
 private const val MpvSnapshotTimeoutMs = 750L
 private const val MpvReadTimeoutMs = 1_200L
+private const val MpvReleaseTimeoutMs = 5_000L
 
 @Composable
 actual fun PlatformPlayerSurface(
@@ -89,9 +89,9 @@ actual fun PlatformPlayerSurface(
             useYoutubeChunkedPlayback = useYoutubeChunkedPlayback,
         )
     }
-    var playerView by remember(playerSourceKey) { mutableStateOf<NuvioMpvView?>(null) }
+    var playerView by remember { mutableStateOf<NuvioMpvView?>(null) }
 
-    DisposableEffect(playerSourceKey) {
+    DisposableEffect(Unit) {
         val observer = NuvioMpvObserver(
             requestSnapshot = {
                 scope.launch {
@@ -114,7 +114,7 @@ actual fun PlatformPlayerSurface(
         }
     }
 
-    DisposableEffect(playerSourceKey, lifecycleOwner, playWhenReady) {
+    DisposableEffect(lifecycleOwner, playWhenReady) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> if (playWhenReady) MpvCalls.execute { MPVLib.setPropertyBoolean("pause", false) }
@@ -126,7 +126,7 @@ actual fun PlatformPlayerSurface(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(playerSourceKey, playWhenReady) {
+    LaunchedEffect(playWhenReady) {
         MpvCalls.callOrNull(MpvReadTimeoutMs) {
             MPVLib.setPropertyBoolean("pause", !playWhenReady)
             MPVLib.snapshot()
@@ -137,7 +137,7 @@ actual fun PlatformPlayerSurface(
         onControllerReady(MpvPlayerEngineController(context))
     }
 
-    LaunchedEffect(playerSourceKey) {
+    LaunchedEffect(Unit) {
         while (isActive) {
             withContext(Dispatchers.Default) {
                 MpvCalls.callOrNull(MpvSnapshotTimeoutMs) { MPVLib.snapshot() }
@@ -146,22 +146,21 @@ actual fun PlatformPlayerSurface(
         }
     }
 
-    key(playerSourceKey) {
-        AndroidView(
-            modifier = modifier,
-            factory = { viewContext ->
-                (LayoutInflater.from(viewContext).inflate(R.layout.nuvio_mpv_player_view, null) as NuvioMpvView).apply {
-                    layoutParams = android.view.ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                    playerView = this
-                    initializeForNuvio(playerSourceKey, playWhenReady)
-                }
-            },
-            update = { view ->
-                playerView = view
-                view.applyResizeMode(resizeMode)
-            },
-        )
-    }
+    AndroidView(
+        modifier = modifier,
+        factory = { viewContext ->
+            (LayoutInflater.from(viewContext).inflate(R.layout.nuvio_mpv_player_view, null) as NuvioMpvView).apply {
+                layoutParams = android.view.ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                playerView = this
+                initializeForNuvio(playerSourceKey, playWhenReady)
+            }
+        },
+        update = { view ->
+            playerView = view
+            view.loadSourceForNuvio(playerSourceKey, playWhenReady)
+            view.applyResizeMode(resizeMode)
+        },
+    )
 }
 
 internal data class MpvSource(
@@ -176,6 +175,7 @@ class NuvioMpvView(
     context: Context,
     attrs: AttributeSet,
 ) : BaseMPVView(context, attrs) {
+    private var currentSource: MpvSource? = null
     var isReleasing: Boolean = false
         private set
 
@@ -185,17 +185,26 @@ class NuvioMpvView(
     }
 
     internal fun initializeForNuvio(source: MpvSource, playWhenReady: Boolean) {
+        MpvCalls.drain(MpvReleaseTimeoutMs)
         NuvioMpvFiles.prepare(context)
         initialize(context.filesDir.path, context.cacheDir.path)
-        applyHeaders(source.headers)
-        applyResponseHeaderOverrides(source.responseHeaders)
-        applyYoutubeChunkedCompat(source.useYoutubeChunkedPlayback)
-        playFile(source.url.toPlayablePath(context))
-        applyRegularSubtitleOverride()
-        source.audioUrl?.takeIf { it.isNotBlank() }?.let { audioUrl ->
-            MPVLib.command("audio-add", audioUrl.toPlayablePath(context), "auto")
+        loadSourceForNuvio(source, playWhenReady, force = true)
+    }
+
+    internal fun loadSourceForNuvio(source: MpvSource, playWhenReady: Boolean, force: Boolean = false) {
+        if (!force && source == currentSource) return
+        currentSource = source
+        MpvCalls.execute {
+            applyHeaders(source.headers)
+            applyResponseHeaderOverrides(source.responseHeaders)
+            applyYoutubeChunkedCompat(source.useYoutubeChunkedPlayback)
+            MPVLib.command("loadfile", source.url.toPlayablePath(context), "replace")
+            applyRegularSubtitleOverride()
+            source.audioUrl?.takeIf { it.isNotBlank() }?.let { audioUrl ->
+                MPVLib.command("audio-add", audioUrl.toPlayablePath(context), "auto")
+            }
+            MPVLib.setPropertyBoolean("pause", !playWhenReady)
         }
-        MPVLib.setPropertyBoolean("pause", !playWhenReady)
     }
 
     override fun initOptions() {
@@ -692,9 +701,7 @@ private fun applyHeaders(headers: Map<String, String>) {
         .filterKeys { !it.equals("User-Agent", ignoreCase = true) }
         .map { (key, value) -> "${key.trim()}: ${value.trim().replace(",", "\\,")}" }
         .joinToString(",")
-    if (headerFields.isNotBlank()) {
-        MPVLib.setPropertyString("http-header-fields", headerFields)
-    }
+    MPVLib.setPropertyString("http-header-fields", headerFields)
 }
 
 private fun applyResponseHeaderOverrides(headers: Map<String, String>) {
@@ -733,6 +740,16 @@ private object MpvCalls {
         executor.execute {
             runCatching(block)
                 .onFailure { Log.w(TAG, "MPV call failed", it) }
+        }
+    }
+
+    fun drain(timeoutMs: Long) {
+        val future = executor.submit(Callable { Unit })
+        runCatching {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS)
+        }.onFailure { error ->
+            future.cancel(true)
+            Log.w(TAG, "MPV drain timed out or failed", error)
         }
     }
 
