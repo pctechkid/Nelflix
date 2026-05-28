@@ -267,7 +267,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     ): android.app.Notification {
         val pendingIntent = buildPendingIntent(context, request)
         val backdropBitmap = loadBackdropBitmap(request.backdropUrl)
-        val appIconBitmap = BitmapFactory.decodeResource(context.resources, com.nuvio.app.R.drawable.nelflix_splash_logo)
+        val appIconBitmap = BitmapFactory.decodeResource(context.resources, com.nuvio.app.R.mipmap.nelflix_app_icon)
 
         return NotificationCompat.Builder(context, channelId)
             .setSmallIcon(com.nuvio.app.R.drawable.ic_stat_nelflix)
