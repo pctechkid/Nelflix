@@ -25,6 +25,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language sql
@@ -47,6 +49,17 @@ as $$
     r.playback_speed,
     (extract(epoch from r.updated_at) * 1000)::bigint,
     (extract(epoch from now()) * 1000)::bigint,
+    r.closed_at is not null,
+    coalesce(
+      array(
+        select m.display_name
+        from public.watch_together_members m
+        where m.room_id = r.id
+          and m.last_seen_at > now() - interval '2 minutes'
+        order by m.joined_at
+      ),
+      array[]::text[]
+    ),
     (
       select count(*)::integer
       from public.watch_together_members m
@@ -55,7 +68,6 @@ as $$
     )
   from public.watch_together_rooms r
   where r.id = p_room_id
-    and r.closed_at is null
     and (
       r.host_user_id = auth.uid()
       or exists (
@@ -82,6 +94,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language plpgsql
@@ -151,6 +165,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language plpgsql
@@ -201,6 +217,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language plpgsql
@@ -233,6 +251,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language plpgsql

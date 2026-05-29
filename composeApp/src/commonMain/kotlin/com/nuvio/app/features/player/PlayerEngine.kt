@@ -19,6 +19,7 @@ interface PlayerEngineController {
     fun setSubtitleUri(url: String)
     fun clearExternalSubtitle()
     fun clearExternalSubtitleAndSelect(trackIndex: Int)
+    fun setSubtitleVisibility(visible: Boolean) {}
     fun getSubtitleDelayMs(): Long = 0L
     fun setSubtitleDelayMs(delayMs: Long) {}
     fun applySubtitleStyle(style: SubtitleStyleState) {}

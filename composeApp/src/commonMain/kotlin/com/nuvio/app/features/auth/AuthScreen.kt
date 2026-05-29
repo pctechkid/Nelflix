@@ -45,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -56,8 +57,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.auth.AuthRepository
-import com.nuvio.app.core.ui.nuvioOverlayGradientBrush
-import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -78,6 +77,11 @@ import nuvio.composeapp.generated.resources.compose_auth_tagline
 import nuvio.composeapp.generated.resources.compose_auth_welcome_back
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+
+private val AuthNetflixRed = Color(0xFFE50914)
+private val AuthNetflixDarkRed = Color(0xFF650006)
+private val AuthFieldBackground = Color(0xFF151515)
+private val AuthFieldBorder = Color(0xFF3A3A3A)
 
 @Composable
 fun AuthScreen(
@@ -101,7 +105,28 @@ fun AuthScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(brush = nuvioOverlayGradientBrush()),
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF230004),
+                            Color.Black,
+                            Color(0xFF090909),
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            AuthNetflixDarkRed.copy(alpha = 0.42f),
+                            Color.Transparent,
+                        ),
+                        radius = 900f,
+                    ),
+                ),
         )
         Column(
             modifier = Modifier
@@ -179,11 +204,11 @@ fun AuthScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        cursorColor = MaterialTheme.colorScheme.primary,
+                        focusedBorderColor = AuthNetflixRed,
+                        unfocusedBorderColor = AuthFieldBorder,
+                        focusedContainerColor = AuthFieldBackground,
+                        unfocusedContainerColor = AuthFieldBackground,
+                        cursorColor = AuthNetflixRed,
                     ),
                 )
 
@@ -236,11 +261,11 @@ fun AuthScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        cursorColor = MaterialTheme.colorScheme.primary,
+                        focusedBorderColor = AuthNetflixRed,
+                        unfocusedBorderColor = AuthFieldBorder,
+                        focusedContainerColor = AuthFieldBackground,
+                        unfocusedContainerColor = AuthFieldBackground,
+                        cursorColor = AuthNetflixRed,
                     ),
                 )
 
@@ -255,14 +280,7 @@ fun AuthScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                NuvioPrimaryButton(
-                    text = if (isLoading) {
-                        ""
-                    } else if (isSignUp) {
-                        stringResource(Res.string.compose_auth_create_account)
-                    } else {
-                        stringResource(Res.string.compose_auth_sign_in)
-                    },
+                Button(
                     enabled = email.isNotBlank() && password.length >= 6 && !isLoading,
                     onClick = {
                         isLoading = true
@@ -272,7 +290,29 @@ fun AuthScreen(
                             isLoading = false
                         }
                     },
-                )
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AuthNetflixRed,
+                        contentColor = Color.White,
+                        disabledContainerColor = AuthNetflixRed.copy(alpha = 0.35f),
+                        disabledContentColor = Color.White.copy(alpha = 0.55f),
+                    ),
+                ) {
+                    Text(
+                        text = if (isLoading) {
+                            ""
+                        } else if (isSignUp) {
+                            stringResource(Res.string.compose_auth_create_account)
+                        } else {
+                            stringResource(Res.string.compose_auth_sign_in)
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
 
                 if (isLoading) {
                     Box(
@@ -316,7 +356,7 @@ fun AuthScreen(
                             text = if (signUp) stringResource(Res.string.compose_auth_sign_in)
                             else stringResource(Res.string.compose_auth_sign_up),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = AuthNetflixRed,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clickable {
                                 isSignUp = !isSignUp
@@ -365,8 +405,8 @@ fun AuthScreen(
                 enabled = !isLoading,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    containerColor = Color(0xFF1B1B1B),
+                    contentColor = Color.White,
                 ),
             ) {
                 Text(

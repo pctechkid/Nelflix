@@ -35,9 +35,15 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.AddonResource
 import com.nuvio.app.features.addons.ManagedAddon
@@ -83,6 +89,12 @@ private const val WatchTogetherSoftSyncSettledMs = 200L
 private const val WatchTogetherHardSyncThresholdMs = 1_100L
 private const val WatchTogetherHardSyncCooldownMs = 3_000L
 private const val WatchTogetherSyncPollMs = 600L
+private const val WatchTogetherFreshUpdateWindowMs = 1_500L
+private const val WatchTogetherStaleUpdateWindowMs = 4_000L
+private const val WatchTogetherFreshSpeedUpMultiplier = 1.06f
+private const val WatchTogetherFreshSlowDownMultiplier = 0.94f
+private const val WatchTogetherStaleSpeedUpMultiplier = 1.03f
+private const val WatchTogetherStaleSlowDownMultiplier = 0.97f
 private val PlayerSliderOverlayGap = 12.dp
 private val PlayerTimeRowHeight = 36.dp
 private val PlayerActionRowHeight = 50.dp
@@ -178,6 +190,7 @@ fun PlayerScreen(
         val overlayBottomPadding = sliderOverlayBottomPadding(metrics)
         val scope = rememberCoroutineScope()
         val hapticFeedback = LocalHapticFeedback.current
+        val lifecycleOwner = LocalLifecycleOwner.current
         val resizeModeFitLabel = stringResource(Res.string.compose_player_resize_fit)
         val resizeModeFillLabel = stringResource(Res.string.compose_player_resize_fill)
         val resizeModeZoomLabel = stringResource(Res.string.compose_player_resize_zoom)
@@ -246,6 +259,8 @@ fun PlayerScreen(
         var watchTogetherSession by remember { mutableStateOf(initialWatchTogetherRoom) }
         var watchTogetherBusy by remember { mutableStateOf(false) }
         var watchTogetherError by remember { mutableStateOf<String?>(null) }
+        var watchTogetherMetadataForcedVisible by remember { mutableStateOf(false) }
+        var lastWatchTogetherMemberNames by remember { mutableStateOf<List<String>>(emptyList()) }
         var lastAppliedWatchTogetherUpdateMs by remember { mutableStateOf(0L) }
         var lastWatchTogetherHardSyncAtMs by remember { mutableStateOf(0L) }
         var watchTogetherSoftSyncActive by remember { mutableStateOf(false) }
@@ -289,11 +304,19 @@ fun PlayerScreen(
         val displayedPositionMs = scrubbingPositionMs ?: playbackSnapshot.positionMs
         val isEpisode = activeSeasonNumber != null && activeEpisodeNumber != null
         val currentGestureFeedback = liveGestureFeedback ?: gestureFeedback
+        val showManualPauseMetadata = watchTogetherMetadataForcedVisible
+        val metadataOverlayVisible = !playerControlsLocked &&
+            (pausedOverlayVisible || showManualPauseMetadata) &&
+            (!controlsVisible || showManualPauseMetadata)
 
         LaunchedEffect(currentGestureFeedback) {
             if (currentGestureFeedback != null) {
                 renderedGestureFeedback = currentGestureFeedback
             }
+        }
+
+        LaunchedEffect(playerController, metadataOverlayVisible) {
+            playerController?.setSubtitleVisibility(!metadataOverlayVisible)
         }
 
         var showSubmitIntroModal by remember { mutableStateOf(false) }
@@ -450,6 +473,91 @@ fun PlayerScreen(
             }
         }
 
+        fun normalizedWatchTogetherMemberNames(names: List<String>): List<String> =
+            names.mapNotNull { name -> name.trim().takeIf { it.isNotBlank() } }
+                .distinct()
+
+        fun summarizeWatchTogetherMemberNames(names: List<String>, maxShown: Int = 3): String {
+            val cleaned = normalizedWatchTogetherMemberNames(names)
+            if (cleaned.isEmpty()) return "someone"
+            return when {
+                cleaned.size <= maxShown -> cleaned.joinToString(", ")
+                else -> {
+                    val extraCount = cleaned.size - maxShown
+                    val suffix = if (extraCount == 1) "other" else "others"
+                    "${cleaned.take(maxShown).joinToString(", ")} +$extraCount $suffix"
+                }
+            }
+        }
+
+        fun toastWatchTogetherMemberChange(names: List<String>, action: String) {
+            val cleaned = normalizedWatchTogetherMemberNames(names)
+            if (cleaned.isEmpty()) return
+            val verb = if (cleaned.size == 1) "has" else "have"
+            NuvioToastController.show("${summarizeWatchTogetherMemberNames(cleaned)} $verb $action the room")
+        }
+
+        fun toastSelfJoinedWatchTogether(room: WatchTogetherRoomState) {
+            val selfName = profileState.activeProfile?.name?.takeIf { it.isNotBlank() }
+            val hostName = normalizedWatchTogetherMemberNames(room.memberNames)
+                .firstOrNull { name -> selfName == null || !name.equals(selfName, ignoreCase = true) }
+                ?.takeIf { !it.equals("Host", ignoreCase = true) }
+            val target = hostName?.let { "$it's room" } ?: "the room"
+            NuvioToastController.show("You have joined $target")
+        }
+
+        fun toastSelfLeftWatchTogether() {
+            NuvioToastController.show("You have left the room")
+        }
+
+        fun isWatchTogetherRoomGone(message: String): Boolean =
+            message.contains("Room not found", ignoreCase = true) ||
+                message.contains("Room ended", ignoreCase = true) ||
+                message.contains("room was ended", ignoreCase = true) ||
+                message.contains("room has ended", ignoreCase = true) ||
+                message.contains("0 rows", ignoreCase = true) ||
+                message.contains("no rows", ignoreCase = true)
+
+        fun handleWatchTogetherRoomEndedByHost(room: WatchTogetherRoomState? = watchTogetherSession) {
+            val hostName = normalizedWatchTogetherMemberNames(room?.memberNames.orEmpty()).firstOrNull()
+                ?: lastWatchTogetherMemberNames.firstOrNull()
+                ?: "Host"
+            NuvioToastController.show("$hostName has ended the room")
+            watchTogetherSession = null
+            watchTogetherError = null
+            watchTogetherMetadataForcedVisible = false
+            watchTogetherJoinCode = ""
+            lastWatchTogetherMemberNames = emptyList()
+            watchTogetherSoftSyncActive = false
+            playerController?.setPlaybackSpeed(1f)
+        }
+
+        fun syncWatchTogetherMembers(room: WatchTogetherRoomState, announceChanges: Boolean = true) {
+            val nextNames = normalizedWatchTogetherMemberNames(room.memberNames)
+            val previousNames = normalizedWatchTogetherMemberNames(lastWatchTogetherMemberNames)
+            fun dismissHostWaitingDialogIfGuestJoined() {
+                if (room.isHost && showWatchTogetherDialog && nextNames.size > 1) {
+                    showWatchTogetherDialog = false
+                }
+            }
+
+            if (previousNames.isEmpty()) {
+                lastWatchTogetherMemberNames = nextNames
+                dismissHostWaitingDialogIfGuestJoined()
+                return
+            }
+
+            if (announceChanges) {
+                val joined = nextNames.filterNot(previousNames::contains)
+                val left = previousNames.filterNot(nextNames::contains)
+                if (joined.isNotEmpty()) toastWatchTogetherMemberChange(joined, "joined")
+                if (left.isNotEmpty()) toastWatchTogetherMemberChange(left, "left")
+                if (joined.isNotEmpty()) dismissHostWaitingDialogIfGuestJoined()
+            }
+
+            lastWatchTogetherMemberNames = nextNames
+        }
+
         suspend fun resolveParentalGuideImdbId(): String? {
             val candidates = listOf(activeParentMetaId, activeVideoId)
             candidates.firstNotNullOfOrNull(::extractParentalGuideImdbId)?.let { return it }
@@ -468,10 +576,52 @@ fun PlayerScreen(
             )
         }
 
-        val onBackWithProgress = remember(onBack, playbackSession, playbackSnapshot) {
+        fun leaveWatchTogetherRoom(showSelfToast: Boolean = true) {
+            val roomId = watchTogetherSession?.roomId
+            if (showSelfToast && watchTogetherSession != null) {
+                toastSelfLeftWatchTogether()
+            }
+            watchTogetherSession = null
+            watchTogetherError = null
+            watchTogetherJoinCode = ""
+            watchTogetherMetadataForcedVisible = false
+            lastWatchTogetherMemberNames = emptyList()
+            if (roomId != null) {
+                scope.launch { WatchTogetherRepository.leaveRoom(roomId) }
+            }
+        }
+
+        val onBackWithProgress = remember(onBack, playbackSession, playbackSnapshot, watchTogetherSession) {
             {
                 flushWatchProgress()
+                if (watchTogetherSession != null) {
+                    leaveWatchTogetherRoom()
+                }
                 onBack()
+            }
+        }
+
+        PlatformBackHandler(enabled = true) {
+            onBackWithProgress()
+        }
+
+        val latestWatchTogetherSession = rememberUpdatedState(watchTogetherSession)
+        val latestBackgroundWatchTogetherExit = rememberUpdatedState {
+            if (latestWatchTogetherSession.value != null) {
+                flushWatchProgress()
+                leaveWatchTogetherRoom(showSelfToast = false)
+            }
+        }
+
+        DisposableEffect(lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                    latestBackgroundWatchTogetherExit.value()
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
             }
         }
 
@@ -777,8 +927,16 @@ fun PlayerScreen(
                 )
                 result
                     .onSuccess { room ->
-                        watchTogetherSession = room
-                        watchTogetherJoinCode = room.roomCode
+                        val displayName = profileState.activeProfile?.name?.takeIf { it.isNotBlank() } ?: "Host"
+                        val namedRoom = WatchTogetherRepository.joinRoom(
+                            roomCode = room.roomCode,
+                            profileId = ProfileRepository.activeProfileId,
+                            displayName = displayName,
+                        ).getOrElse { room }
+                        watchTogetherSession = namedRoom
+                        watchTogetherJoinCode = namedRoom.roomCode
+                        watchTogetherMetadataForcedVisible = false
+                        syncWatchTogetherMembers(namedRoom, announceChanges = false)
                     }
                     .onFailure { error -> watchTogetherError = watchTogetherMessage(error, "Could not create room.") }
                 watchTogetherBusy = false
@@ -788,6 +946,7 @@ fun PlayerScreen(
         fun applyWatchTogetherState(room: WatchTogetherRoomState) {
             if (room.isHost || room.updatedAtMs <= lastAppliedWatchTogetherUpdateMs) return
             lastAppliedWatchTogetherUpdateMs = room.updatedAtMs
+            syncWatchTogetherMembers(room)
 
             if (room.sourceUrl.isBlank()) {
                 watchTogetherError = "This room does not have a playable stream yet."
@@ -841,7 +1000,21 @@ fun PlayerScreen(
             val driftMs = playbackSnapshot.positionMs - targetPositionMs
             val absoluteDriftMs = abs(driftMs)
             val nowMs = WatchProgressClock.nowEpochMs()
+            val roomUpdateAgeMs = (nowMs - room.serverNowMs).coerceAtLeast(0L)
+            val roomUpdateIsFresh = roomUpdateAgeMs <= WatchTogetherFreshUpdateWindowMs
+            val roomUpdateIsStale = roomUpdateAgeMs > WatchTogetherStaleUpdateWindowMs
+            val softSpeedUpMultiplier = if (roomUpdateIsFresh) {
+                WatchTogetherFreshSpeedUpMultiplier
+            } else {
+                WatchTogetherStaleSpeedUpMultiplier
+            }
+            val softSlowDownMultiplier = if (roomUpdateIsFresh) {
+                WatchTogetherFreshSlowDownMultiplier
+            } else {
+                WatchTogetherStaleSlowDownMultiplier
+            }
             if (
+                roomUpdateIsFresh &&
                 absoluteDriftMs > WatchTogetherHardSyncThresholdMs &&
                 nowMs - lastWatchTogetherHardSyncAtMs > WatchTogetherHardSyncCooldownMs
             ) {
@@ -849,11 +1022,11 @@ fun PlayerScreen(
                 watchTogetherSoftSyncActive = false
                 controller.seekTo(targetPositionMs)
                 controller.setPlaybackSpeed(room.playbackSpeed)
-            } else if (room.playbackState == WatchTogetherPlaybackState.Playing) {
+            } else if (room.playbackState == WatchTogetherPlaybackState.Playing && !roomUpdateIsStale) {
                 val targetSpeed = when {
                     absoluteDriftMs <= WatchTogetherSoftSyncSettledMs -> room.playbackSpeed
-                    driftMs < -WatchTogetherSoftSyncThresholdMs -> (room.playbackSpeed * 1.06f).coerceAtMost(4f)
-                    driftMs > WatchTogetherSoftSyncThresholdMs -> (room.playbackSpeed * 0.94f).coerceAtLeast(0.25f)
+                    driftMs < -WatchTogetherSoftSyncThresholdMs -> (room.playbackSpeed * softSpeedUpMultiplier).coerceAtMost(4f)
+                    driftMs > WatchTogetherSoftSyncThresholdMs -> (room.playbackSpeed * softSlowDownMultiplier).coerceAtLeast(0.25f)
                     watchTogetherSoftSyncActive -> room.playbackSpeed
                     else -> playbackSnapshot.playbackSpeed
                 }
@@ -861,9 +1034,15 @@ fun PlayerScreen(
                     controller.setPlaybackSpeed(targetSpeed)
                 }
                 watchTogetherSoftSyncActive = targetSpeed != room.playbackSpeed
-            } else if (watchTogetherSoftSyncActive || abs(playbackSnapshot.playbackSpeed - room.playbackSpeed) > 0.01f) {
+            } else if (!roomUpdateIsStale && (watchTogetherSoftSyncActive || abs(playbackSnapshot.playbackSpeed - room.playbackSpeed) > 0.01f)) {
                 watchTogetherSoftSyncActive = false
                 controller.setPlaybackSpeed(room.playbackSpeed)
+            }
+
+            if (roomUpdateIsStale) {
+                watchTogetherError = null
+            } else if (watchTogetherError == "Watch Together sync is unstable. Waiting for fresher updates.") {
+                watchTogetherError = null
             }
 
             when (room.playbackState) {
@@ -885,15 +1064,19 @@ fun PlayerScreen(
             watchTogetherBusy = true
             watchTogetherError = null
             scope.launch {
+                val displayName = profileState.activeProfile?.name?.takeIf { it.isNotBlank() } ?: "You"
                 val result = WatchTogetherRepository.joinRoom(
                     roomCode = watchTogetherJoinCode,
                     profileId = ProfileRepository.activeProfileId,
-                    displayName = profileState.activeProfile?.name.orEmpty(),
+                    displayName = displayName,
                 )
                 result
                     .onSuccess { room ->
                         watchTogetherSession = room
                         showWatchTogetherDialog = false
+                        watchTogetherMetadataForcedVisible = false
+                        syncWatchTogetherMembers(room, announceChanges = false)
+                        toastSelfJoinedWatchTogether(room)
                         runCatching { applyWatchTogetherState(room) }
                             .onFailure { error ->
                                 watchTogetherError = watchTogetherMessage(error, "Could not switch to the room stream.")
@@ -902,16 +1085,6 @@ fun PlayerScreen(
                     }
                     .onFailure { error -> watchTogetherError = watchTogetherMessage(error, "Could not join room.") }
                 watchTogetherBusy = false
-            }
-        }
-
-        fun leaveWatchTogetherRoom() {
-            val roomId = watchTogetherSession?.roomId
-            watchTogetherSession = null
-            watchTogetherError = null
-            watchTogetherJoinCode = ""
-            if (roomId != null) {
-                scope.launch { WatchTogetherRepository.leaveRoom(roomId) }
             }
         }
 
@@ -1002,6 +1175,10 @@ fun PlayerScreen(
         val onSurfaceTap = rememberUpdatedState { offset: Offset ->
             if (playerControlsLocked) {
                 revealLockedOverlay()
+                return@rememberUpdatedState
+            }
+            if (showManualPauseMetadata) {
+                watchTogetherMetadataForcedVisible = false
                 return@rememberUpdatedState
             }
             if (!playbackSnapshot.isPlaying && !playbackSnapshot.isLoading && playbackSnapshot.durationMs > 0L) {
@@ -1395,19 +1572,33 @@ fun PlayerScreen(
                 if (room.isHost) {
                     delay(WatchTogetherSyncPollMs)
                     WatchTogetherRepository.pushState(room.roomId, currentWatchTogetherPayload())
-                        .onSuccess { watchTogetherSession = it }
-                        .onFailure { watchTogetherError = watchTogetherMessage(it, "Watch Together sync failed.") }
+                        .onSuccess {
+                            watchTogetherSession = it
+                            syncWatchTogetherMembers(it)
+                            runCatching { applyWatchTogetherState(it) }
+                                .onFailure { watchTogetherError = null }
+                        }
+                        .onFailure { watchTogetherError = null }
                 } else {
                     delay(WatchTogetherSyncPollMs)
                     WatchTogetherRepository.refreshRoom(room.roomId)
                         .onSuccess { refreshed ->
+                            if (refreshed.roomClosed) {
+                                handleWatchTogetherRoomEndedByHost(refreshed)
+                                return@onSuccess
+                            }
                             watchTogetherSession = refreshed
+                            syncWatchTogetherMembers(refreshed)
                             runCatching { applyWatchTogetherState(refreshed) }
-                                .onFailure { error ->
-                                    watchTogetherError = watchTogetherMessage(error, "Watch Together sync failed.")
-                                }
+                                .onFailure { watchTogetherError = null }
                         }
-                        .onFailure { watchTogetherError = watchTogetherMessage(it, "Watch Together sync failed.") }
+                        .onFailure { error ->
+                            val message = watchTogetherMessage(error, "Watch Together sync failed.")
+                            watchTogetherError = null
+                            if (isWatchTogetherRoomGone(message)) {
+                                handleWatchTogetherRoomEndedByHost()
+                            }
+                        }
                 }
             }
         }
@@ -1588,9 +1779,10 @@ fun PlayerScreen(
             )
 
             AnimatedVisibility(
-                visible = pausedOverlayVisible && !controlsVisible && !playerControlsLocked,
+                visible = metadataOverlayVisible,
                 enter = fadeIn(animationSpec = tween(durationMillis = 220)),
                 exit = fadeOut(animationSpec = tween(durationMillis = 180)),
+                modifier = Modifier.zIndex(3f),
             ) {
                 PauseMetadataOverlay(
                     title = activeTitle,
@@ -1607,9 +1799,10 @@ fun PlayerScreen(
             }
 
             AnimatedVisibility(
-                visible = (controlsVisible || showParentalGuide) && !playerControlsLocked,
+                visible = (controlsVisible || showParentalGuide || showManualPauseMetadata) && !playerControlsLocked,
                 enter = fadeIn(),
                 exit = fadeOut(),
+                modifier = Modifier.zIndex(if (showManualPauseMetadata) 4f else 0f),
             ) {
                 PlayerControlsShell(
                     title = activeTitle,
@@ -1623,7 +1816,8 @@ fun PlayerScreen(
                     metrics = metrics,
                     resizeMode = resizeMode,
                     isLocked = playerControlsLocked,
-                    showPlaybackControls = controlsVisible,
+                    showPlaybackControls = controlsVisible && !showManualPauseMetadata,
+                    metadataInfoOnly = showManualPauseMetadata,
                     onLockToggle = {
                         if (playerControlsLocked) {
                             unlockPlayerControls()
@@ -1657,6 +1851,7 @@ fun PlayerScreen(
                     },
                     onSourcesClick = null,
                     onWatchTogetherClick = { showWatchTogetherDialog = true },
+                    onWatchTogetherInfoClick = { watchTogetherMetadataForcedVisible = !watchTogetherMetadataForcedVisible },
                     onSubmitIntroClick = if (isSeries && playerSettingsUiState.introSubmitEnabled && playerSettingsUiState.introDbApiKey.isNotBlank()) { { showSubmitIntroModal = true } } else null,
                     maturityRatingCode = maturityRatingCode,
                     maturityGenresLine = imdbMaturityGenresLine ?: maturityGenresLine,

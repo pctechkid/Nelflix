@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,10 +26,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 
 private val ParentalGuideBarHeight = 46.dp
 
@@ -40,6 +45,8 @@ internal fun ParentalGuideOverlay(
     onAnimationComplete: () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(start = 32.dp, top = 24.dp),
+    ratingFontSize: TextUnit,
+    genresFontSize: TextUnit,
 ) {
     val normalizedRating = ratingCode?.trim()?.takeIf { it.isNotBlank() }
     val normalizedGenres = genresLine?.trim()?.takeIf { it.isNotBlank() }
@@ -50,25 +57,33 @@ internal fun ParentalGuideOverlay(
     val containerAlpha = remember { Animatable(0f) }
     val lineHeightFraction = remember { Animatable(0f) }
     val textAlpha = remember { Animatable(0f) }
+    val textOffsetX = remember { Animatable(-14f) }
     var animating by remember { mutableStateOf(false) }
 
     LaunchedEffect(isVisible) {
         if (isVisible && !animating) {
             animating = true
-            containerAlpha.animateTo(1f, tween(220))
-            lineHeightFraction.animateTo(1f, tween(360, easing = FastOutSlowInEasing))
-            textAlpha.animateTo(1f, tween(220))
+            coroutineScope {
+                launch { containerAlpha.animateTo(1f, tween(520, easing = FastOutSlowInEasing)) }
+                launch { lineHeightFraction.animateTo(1f, tween(780, easing = FastOutSlowInEasing)) }
+                launch { textAlpha.animateTo(1f, tween(700, delayMillis = 90, easing = FastOutSlowInEasing)) }
+                launch { textOffsetX.animateTo(0f, tween(700, delayMillis = 90, easing = FastOutSlowInEasing)) }
+            }
 
-            delay(5000)
+            delay(10_000)
 
-            textAlpha.animateTo(0f, tween(150))
-            lineHeightFraction.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
-            containerAlpha.animateTo(0f, tween(200))
+            coroutineScope {
+                launch { textAlpha.animateTo(0f, tween(520, easing = FastOutSlowInEasing)) }
+                launch { textOffsetX.animateTo(-8f, tween(520, easing = FastOutSlowInEasing)) }
+                launch { lineHeightFraction.animateTo(0f, tween(620, easing = FastOutSlowInEasing)) }
+                launch { containerAlpha.animateTo(0f, tween(640, easing = FastOutSlowInEasing)) }
+            }
 
             animating = false
             onAnimationComplete()
         } else if (!isVisible && animating) {
             textAlpha.snapTo(0f)
+            textOffsetX.snapTo(-14f)
             lineHeightFraction.snapTo(0f)
             containerAlpha.snapTo(0f)
             animating = false
@@ -92,23 +107,33 @@ internal fun ParentalGuideOverlay(
                 .background(Color(0xFFE50914)),
         )
 
-        Column(modifier = Modifier.padding(start = 10.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(start = 10.dp)
+                .graphicsLayer {
+                    alpha = textAlpha.value
+                    translationX = textOffsetX.value
+                },
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             Text(
                 text = headline,
-                modifier = Modifier.alpha(textAlpha.value),
-                fontSize = 17.sp,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = ratingFontSize,
+                    lineHeight = ratingFontSize * 1.05f,
+                    fontWeight = FontWeight.Bold,
+                ),
                 color = Color.White,
-                fontWeight = FontWeight.Bold,
             )
             if (themes.isNotBlank()) {
                 Text(
                     text = themes,
-                    modifier = Modifier
-                        .alpha(textAlpha.value)
-                        .padding(top = 1.dp),
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = genresFontSize,
+                        lineHeight = genresFontSize * 1.25f,
+                        fontWeight = FontWeight.Medium,
+                    ),
                     color = Color.White.copy(alpha = 0.82f),
-                    fontWeight = FontWeight.Medium,
                 )
             }
         }

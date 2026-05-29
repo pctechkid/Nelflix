@@ -449,6 +449,10 @@ private class MpvPlayerEngineController(
         }
     }
 
+    override fun setSubtitleVisibility(visible: Boolean) {
+        MpvCalls.execute { MPVLib.setPropertyBoolean("sub-visibility", visible) }
+    }
+
     override fun getSubtitleDelayMs(): Long =
         MpvCalls.callBlocking(MpvReadTimeoutMs, 0L) {
             ((MPVLib.getPropertyDouble("sub-delay") ?: 0.0) * 1000.0).toLong()

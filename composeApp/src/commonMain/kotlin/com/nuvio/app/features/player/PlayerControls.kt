@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Replay10
@@ -47,8 +49,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,6 +62,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -87,6 +92,7 @@ internal fun PlayerControlsShell(
     resizeMode: PlayerResizeMode,
     isLocked: Boolean,
     showPlaybackControls: Boolean = true,
+    metadataInfoOnly: Boolean = false,
     onLockToggle: () -> Unit,
     onBack: () -> Unit,
     onTogglePlayback: () -> Unit,
@@ -100,6 +106,7 @@ internal fun PlayerControlsShell(
     onChaptersClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
     onWatchTogetherClick: (() -> Unit)? = null,
+    onWatchTogetherInfoClick: (() -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
     maturityRatingCode: String? = null,
     maturityGenresLine: String? = null,
@@ -112,49 +119,51 @@ internal fun PlayerControlsShell(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .align(Alignment.Center)
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.72f),
-                            Color.Black.copy(alpha = 0.38f),
-                            Color.Transparent,
+        if (!metadataInfoOnly) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.Center)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.72f),
+                                Color.Black.copy(alpha = 0.38f),
+                                Color.Transparent,
+                            ),
                         ),
                     ),
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(190.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.7f),
-                            Color.Transparent,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(190.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.7f),
+                                Color.Transparent,
+                            ),
                         ),
                     ),
-                ),
-        )
+            )
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(220.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.7f),
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.7f),
+                            ),
                         ),
                     ),
-                ),
-        )
+            )
+        }
 
         Box(
             modifier = Modifier
@@ -170,7 +179,9 @@ internal fun PlayerControlsShell(
                 metrics = metrics,
                 isLocked = isLocked,
                 showActions = showPlaybackControls,
+                metadataInfoOnly = metadataInfoOnly,
                 onWatchTogetherClick = onWatchTogetherClick,
+                onWatchTogetherInfoClick = onWatchTogetherInfoClick,
                 onSubmitIntroClick = onSubmitIntroClick,
                 maturityRatingCode = maturityRatingCode,
                 maturityGenresLine = maturityGenresLine,
@@ -239,7 +250,9 @@ private fun PlayerHeader(
     metrics: PlayerLayoutMetrics,
     isLocked: Boolean,
     showActions: Boolean,
+    metadataInfoOnly: Boolean,
     onWatchTogetherClick: (() -> Unit)?,
+    onWatchTogetherInfoClick: (() -> Unit)?,
     onSubmitIntroClick: (() -> Unit)?,
     maturityRatingCode: String?,
     maturityGenresLine: String?,
@@ -252,8 +265,8 @@ private fun PlayerHeader(
 ) {
     val typeScale = MaterialTheme.nuvioTypeScale
     val metadataAlpha by animateFloatAsState(
-        targetValue = if (!showParentalGuide && showActions) 1f else 0f,
-        animationSpec = tween(durationMillis = if (!showParentalGuide && showActions) 260 else 160),
+        targetValue = if (!showParentalGuide && showActions && !metadataInfoOnly) 1f else 0f,
+        animationSpec = tween(durationMillis = if (!showParentalGuide && showActions && !metadataInfoOnly) 260 else 160),
         label = "playerHeaderMetadataAlpha",
     )
     Column(modifier = modifier) {
@@ -317,24 +330,35 @@ private fun PlayerHeader(
                     isVisible = showParentalGuide,
                     onAnimationComplete = onParentalGuideAnimationComplete,
                     contentPadding = PaddingValues(0.dp),
+                    ratingFontSize = metrics.episodeInfoSize * 1.08f,
+                    genresFontSize = metrics.episodeInfoSize,
                 )
             }
 
-            if (showActions) {
+            if (showActions || metadataInfoOnly) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (onWatchTogetherClick != null) {
+                    if (!metadataInfoOnly && onWatchTogetherClick != null) {
                         PlayerHeaderIconButton(
                             icon = Icons.Rounded.Groups,
                             contentDescription = "Watch Together",
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
+                            buttonSize = metrics.headerIconSize + 18.dp,
+                            iconSize = metrics.headerIconSize + 4.dp,
                             onClick = onWatchTogetherClick,
                         )
                     }
-                    if (onSubmitIntroClick != null) {
+                    if (onWatchTogetherInfoClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = Icons.Rounded.Info,
+                            contentDescription = "Playback info",
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onWatchTogetherInfoClick,
+                        )
+                    }
+                    if (!metadataInfoOnly && onSubmitIntroClick != null) {
                         PlayerHeaderIconButton(
                             icon = Icons.Rounded.Flag,
                             contentDescription = "Submit Intro",
@@ -343,25 +367,27 @@ private fun PlayerHeader(
                             onClick = onSubmitIntroClick,
                         )
                     }
-                    PlayerHeaderIconButton(
-                        icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
-                        contentDescription = if (isLocked) {
-                            stringResource(Res.string.compose_player_unlock_controls)
-                        } else {
-                            stringResource(Res.string.compose_player_lock_controls)
-                        },
-                        buttonSize = metrics.headerIconSize + 16.dp,
-                        iconSize = metrics.headerIconSize,
-                        onClick = onLockToggle,
-                    )
-                    NuvioBackButton(
-                        onClick = onBack,
-                        containerColor = Color.Black.copy(alpha = 0.35f),
-                        contentColor = Color.White,
-                        buttonSize = metrics.headerIconSize + 16.dp,
-                        iconSize = metrics.headerIconSize,
-                        contentDescription = stringResource(Res.string.compose_player_close),
-                    )
+                    if (!metadataInfoOnly) {
+                        PlayerHeaderIconButton(
+                            icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
+                            contentDescription = if (isLocked) {
+                                stringResource(Res.string.compose_player_unlock_controls)
+                            } else {
+                                stringResource(Res.string.compose_player_lock_controls)
+                            },
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onLockToggle,
+                        )
+                        NuvioBackButton(
+                            onClick = onBack,
+                            containerColor = Color.Black.copy(alpha = 0.35f),
+                            contentColor = Color.White,
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            contentDescription = stringResource(Res.string.compose_player_close),
+                        )
+                    }
                 }
             }
         }
@@ -376,6 +402,26 @@ private fun NetflixHeaderTitle(
     episodeFontSize: androidx.compose.ui.unit.TextUnit,
     onTitleLineCountChanged: (Int) -> Unit,
 ) {
+    var accentVisible by remember(title, episodeLine) { mutableStateOf(false) }
+    val accentScaleY by animateFloatAsState(
+        targetValue = if (accentVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 760, easing = FastOutSlowInEasing),
+        label = "playerTitleAccentScale",
+    )
+    val textAlpha by animateFloatAsState(
+        targetValue = if (accentVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 720, delayMillis = 110, easing = FastOutSlowInEasing),
+        label = "playerTitleTextAlpha",
+    )
+    val textOffset by animateFloatAsState(
+        targetValue = if (accentVisible) 0f else -14f,
+        animationSpec = tween(durationMillis = 720, delayMillis = 110, easing = FastOutSlowInEasing),
+        label = "playerTitleTextOffset",
+    )
+    LaunchedEffect(title, episodeLine) {
+        accentVisible = true
+    }
+
     Row(
         verticalAlignment = Alignment.Top,
         modifier = Modifier.height(IntrinsicSize.Min),
@@ -384,12 +430,20 @@ private fun NetflixHeaderTitle(
             modifier = Modifier
                 .width(5.dp)
                 .fillMaxHeight()
+                .graphicsLayer {
+                    scaleY = accentScaleY
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                }
                 .clip(RoundedCornerShape(1.dp))
                 .background(NetflixProgressRed),
         )
         Column(
             modifier = Modifier
-                .padding(start = 8.dp)
+                .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
+                .graphicsLayer {
+                    alpha = textAlpha
+                    translationX = textOffset
+                }
                 .widthIn(max = 320.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -599,11 +653,6 @@ private fun ProgressControls(
             Surface(
                 color = Color.Black.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(24.dp),
-                ),
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
@@ -838,7 +887,6 @@ private fun TimePill(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(Color.Black.copy(alpha = 0.5f))
-            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
         Text(

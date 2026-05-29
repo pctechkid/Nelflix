@@ -62,12 +62,22 @@ fun WatchTogetherDialog(
                 if (!canUseWatchTogether) {
                     Text("Sign in with an account to use Watch Together.")
                 } else if (session != null) {
+                    val memberNames = session.memberNames.distinct().filter { it.isNotBlank() }
+                    val memberNamesLabel = when {
+                        memberNames.isEmpty() -> "${session.memberCount} connected"
+                        memberNames.size <= 4 -> memberNames.joinToString(", ")
+                        else -> "${memberNames.take(4).joinToString(", ")} +${memberNames.size - 4} more"
+                    }
                     Text(
                         text = if (session.isHost) {
                             "Share this code. You control playback for ${session.memberCount} member(s)."
                         } else {
                             "Synced with ${session.memberCount} member(s)."
                         },
+                    )
+                    Text(
+                        text = "Members: $memberNamesLabel",
+                        color = Color(0xFFBDBDBD),
                     )
                     Text(
                         text = session.roomCode,
@@ -103,7 +113,7 @@ fun WatchTogetherDialog(
                     Text("Create a room from this stream, or join a room with a code.")
                 }
 
-                if (!errorMessage.isNullOrBlank()) {
+                if (session == null && !errorMessage.isNullOrBlank()) {
                     Text(
                         text = errorMessage,
                         color = Color(0xFFFF8A8A),
@@ -169,7 +179,12 @@ fun WatchTogetherDialog(
                         onClick = onLeaveRoom,
                         enabled = !isBusy,
                         border = BorderStroke(1.dp, WatchTogetherRed),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = WatchTogetherRed,
+                            contentColor = Color.White,
+                            disabledContainerColor = Color(0xFF4F1518),
+                            disabledContentColor = Color(0xFFBDBDBD),
+                        ),
                     ) {
                         Text("Leave")
                     }

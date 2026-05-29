@@ -32,7 +32,9 @@ data class WatchTogetherRoomState(
     val playbackSpeed: Float,
     val updatedAtMs: Long,
     val serverNowMs: Long,
+    val roomClosed: Boolean,
     val receivedAtMs: Long,
+    val memberNames: List<String>,
     val memberCount: Int,
 ) {
     val expectedPositionMs: Long
@@ -208,6 +210,8 @@ private data class WatchTogetherRoomStateDto(
     @SerialName("playback_speed") val playbackSpeed: Float = 1f,
     @SerialName("updated_at_ms") val updatedAtMs: Long = 0,
     @SerialName("server_now_ms") val serverNowMs: Long = 0,
+    @SerialName("room_closed") val roomClosed: Boolean = false,
+    @SerialName("member_names") val memberNames: List<String> = emptyList(),
     @SerialName("member_count") val memberCount: Int = 1,
 ) {
     fun toDomain(): WatchTogetherRoomState =
@@ -237,7 +241,9 @@ private data class WatchTogetherRoomStateDto(
             playbackSpeed = playbackSpeed,
             updatedAtMs = updatedAtMs,
             serverNowMs = serverNowMs,
+            roomClosed = roomClosed,
             receivedAtMs = WatchProgressClock.nowEpochMs(),
+            memberNames = memberNames,
             memberCount = memberCount,
         )
 }

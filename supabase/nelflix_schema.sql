@@ -44,6 +44,15 @@ create table if not exists public.addons (
   unique (user_id, profile_id, url)
 );
 
+create table if not exists public.dashboard_super_admins (
+  email text primary key,
+  created_at timestamptz not null default now()
+);
+
+insert into public.dashboard_super_admins (email)
+values ('omboyronnel@gmail.com')
+on conflict (email) do nothing;
+
 create table if not exists public.plugins (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -206,6 +215,7 @@ $$;
 
 alter table public.profiles enable row level security;
 alter table public.addons enable row level security;
+alter table public.dashboard_super_admins enable row level security;
 alter table public.plugins enable row level security;
 alter table public.watched_items enable row level security;
 alter table public.watch_progress enable row level security;
@@ -245,6 +255,12 @@ $$;
 drop policy if exists avatar_catalog_public_read on public.avatar_catalog;
 create policy avatar_catalog_public_read on public.avatar_catalog
   for select to anon, authenticated using (is_active = true);
+
+drop policy if exists dashboard_super_admins_self_read on public.dashboard_super_admins;
+create policy dashboard_super_admins_self_read on public.dashboard_super_admins
+  for select to authenticated using (
+    lower(email) = lower(coalesce((select u.email from auth.users u where u.id = auth.uid()), ''))
+  );
 
 drop policy if exists watch_together_rooms_member_read on public.watch_together_rooms;
 create policy watch_together_rooms_member_read on public.watch_together_rooms
@@ -569,6 +585,81 @@ begin
 end;
 $$;
 
+create or replace function public.dashboard_is_super_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select exists (
+    select 1
+    from public.dashboard_super_admins a
+    join auth.users u on lower(u.email) = lower(a.email)
+    where u.id = auth.uid()
+  );
+$$;
+
+create or replace function public.dashboard_push_addons_to_all_users(p_profile_id integer)
+returns table(target_users integer, source_addons integer)
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  source_user_id uuid := auth.uid();
+  source_count integer := 0;
+  target_count integer := 0;
+begin
+  if source_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if not public.dashboard_is_super_admin() then
+    raise exception 'Super admin access required';
+  end if;
+
+  if p_profile_id is null or p_profile_id < 1 or p_profile_id > 4 then
+    raise exception 'Invalid profile';
+  end if;
+
+  select count(*) into source_count
+  from public.addons
+  where user_id = source_user_id
+    and profile_id = p_profile_id;
+
+  select count(*) into target_count
+  from auth.users
+  where id <> source_user_id;
+
+  delete from public.addons a
+  using auth.users u
+  where a.user_id = u.id
+    and u.id <> source_user_id
+    and a.profile_id = p_profile_id;
+
+  insert into public.addons (user_id, profile_id, url, name, enabled, sort_order)
+  select
+    u.id,
+    p_profile_id,
+    source.url,
+    source.name,
+    source.enabled,
+    source.sort_order
+  from auth.users u
+  cross join (
+    select url, name, enabled, sort_order
+    from public.addons
+    where user_id = source_user_id
+      and profile_id = p_profile_id
+    order by sort_order, url
+  ) source
+  where u.id <> source_user_id;
+
+  return query select target_count, source_count;
+end;
+$$;
+
 create or replace function public.sync_push_plugins(p_profile_id integer, p_plugins jsonb)
 returns void
 language plpgsql
@@ -866,6 +957,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language sql
@@ -888,6 +981,17 @@ as $$
     r.playback_speed,
     (extract(epoch from r.updated_at) * 1000)::bigint,
     (extract(epoch from now()) * 1000)::bigint,
+    r.closed_at is not null,
+    coalesce(
+      array(
+        select m.display_name
+        from public.watch_together_members m
+        where m.room_id = r.id
+          and m.last_seen_at > now() - interval '2 minutes'
+        order by m.joined_at
+      ),
+      array[]::text[]
+    ),
     (
       select count(*)::integer
       from public.watch_together_members m
@@ -896,7 +1000,6 @@ as $$
     )
   from public.watch_together_rooms r
   where r.id = p_room_id
-    and r.closed_at is null
     and (
       r.host_user_id = auth.uid()
       or exists (
@@ -923,6 +1026,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language plpgsql
@@ -992,6 +1097,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language plpgsql
@@ -1042,6 +1149,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language plpgsql
@@ -1074,6 +1183,8 @@ returns table (
   playback_speed real,
   updated_at_ms bigint,
   server_now_ms bigint,
+  room_closed boolean,
+  member_names text[],
   member_count integer
 )
 language plpgsql
@@ -1168,6 +1279,7 @@ $$;
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.profiles to authenticated;
 grant select, insert, update, delete on public.addons to authenticated;
+grant select on public.dashboard_super_admins to authenticated;
 grant select, insert, update, delete on public.plugins to authenticated;
 grant select, insert, update, delete on public.watched_items to authenticated;
 grant select, insert, update, delete on public.watch_progress to authenticated;
@@ -1180,6 +1292,7 @@ grant select, insert, update, delete on public.watch_together_members to authent
 grant select on public.avatar_catalog to anon, authenticated;
 grant all on public.profiles to service_role;
 grant all on public.addons to service_role;
+grant all on public.dashboard_super_admins to service_role;
 grant all on public.plugins to service_role;
 grant all on public.watched_items to service_role;
 grant all on public.watch_progress to service_role;
@@ -1199,6 +1312,8 @@ grant execute on function public.verify_profile_pin(integer, text) to authentica
 grant execute on function public.set_profile_pin(integer, text, text) to authenticated;
 grant execute on function public.clear_profile_pin(integer, text) to authenticated;
 grant execute on function public.clear_profile_pin_with_account_password(text, integer) to authenticated;
+grant execute on function public.dashboard_is_super_admin() to authenticated;
+grant execute on function public.dashboard_push_addons_to_all_users(integer) to authenticated;
 grant execute on function public.sync_push_addons(integer, jsonb) to authenticated;
 grant execute on function public.sync_push_plugins(integer, jsonb) to authenticated;
 grant execute on function public.sync_pull_watched_items(integer, integer, integer) to authenticated;
