@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 private const val DefaultPreferredSubtitleLanguage = "en"
 private const val DefaultStreamReuseLastLinkEnabled = true
-private const val DefaultStreamReuseLastLinkCacheHours = 168
+private const val DefaultStreamReuseLastLinkCacheHours = 24
 private const val DefaultNelflixHoldSpeed = 10f
 private const val DefaultNelflixAnimeSkipClientId = "co7yoH241AnjAG70LIkkXPzDbJlMQUPJ"
 

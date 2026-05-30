@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -287,7 +288,7 @@ fun ProfileSelectionScreen(
                 onClick = { showSignOutConfirm = true },
                 enabled = !isSigningOut,
                 modifier = Modifier
-                    .fillMaxWidth(if (isTabletLayout) 0.42f else 1f),
+                    .widthIn(min = 0.dp, max = 260.dp),
                 colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = MaterialTheme.colorScheme.error,
                 ),

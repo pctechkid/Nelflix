@@ -208,7 +208,7 @@ fun PlayerScreen(
             mild = stringResource(Res.string.parental_severity_mild),
         )
         val gestureController = rememberPlayerGestureController()
-        var controlsVisible by rememberSaveable { mutableStateOf(true) }
+        var controlsVisible by rememberSaveable { mutableStateOf(false) }
         var playerControlsLocked by rememberSaveable { mutableStateOf(false) }
         // Active playback state (mutable to support source/episode switching)
         var activeTitle by rememberSaveable { mutableStateOf(title) }
@@ -345,6 +345,10 @@ fun PlayerScreen(
         var showParentalGuide by remember { mutableStateOf(false) }
         var parentalGuideHasShown by remember { mutableStateOf(false) }
         var playbackStartedForParentalGuide by remember { mutableStateOf(false) }
+        var showStartupTitleIntro by remember { mutableStateOf(false) }
+        var startupTitleIntroVisible by remember { mutableStateOf(false) }
+        var startupIntroFinished by remember { mutableStateOf(false) }
+        var playbackStartedForStartupIntro by remember { mutableStateOf(false) }
 
         ManagePlayerPictureInPicture(
             isPlaying = playbackSnapshot.isPlaying,
@@ -460,14 +464,25 @@ fun PlayerScreen(
             }
         }
 
-        fun tryShowParentalGuide() {
-            if (
+        fun canShowParentalGuide(): Boolean =
                 !parentalGuideHasShown &&
                 (parentalWarnings.isNotEmpty() || !maturityRatingCode.isNullOrBlank()) &&
-                !playbackStartedForParentalGuide
-            ) {
+                !playbackStartedForParentalGuide &&
+                !showStartupTitleIntro &&
+                !startupIntroFinished
+
+        fun showStartupTitleIntroIfNeeded() {
+            if (startupIntroFinished || showStartupTitleIntro) return
+            playbackStartedForStartupIntro = true
+            showParentalGuide = false
+            showStartupTitleIntro = true
+            startupTitleIntroVisible = true
+        }
+
+        fun tryShowParentalGuide() {
+            if (canShowParentalGuide()) {
                 playbackStartedForParentalGuide = true
-                controlsVisible = true
+                playbackStartedForStartupIntro = true
                 showParentalGuide = true
                 parentalGuideHasShown = true
             }
@@ -1486,25 +1501,48 @@ fun PlayerScreen(
             showParentalGuide = false
             parentalGuideHasShown = false
             playbackStartedForParentalGuide = false
+            showStartupTitleIntro = false
+            startupTitleIntroVisible = false
+            startupIntroFinished = false
+            playbackStartedForStartupIntro = false
 
-            val imdbId = resolveParentalGuideImdbId() ?: run {
-                if (playbackSnapshot.isPlaying) {
-                    tryShowParentalGuide()
-                }
-                return@LaunchedEffect
-            }
+            val imdbId = resolveParentalGuideImdbId() ?: return@LaunchedEffect
             val guide = ParentalGuideRepository.getParentalGuide(imdbId) ?: return@LaunchedEffect
             parentalWarnings = buildParentalWarnings(guide, parentalGuideLabels)
             imdbMaturityGenresLine = guide.genres.takeIf { it.isNotEmpty() }?.joinToString(", ")
+        }
 
-            if (playbackSnapshot.isPlaying) {
+        LaunchedEffect(
+            playbackSnapshot.isPlaying,
+            initialLoadCompleted,
+            playerSettingsUiState.showLoadingOverlay,
+            parentalWarnings,
+            maturityRatingCode,
+        ) {
+            val openingOverlayGone = initialLoadCompleted || !playerSettingsUiState.showLoadingOverlay
+            if (playbackSnapshot.isPlaying && openingOverlayGone && !playbackStartedForStartupIntro) {
+                delay(5000)
+                if (!playbackSnapshot.isPlaying || !openingOverlayGone || playbackStartedForStartupIntro) return@LaunchedEffect
                 tryShowParentalGuide()
+                if (!showParentalGuide) {
+                    showStartupTitleIntroIfNeeded()
+                }
             }
         }
 
-        LaunchedEffect(playbackSnapshot.isPlaying, parentalWarnings, maturityRatingCode) {
-            if (playbackSnapshot.isPlaying) {
-                tryShowParentalGuide()
+        LaunchedEffect(showStartupTitleIntro) {
+            if (!showStartupTitleIntro) return@LaunchedEffect
+            delay(10_000)
+            startupTitleIntroVisible = false
+            delay(1300)
+            showStartupTitleIntro = false
+            startupIntroFinished = true
+        }
+
+        LaunchedEffect(showParentalGuide) {
+            if (showParentalGuide) return@LaunchedEffect
+            if (playbackStartedForParentalGuide && !startupIntroFinished && !showStartupTitleIntro) {
+                showStartupTitleIntroIfNeeded()
             }
         }
 
@@ -1799,7 +1837,7 @@ fun PlayerScreen(
             }
 
             AnimatedVisibility(
-                visible = (controlsVisible || showParentalGuide || showManualPauseMetadata) && !playerControlsLocked,
+                visible = (controlsVisible || showParentalGuide || showStartupTitleIntro || showManualPauseMetadata) && !playerControlsLocked,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.zIndex(if (showManualPauseMetadata) 4f else 0f),
@@ -1817,6 +1855,9 @@ fun PlayerScreen(
                     resizeMode = resizeMode,
                     isLocked = playerControlsLocked,
                     showPlaybackControls = controlsVisible && !showManualPauseMetadata,
+                    showHeaderMetadata = startupIntroFinished,
+                    showStartupTitleIntro = showStartupTitleIntro,
+                    startupTitleIntroVisible = startupTitleIntroVisible,
                     metadataInfoOnly = showManualPauseMetadata,
                     onLockToggle = {
                         if (playerControlsLocked) {

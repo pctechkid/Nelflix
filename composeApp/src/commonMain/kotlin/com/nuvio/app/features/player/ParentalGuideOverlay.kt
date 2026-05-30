@@ -96,8 +96,9 @@ internal fun ParentalGuideOverlay(
     Row(
         modifier = modifier
             .alpha(containerAlpha.value)
+            .height(ParentalGuideBarHeight)
             .padding(contentPadding),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier

@@ -92,6 +92,9 @@ internal fun PlayerControlsShell(
     resizeMode: PlayerResizeMode,
     isLocked: Boolean,
     showPlaybackControls: Boolean = true,
+    showHeaderMetadata: Boolean = true,
+    showStartupTitleIntro: Boolean = false,
+    startupTitleIntroVisible: Boolean = showStartupTitleIntro,
     metadataInfoOnly: Boolean = false,
     onLockToggle: () -> Unit,
     onBack: () -> Unit,
@@ -119,7 +122,7 @@ internal fun PlayerControlsShell(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        if (!metadataInfoOnly) {
+        if (showPlaybackControls && !metadataInfoOnly) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -165,6 +168,26 @@ internal fun PlayerControlsShell(
             )
         }
 
+        if ((showParentalGuide || showStartupTitleIntro) && !showPlaybackControls && !metadataInfoOnly) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(112.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.48f),
+                                Color.Black.copy(alpha = 0.32f),
+                                Color.Black.copy(alpha = 0.14f),
+                                Color.Transparent,
+                                Color.Transparent,
+                            ),
+                        ),
+                    ),
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -179,6 +202,9 @@ internal fun PlayerControlsShell(
                 metrics = metrics,
                 isLocked = isLocked,
                 showActions = showPlaybackControls,
+                showHeaderMetadata = showHeaderMetadata,
+                showStartupTitleIntro = showStartupTitleIntro,
+                startupTitleIntroVisible = startupTitleIntroVisible,
                 metadataInfoOnly = metadataInfoOnly,
                 onWatchTogetherClick = onWatchTogetherClick,
                 onWatchTogetherInfoClick = onWatchTogetherInfoClick,
@@ -250,6 +276,9 @@ private fun PlayerHeader(
     metrics: PlayerLayoutMetrics,
     isLocked: Boolean,
     showActions: Boolean,
+    showHeaderMetadata: Boolean,
+    showStartupTitleIntro: Boolean,
+    startupTitleIntroVisible: Boolean,
     metadataInfoOnly: Boolean,
     onWatchTogetherClick: (() -> Unit)?,
     onWatchTogetherInfoClick: (() -> Unit)?,
@@ -265,8 +294,8 @@ private fun PlayerHeader(
 ) {
     val typeScale = MaterialTheme.nuvioTypeScale
     val metadataAlpha by animateFloatAsState(
-        targetValue = if (!showParentalGuide && showActions && !metadataInfoOnly) 1f else 0f,
-        animationSpec = tween(durationMillis = if (!showParentalGuide && showActions && !metadataInfoOnly) 260 else 160),
+        targetValue = if (showHeaderMetadata && !showParentalGuide && showActions && !metadataInfoOnly) 1f else 0f,
+        animationSpec = tween(durationMillis = if (showHeaderMetadata && !showParentalGuide && showActions && !metadataInfoOnly) 260 else 160),
         label = "playerHeaderMetadataAlpha",
     )
     Column(modifier = modifier) {
@@ -309,16 +338,10 @@ private fun PlayerHeader(
                             onTitleLineCountChanged = { textTitleLineCount = it },
                         )
                     }
-                    if (episodeLine != null && !showEpisodeInsideTextHeader) {
-                        Text(
+    if (episodeLine != null && !showEpisodeInsideTextHeader) {
+                        AnimatedHeaderLine(
                             text = episodeLine,
-                            style = typeScale.bodyMd.copy(
-                                fontSize = metrics.episodeInfoSize,
-                                lineHeight = metrics.episodeInfoSize * 1.3f,
-                            ),
-                            color = Color.White.copy(alpha = 0.9f),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
+                            fontSize = metrics.episodeInfoSize,
                             modifier = Modifier.padding(start = if (logo.isNullOrBlank()) 11.dp else 0.dp),
                         )
                     }
@@ -333,6 +356,22 @@ private fun PlayerHeader(
                     ratingFontSize = metrics.episodeInfoSize * 1.08f,
                     genresFontSize = metrics.episodeInfoSize,
                 )
+                if (showStartupTitleIntro && !metadataInfoOnly) {
+                    Column(
+                        modifier = Modifier
+                            .padding(end = 24.dp, bottom = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        NetflixHeaderTitle(
+                            title = title,
+                            episodeLine = episodeLine,
+                            fontSize = metrics.episodeInfoSize * 1.08f,
+                            episodeFontSize = metrics.episodeInfoSize,
+                            visible = startupTitleIntroVisible,
+                            onTitleLineCountChanged = {},
+                        )
+                    }
+                }
             }
 
             if (showActions || metadataInfoOnly) {
@@ -395,58 +434,103 @@ private fun PlayerHeader(
 }
 
 @Composable
+private fun AnimatedHeaderLine(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier,
+) {
+    var visible by remember(text) { mutableStateOf(false) }
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 720, delayMillis = 160, easing = FastOutSlowInEasing),
+        label = "playerHeaderLineAlpha",
+    )
+    val offset by animateFloatAsState(
+        targetValue = if (visible) 0f else -10f,
+        animationSpec = tween(durationMillis = 720, delayMillis = 160, easing = FastOutSlowInEasing),
+        label = "playerHeaderLineOffset",
+    )
+
+    LaunchedEffect(text) {
+        visible = true
+    }
+
+    Text(
+        text = text,
+        style = MaterialTheme.nuvioTypeScale.bodyMd.copy(
+            fontSize = fontSize,
+            lineHeight = fontSize * 1.3f,
+        ),
+        color = Color.White.copy(alpha = 0.9f),
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.graphicsLayer {
+            this.alpha = alpha
+            translationX = offset
+        },
+    )
+}
+
+@Composable
 private fun NetflixHeaderTitle(
     title: String,
     episodeLine: String?,
     fontSize: androidx.compose.ui.unit.TextUnit,
     episodeFontSize: androidx.compose.ui.unit.TextUnit,
+    visible: Boolean = true,
     onTitleLineCountChanged: (Int) -> Unit,
 ) {
     var accentVisible by remember(title, episodeLine) { mutableStateOf(false) }
     val accentScaleY by animateFloatAsState(
-        targetValue = if (accentVisible) 1f else 0f,
-        animationSpec = tween(durationMillis = 760, easing = FastOutSlowInEasing),
+        targetValue = if (accentVisible && visible) 1f else 0f,
+        animationSpec = tween(durationMillis = if (visible) 760 else 1200, easing = FastOutSlowInEasing),
         label = "playerTitleAccentScale",
     )
     val textAlpha by animateFloatAsState(
-        targetValue = if (accentVisible) 1f else 0f,
-        animationSpec = tween(durationMillis = 720, delayMillis = 110, easing = FastOutSlowInEasing),
+        targetValue = if (accentVisible && visible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (visible) 720 else 980,
+            delayMillis = if (visible) 110 else 0,
+            easing = FastOutSlowInEasing,
+        ),
         label = "playerTitleTextAlpha",
     )
     val textOffset by animateFloatAsState(
-        targetValue = if (accentVisible) 0f else -14f,
-        animationSpec = tween(durationMillis = 720, delayMillis = 110, easing = FastOutSlowInEasing),
+        targetValue = if (accentVisible && visible) 0f else -12f,
+        animationSpec = tween(
+            durationMillis = if (visible) 720 else 980,
+            delayMillis = if (visible) 110 else 0,
+            easing = FastOutSlowInEasing,
+        ),
         label = "playerTitleTextOffset",
     )
     LaunchedEffect(title, episodeLine) {
         accentVisible = true
     }
 
-    Row(
-        verticalAlignment = Alignment.Top,
-        modifier = Modifier.height(IntrinsicSize.Min),
+    Column(
+        modifier = Modifier
+            .graphicsLayer {
+                alpha = textAlpha
+                translationX = textOffset
+            },
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .width(5.dp)
-                .fillMaxHeight()
-                .graphicsLayer {
-                    scaleY = accentScaleY
-                    transformOrigin = TransformOrigin(0.5f, 0f)
-                }
-                .clip(RoundedCornerShape(1.dp))
-                .background(NetflixProgressRed),
-        )
-        Column(
-            modifier = Modifier
-                .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
-                .graphicsLayer {
-                    alpha = textAlpha
-                    translationX = textOffset
-                }
-                .widthIn(max = 320.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+        Row(
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier.height(IntrinsicSize.Min),
         ) {
+            Box(
+                modifier = Modifier
+                    .width(5.dp)
+                    .fillMaxHeight()
+                    .graphicsLayer {
+                        scaleY = accentScaleY
+                        transformOrigin = TransformOrigin(0.5f, 0f)
+                    }
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(NetflixProgressRed),
+            )
             Text(
                 text = title.uppercase(),
                 style = MaterialTheme.typography.titleMedium.copy(
@@ -457,21 +541,27 @@ private fun NetflixHeaderTitle(
                 color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(start = 8.dp, top = 4.dp, bottom = 4.dp)
+                    .widthIn(max = 320.dp),
                 onTextLayout = { onTitleLineCountChanged(it.lineCount) },
             )
-            if (!episodeLine.isNullOrBlank()) {
-                Text(
-                    text = episodeLine,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = episodeFontSize,
-                        lineHeight = episodeFontSize * 1.25f,
-                        fontWeight = FontWeight.Medium,
-                    ),
-                    color = Color.White.copy(alpha = 0.9f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+        }
+        if (!episodeLine.isNullOrBlank()) {
+            Text(
+                text = episodeLine,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = episodeFontSize,
+                    lineHeight = episodeFontSize * 1.25f,
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = Color.White.copy(alpha = 0.9f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(start = 13.dp)
+                    .widthIn(max = 320.dp),
+            )
         }
     }
 }
