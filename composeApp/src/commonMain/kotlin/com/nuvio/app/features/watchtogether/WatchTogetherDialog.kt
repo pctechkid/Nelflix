@@ -188,6 +188,18 @@ fun WatchTogetherDialog(
                     ) {
                         Text("Leave")
                     }
+                    Button(
+                        onClick = onDismiss,
+                        enabled = !isBusy,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color.White.copy(alpha = 0.45f),
+                            disabledContentColor = Color.Black.copy(alpha = 0.55f),
+                        ),
+                    ) {
+                        Text("Hide")
+                    }
                 }
             }
         },

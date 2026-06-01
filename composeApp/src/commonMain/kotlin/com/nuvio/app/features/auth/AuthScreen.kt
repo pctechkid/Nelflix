@@ -53,7 +53,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.auth.AuthRepository
@@ -62,17 +61,14 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.app_logo_wordmark
 import nuvio.composeapp.generated.resources.compose_auth_already_have_account
-import nuvio.composeapp.generated.resources.compose_auth_continue_without_account
 import nuvio.composeapp.generated.resources.compose_auth_create_account
 import nuvio.composeapp.generated.resources.compose_auth_dont_have_account
 import nuvio.composeapp.generated.resources.compose_auth_email
-import nuvio.composeapp.generated.resources.compose_auth_or_separator
 import nuvio.composeapp.generated.resources.compose_auth_password
 import nuvio.composeapp.generated.resources.compose_auth_sign_in
 import nuvio.composeapp.generated.resources.compose_auth_sign_in_subtitle
 import nuvio.composeapp.generated.resources.compose_auth_sign_up
 import nuvio.composeapp.generated.resources.compose_auth_sign_up_subtitle
-import nuvio.composeapp.generated.resources.compose_auth_store_locally
 import nuvio.composeapp.generated.resources.compose_auth_tagline
 import nuvio.composeapp.generated.resources.compose_auth_welcome_back
 import org.jetbrains.compose.resources.painterResource
@@ -94,6 +90,7 @@ fun AuthScreen(
     var password by rememberSaveable { mutableStateOf("") }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var isLoading by rememberSaveable { mutableStateOf(false) }
+    var authMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
@@ -185,6 +182,7 @@ fun AuthScreen(
                     value = email,
                     onValueChange = {
                         email = it
+                        authMessage = null
                         AuthRepository.clearError()
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -218,6 +216,7 @@ fun AuthScreen(
                     value = password,
                     onValueChange = {
                         password = it
+                        authMessage = null
                         AuthRepository.clearError()
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -239,8 +238,16 @@ fun AuthScreen(
                             if (email.isNotBlank() && password.isNotBlank() && !isLoading) {
                                 isLoading = true
                                 scope.launch {
-                                    if (isSignUp) AuthRepository.signUpWithEmail(email, password)
-                                    else AuthRepository.signInWithEmail(email, password)
+                                    val result = if (isSignUp) {
+                                        AuthRepository.signUpWithEmail(email, password)
+                                    } else {
+                                        AuthRepository.signInWithEmail(email, password)
+                                    }
+                                    if (isSignUp && result.isSuccess) {
+                                        authMessage = "Account created. Please check your email to verify your account."
+                                        isSignUp = false
+                                        password = ""
+                                    }
                                     isLoading = false
                                 }
                             }
@@ -277,6 +284,14 @@ fun AuthScreen(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+                authMessage?.let { messageText ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = messageText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.86f),
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -285,8 +300,16 @@ fun AuthScreen(
                     onClick = {
                         isLoading = true
                         scope.launch {
-                            if (isSignUp) AuthRepository.signUpWithEmail(email, password)
-                            else AuthRepository.signInWithEmail(email, password)
+                            val result = if (isSignUp) {
+                                AuthRepository.signUpWithEmail(email, password)
+                            } else {
+                                AuthRepository.signInWithEmail(email, password)
+                            }
+                            if (isSignUp && result.isSuccess) {
+                                authMessage = "Account created. Please check your email to verify your account."
+                                isSignUp = false
+                                password = ""
+                            }
                             isLoading = false
                         }
                     },
@@ -360,69 +383,13 @@ fun AuthScreen(
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clickable {
                                 isSignUp = !isSignUp
+                                authMessage = null
                                 AuthRepository.clearError()
                             },
                         )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(1.dp)
-                        .background(MaterialTheme.colorScheme.outline),
-                )
-                Text(
-                    text = stringResource(Res.string.compose_auth_or_separator),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(1.dp)
-                        .background(MaterialTheme.colorScheme.outline),
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Button(
-                onClick = {
-                    AuthRepository.signInAnonymously()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                enabled = !isLoading,
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1B1B1B),
-                    contentColor = Color.White,
-                ),
-            ) {
-                Text(
-                    text = stringResource(Res.string.compose_auth_continue_without_account),
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = stringResource(Res.string.compose_auth_store_locally),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }

@@ -58,7 +58,7 @@ object DebridProviders {
 
     fun configuredServices(settings: DebridSettings): List<DebridServiceCredential> =
         buildList {
-            settings.torboxApiKey.trim().takeIf { Torbox.visibleInUi && it.isNotBlank() }?.let { apiKey ->
+            settings.torboxApiKey.trim().takeIf { it.isNotBlank() }?.let { apiKey ->
                 add(DebridServiceCredential(Torbox, apiKey))
             }
             settings.realDebridApiKey.trim().takeIf { RealDebrid.visibleInUi && it.isNotBlank() }?.let { apiKey ->

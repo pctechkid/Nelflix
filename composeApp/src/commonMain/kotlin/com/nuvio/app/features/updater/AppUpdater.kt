@@ -76,6 +76,7 @@ data class AppUpdate(
 data class AppUpdaterUiState(
     val isChecking: Boolean = false,
     val update: AppUpdate? = null,
+    val localVersionName: String = AppVersionConfig.VERSION_NAME,
     val isUpdateAvailable: Boolean = false,
     val isDownloading: Boolean = false,
     val downloadProgress: Float? = null,
@@ -286,6 +287,7 @@ class AppUpdaterController internal constructor(
             _uiState.update { state ->
                 state.copy(
                     isChecking = true,
+                    localVersionName = localVersionName,
                     errorMessage = null,
                     showUnknownSourcesDialog = false,
                 )
@@ -307,6 +309,7 @@ class AppUpdaterController internal constructor(
                     state.copy(
                         isChecking = false,
                         update = update.takeIf { remoteNewer },
+                        localVersionName = localVersionName,
                         isUpdateAvailable = remoteNewer,
                         isDownloading = false,
                         downloadProgress = null,
@@ -334,6 +337,7 @@ class AppUpdaterController internal constructor(
                         downloadedApkPath = null,
                         downloadedReleaseTag = null,
                         update = null,
+                        localVersionName = localVersionName,
                         isUpdateAvailable = false,
                         showDialog = force && error !is NoApkReleaseException,
                         showUnknownSourcesDialog = false,
@@ -521,7 +525,7 @@ fun AppUpdaterHost(
                                 append("Hi, Ronnel has an update for you!\n")
                                 append(stringResource(Res.string.updates_message_ready))
                             }
-                            else -> stringResource(Res.string.updates_message_no_updates)
+                            else -> "You are currently using the latest version.\nVersion: ${state.localVersionName}"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

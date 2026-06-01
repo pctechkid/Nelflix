@@ -678,7 +678,10 @@ private fun isLeapYear(year: Int): Boolean =
 private fun monthName(month: Int): String = MonthNames.getOrElse(month - 1) { "Month" }
 
 private fun monthNumber(name: String): Int? =
-    MonthNames.indexOfFirst { it.equals(name, ignoreCase = true) }
+    MonthNames.indexOfFirst { monthName ->
+        monthName.equals(name, ignoreCase = true) ||
+            monthName.take(3).equals(name.take(3), ignoreCase = true)
+    }
         .takeIf { it >= 0 }
         ?.plus(1)
 

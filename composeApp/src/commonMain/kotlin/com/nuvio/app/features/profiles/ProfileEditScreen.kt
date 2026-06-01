@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,8 +48,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
-import com.nuvio.app.core.auth.AuthRepository
-import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.NuvioScreen
@@ -82,9 +82,10 @@ fun ProfileEditScreen(
     var usesPrimaryAddons by rememberSaveable { mutableStateOf(currentProfile?.usesPrimaryAddons ?: false) }
     var isSaving by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var showPinSetup by remember { mutableStateOf(false) }
-    var showPinClear by remember { mutableStateOf(false) }
-    val authState by AuthRepository.state.collectAsStateWithLifecycle()
+    var showSetPin by remember { mutableStateOf(false) }
+    var showClearPin by remember { mutableStateOf(false) }
+    var isPinSaving by remember { mutableStateOf(false) }
+    var pinError by remember { mutableStateOf<String?>(null) }
 
     val avatars by AvatarRepository.avatars.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
@@ -106,6 +107,9 @@ fun ProfileEditScreen(
     val previewAccent = remember(visibleAvatarItem, fallbackColorHex) {
         parseHexColor(visibleAvatarItem?.bgColor ?: fallbackColorHex)
     }
+    val pinSetFailedMessage = stringResource(Res.string.profile_pin_set_failed)
+    val pinIncorrectMessage = stringResource(Res.string.pin_incorrect)
+    val pinClearFailedMessage = stringResource(Res.string.profile_pin_clear_failed)
 
     NuvioScreen(modifier = modifier) {
         stickyHeader {
@@ -218,37 +222,20 @@ fun ProfileEditScreen(
             }
         }
 
-        if (!isNew) {
+        if (!isNew && currentProfile != null) {
             item {
-                NuvioSurfaceCard {
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text(
-                            text = stringResource(Res.string.profile_security),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = if (currentProfile?.pinEnabled == true) {
-                                stringResource(Res.string.profile_security_pin_enabled)
-                            } else {
-                                stringResource(Res.string.profile_security_pin_disabled)
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (currentProfile?.pinEnabled == true) {
-                            NuvioPrimaryButton(
-                                text = stringResource(Res.string.profile_remove_pin_lock),
-                                onClick = { showPinClear = true },
-                            )
-                        } else {
-                            NuvioPrimaryButton(
-                                text = stringResource(Res.string.profile_set_pin_lock),
-                                onClick = { showPinSetup = true },
-                            )
-                        }
-                    }
-                }
+                ProfilePinSecurityCard(
+                    pinEnabled = currentProfile.pinEnabled,
+                    isBusy = isPinSaving,
+                    onSetPin = {
+                        pinError = null
+                        showSetPin = true
+                    },
+                    onClearPin = {
+                        pinError = null
+                        showClearPin = true
+                    },
+                )
             }
         }
 
@@ -262,6 +249,7 @@ fun ProfileEditScreen(
                 } else {
                     stringResource(Res.string.collections_editor_save_changes)
                 },
+                modifier = Modifier.padding(horizontal = 18.dp),
                 enabled = name.isNotBlank() && !avatarUrlIsInvalid && !isSaving,
                 onClick = {
                     isSaving = true
@@ -298,6 +286,7 @@ fun ProfileEditScreen(
                 Button(
                     onClick = { showDeleteConfirm = true },
                     modifier = Modifier
+                        .padding(horizontal = 18.dp)
                         .fillMaxWidth()
                         .height(52.dp),
                     shape = RoundedCornerShape(16.dp),
@@ -335,33 +324,131 @@ fun ProfileEditScreen(
         onDismiss = { showDeleteConfirm = false },
     )
 
-    if (showPinSetup && currentProfile != null) {
-        PinSetupDialog(
-            profileIndex = currentProfile.profileIndex,
-            hasExistingPin = currentProfile.pinEnabled,
-            onDone = {
-                showPinSetup = false
+    if (showSetPin && currentProfile != null) {
+        PinEntryDialog(
+            title = stringResource(Res.string.profile_set_pin_lock),
+            message = stringResource(Res.string.profile_enter_new_pin),
+            confirmText = stringResource(Res.string.profile_set_pin_lock),
+            isBusy = isPinSaving,
+            errorMessage = pinError,
+            onConfirm = { pin ->
                 scope.launch {
-                    if (authState is AuthState.Authenticated) {
-                        ProfileRepository.pullProfiles()
+                    isPinSaving = true
+                    pinError = null
+                    val result = ProfileRepository.setPin(currentProfile.profileIndex, pin)
+                    isPinSaving = false
+                    if (result.unlocked) {
+                        showSetPin = false
+                    } else {
+                        pinError = result.message.ifBlank { pinSetFailedMessage }
                     }
                 }
             },
-            onDismiss = { showPinSetup = false },
+            onDismiss = {
+                showSetPin = false
+                pinError = null
+            },
         )
     }
 
-    if (showPinClear && currentProfile != null) {
+    if (showClearPin && currentProfile != null) {
         PinEntryDialog(
-            profileName = stringResource(Res.string.profile_remove_pin_for, currentProfile.name),
-            onVerify = { pin -> ProfileRepository.clearPin(currentProfile.profileIndex, pin) },
-            onVerified = {
-                showPinClear = false
+            title = stringResource(Res.string.profile_remove_pin_for, currentProfile.name),
+            message = stringResource(Res.string.profile_enter_current_pin),
+            confirmText = "Remove PIN",
+            isBusy = isPinSaving,
+            errorMessage = pinError,
+            confirmContainerColor = Color(0xFFE50914),
+            confirmContentColor = Color.White,
+            onConfirm = { pin ->
+                scope.launch {
+                    isPinSaving = true
+                    pinError = null
+                    val verifyResult = ProfileRepository.verifyPin(currentProfile.profileIndex, pin)
+                    if (verifyResult.unlocked) {
+                        val clearResult = ProfileRepository.clearPin(currentProfile.profileIndex)
+                        if (clearResult.unlocked) {
+                            showClearPin = false
+                        } else {
+                            pinError = clearResult.message.ifBlank { pinClearFailedMessage }
+                        }
+                    } else {
+                        pinError = verifyResult.message.ifBlank { pinIncorrectMessage }
+                    }
+                    isPinSaving = false
+                }
             },
             onDismiss = {
-                showPinClear = false
+                showClearPin = false
+                pinError = null
             },
         )
+    }
+
+}
+
+@Composable
+private fun ProfilePinSecurityCard(
+    pinEnabled: Boolean,
+    isBusy: Boolean,
+    onSetPin: () -> Unit,
+    onClearPin: () -> Unit,
+) {
+    NuvioSurfaceCard {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(Res.string.profile_security),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = if (pinEnabled) {
+                            stringResource(Res.string.profile_security_pin_enabled)
+                        } else {
+                            stringResource(Res.string.profile_security_pin_disabled)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Button(
+                onClick = if (pinEnabled) onClearPin else onSetPin,
+                enabled = !isBusy,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = if (pinEnabled) {
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
+                        contentColor = MaterialTheme.colorScheme.error,
+                    )
+                } else {
+                    ButtonDefaults.buttonColors()
+                },
+            ) {
+                Text(
+                    text = if (pinEnabled) {
+                        stringResource(Res.string.profile_remove_pin_lock)
+                    } else {
+                        stringResource(Res.string.profile_set_pin_lock)
+                    },
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
     }
 }
 
@@ -592,41 +679,3 @@ private fun ProfileOptionRow(
     }
 }
 
-@Composable
-fun PinSetupDialog(
-    profileIndex: Int,
-    hasExistingPin: Boolean,
-    onDone: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var step by remember { mutableStateOf(if (hasExistingPin) "current" else "new") }
-    var currentPin by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-
-    when (step) {
-        "current" -> PinEntryDialog(
-            profileName = stringResource(Res.string.profile_enter_current_pin),
-            onVerify = { pin -> ProfileRepository.verifyPin(profileIndex, pin) },
-            onVerified = { pin ->
-                currentPin = pin
-                step = "new"
-            },
-            onDismiss = onDismiss,
-        )
-
-        "new" -> PinEntryDialog(
-            profileName = stringResource(Res.string.profile_enter_new_pin),
-            onVerify = { pin ->
-                ProfileRepository.setPin(
-                    profileIndex = profileIndex,
-                    pin = pin,
-                    currentPin = currentPin.ifEmpty { null },
-                )
-            },
-            onVerified = {
-                onDone()
-            },
-            onDismiss = onDismiss,
-        )
-    }
-}

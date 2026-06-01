@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -253,8 +254,8 @@ fun HomeHeroSection(
                                 .clickable(enabled = onItemClick != null) {
                                     onItemClick?.invoke(currentItem)
                                 },
-                            color = MaterialTheme.colorScheme.onBackground,
-                            contentColor = MaterialTheme.colorScheme.background,
+                            color = Color(0xFFE50914),
+                            contentColor = Color.White,
                             shape = RoundedCornerShape(40.dp),
                         ) {
                             Text(

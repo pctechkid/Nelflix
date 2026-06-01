@@ -114,7 +114,10 @@ import com.nuvio.app.features.catalog.CatalogScreen
 import com.nuvio.app.features.catalog.INTERNAL_LIBRARY_MANIFEST_URL
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
+import com.nuvio.app.features.debrid.isReusableTorboxP2PSource
+import com.nuvio.app.features.debrid.reusableTorboxSourceUrl
 import com.nuvio.app.features.debrid.toastMessage
+import com.nuvio.app.features.debrid.toTorboxReusableStreamItem
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.DownloadsScreen
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -213,6 +216,17 @@ object TabsRoute
 
 @Serializable
 data class DetailRoute(val type: String, val id: String)
+
+private data class ResolvedPlaybackSource(
+    val url: String,
+    val reusableUrl: String?,
+    val fallbackRawUrl: String?,
+    val requestHeaders: Map<String, String>,
+    val fallbackRawHeaders: Map<String, String>,
+    val responseHeaders: Map<String, String>,
+    val filename: String? = null,
+    val videoSize: Long? = null,
+)
 
 @Serializable
 data class PersonDetailRoute(
@@ -379,27 +393,14 @@ fun App() {
         var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
         var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
         var isNewProfile by remember { mutableStateOf(false) }
-        var autoSkipProfileSelection by rememberSaveable { mutableStateOf(false) }
 
         fun enterProfileGate(profiles: List<NuvioProfile>, syncOnEnter: Boolean) {
             if (profiles.isEmpty()) {
-                autoSkipProfileSelection = true
                 gateScreen = AppGateScreen.ProfileSelection.name
                 return
             }
 
-            autoSkipProfileSelection = true
-            if (profiles.size == 1) {
-                val onlyProfile = profiles.first()
-                ProfileRepository.selectProfile(onlyProfile.profileIndex)
-                if (syncOnEnter) {
-                    SyncManager.pullAllForProfile(onlyProfile.profileIndex)
-                }
-                gateScreen = AppGateScreen.Main.name
-                autoSkipProfileSelection = false
-            } else {
-                gateScreen = AppGateScreen.ProfileSelection.name
-            }
+            gateScreen = AppGateScreen.ProfileSelection.name
         }
 
         LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles) {
@@ -441,20 +442,6 @@ fun App() {
             ProfileRepository.pullProfiles()
         }
 
-        LaunchedEffect(gateScreen, autoSkipProfileSelection, profileState.profiles) {
-            if (
-                autoSkipProfileSelection &&
-                gateScreen == AppGateScreen.ProfileSelection.name &&
-                profileState.profiles.size == 1
-            ) {
-                val onlyProfile = profileState.profiles.first()
-                ProfileRepository.selectProfile(onlyProfile.profileIndex)
-                SyncManager.pullAllForProfile(onlyProfile.profileIndex)
-                gateScreen = AppGateScreen.Main.name
-                autoSkipProfileSelection = false
-            }
-        }
-
         AnimatedContent(
             targetState = gateScreen,
             label = "app_gate",
@@ -479,7 +466,7 @@ fun App() {
                 }
                 AppGateScreen.ProfileSelection.name -> {
                     PlatformBackHandler(enabled = gateScreen == AppGateScreen.ProfileSelection.name) {
-                        if (!autoSkipProfileSelection) {
+                        if (profileState.activeProfile != null) {
                             gateScreen = AppGateScreen.Main.name
                         }
                     }
@@ -518,7 +505,6 @@ fun App() {
                 AppGateScreen.Main.name -> {
                     MainAppContent(
                         onSwitchProfile = {
-                            autoSkipProfileSelection = false
                             gateScreen = AppGateScreen.ProfileSelection.name
                         },
                     )
@@ -893,6 +879,66 @@ private fun MainAppContent(
             }
         }
 
+        suspend fun resolveReusablePlaybackSource(
+            sourceUrl: String,
+            requestHeaders: Map<String, String>,
+            streamName: String,
+            addonName: String,
+            addonId: String,
+            bingeGroup: String?,
+            seasonNumber: Int?,
+            episodeNumber: Int?,
+        ): ResolvedPlaybackSource? {
+            val sanitizedHeaders = sanitizePlaybackHeaders(requestHeaders)
+            if (sourceUrl.isReusableTorboxP2PSource()) {
+                val torboxStream = sourceUrl.toTorboxReusableStreamItem(
+                    streamName = streamName,
+                    addonName = addonName,
+                    addonId = addonId,
+                    bingeGroup = bingeGroup,
+                ) ?: return null
+                return when (
+                    val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
+                        stream = torboxStream,
+                        season = seasonNumber,
+                        episode = episodeNumber,
+                    )
+                ) {
+                    is DirectDebridPlayableResult.Success -> {
+                        val playableUrl = resolved.stream.directPlaybackUrl ?: return null
+                        val resolvedPlayable = StreamUrlResolver.resolve(playableUrl, emptyMap())
+                        ResolvedPlaybackSource(
+                            url = resolvedPlayable.url,
+                            reusableUrl = sourceUrl,
+                            fallbackRawUrl = null,
+                            requestHeaders = sanitizePlaybackHeaders(resolvedPlayable.requestHeaders),
+                            fallbackRawHeaders = emptyMap(),
+                            responseHeaders = emptyMap(),
+                            filename = resolved.stream.behaviorHints.filename,
+                            videoSize = resolved.stream.behaviorHints.videoSize,
+                        )
+                    }
+                    else -> {
+                        resolved.toastMessage()?.let { NuvioToastController.show(it) }
+                        null
+                    }
+                }
+            }
+
+            val resolved = StreamUrlResolver.resolve(
+                url = sourceUrl,
+                requestHeaders = sanitizedHeaders,
+            )
+            return ResolvedPlaybackSource(
+                url = resolved.url,
+                reusableUrl = sourceUrl,
+                fallbackRawUrl = sourceUrl.takeIf { resolved.url != sourceUrl },
+                requestHeaders = sanitizePlaybackHeaders(resolved.requestHeaders),
+                fallbackRawHeaders = sanitizedHeaders,
+                responseHeaders = emptyMap(),
+            )
+        }
+
         fun launchPlaybackWithDownloadPreference(
             type: String,
             videoId: String,
@@ -957,14 +1003,23 @@ private fun MainAppContent(
                 val savedSourceUrl = savedProgress?.lastSourceUrl?.takeIf { it.isNotBlank() }
                 if (savedSourceUrl != null) {
                     coroutineScope.launch {
-                        val resolvedSaved = StreamUrlResolver.resolve(
-                            url = savedSourceUrl,
+                        val resolvedSaved = resolveReusablePlaybackSource(
+                            sourceUrl = savedSourceUrl,
                             requestHeaders = emptyMap(),
-                        )
+                            streamName = savedProgress.lastStreamTitle ?: title,
+                            addonName = savedProgress.providerName.orEmpty(),
+                            addonId = savedProgress.providerAddonId.orEmpty(),
+                            bingeGroup = null,
+                            seasonNumber = seasonNumber,
+                            episodeNumber = episodeNumber,
+                        ) ?: return@launch
                         val playerLaunch = PlayerLaunch(
                             title = title,
                             sourceUrl = resolvedSaved.url,
-                            sourceHeaders = sanitizePlaybackHeaders(resolvedSaved.requestHeaders),
+                            reusableSourceUrl = resolvedSaved.reusableUrl,
+                            fallbackRawSourceUrl = resolvedSaved.fallbackRawUrl,
+                            sourceHeaders = resolvedSaved.requestHeaders,
+                            fallbackRawSourceHeaders = resolvedSaved.fallbackRawHeaders,
                             sourceResponseHeaders = emptyMap(),
                             logo = logo,
                             poster = poster,
@@ -1006,19 +1061,24 @@ private fun MainAppContent(
                     if (cached != null) {
                         coroutineScope.launch {
                             val cachedHeaders = sanitizePlaybackHeaders(cached.requestHeaders)
-                            val resolvedLegacyCached = if (cached.rawUrl == null) {
-                                StreamUrlResolver.resolve(cached.url, cachedHeaders)
-                            } else {
-                                null
-                            }
-                            val cachedFinalUrl = resolvedLegacyCached?.url ?: cached.url
-                            val cachedFinalHeaders = sanitizePlaybackHeaders(resolvedLegacyCached?.requestHeaders ?: cachedHeaders)
+                            val reusableUrl = cached.rawUrl ?: cached.url
+                            val resolvedCached = resolveReusablePlaybackSource(
+                                sourceUrl = reusableUrl,
+                                requestHeaders = cachedHeaders,
+                                streamName = cached.streamName,
+                                addonName = cached.addonName,
+                                addonId = cached.addonId,
+                                bingeGroup = cached.bingeGroup,
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                            ) ?: return@launch
                             val playerLaunch = PlayerLaunch(
                                 title = title,
-                                sourceUrl = cachedFinalUrl,
-                                fallbackRawSourceUrl = cached.rawUrl ?: cached.url.takeIf { resolvedLegacyCached?.url != cached.url },
-                                sourceHeaders = cachedFinalHeaders,
-                                fallbackRawSourceHeaders = cachedHeaders,
+                                sourceUrl = resolvedCached.url,
+                                reusableSourceUrl = resolvedCached.reusableUrl,
+                                fallbackRawSourceUrl = resolvedCached.fallbackRawUrl,
+                                sourceHeaders = resolvedCached.requestHeaders,
+                                fallbackRawSourceHeaders = resolvedCached.fallbackRawHeaders,
                                 sourceResponseHeaders = sanitizePlaybackResponseHeaders(cached.responseHeaders),
                                 logo = logo,
                                 poster = poster,
@@ -1605,19 +1665,24 @@ private fun MainAppContent(
                         if (cached != null) {
                             StreamsRepository.clear()
                             val cachedHeaders = sanitizePlaybackHeaders(cached.requestHeaders)
-                            val resolvedLegacyCached = if (cached.rawUrl == null) {
-                                StreamUrlResolver.resolve(cached.url, cachedHeaders)
-                            } else {
-                                null
-                            }
-                            val cachedFinalUrl = resolvedLegacyCached?.url ?: cached.url
-                            val cachedFinalHeaders = sanitizePlaybackHeaders(resolvedLegacyCached?.requestHeaders ?: cachedHeaders)
+                            val reusableUrl = cached.rawUrl ?: cached.url
+                            val resolvedCached = resolveReusablePlaybackSource(
+                                sourceUrl = reusableUrl,
+                                requestHeaders = cachedHeaders,
+                                streamName = cached.streamName,
+                                addonName = cached.addonName,
+                                addonId = cached.addonId,
+                                bingeGroup = cached.bingeGroup,
+                                seasonNumber = launch.seasonNumber,
+                                episodeNumber = launch.episodeNumber,
+                            ) ?: return@LaunchedEffect
                             val playerLaunch = PlayerLaunch(
                                     title = launch.title,
-                                    sourceUrl = cachedFinalUrl,
-                                    fallbackRawSourceUrl = cached.rawUrl ?: cached.url.takeIf { resolvedLegacyCached?.url != cached.url },
-                                    sourceHeaders = cachedFinalHeaders,
-                                    fallbackRawSourceHeaders = cachedHeaders,
+                                    sourceUrl = resolvedCached.url,
+                                    reusableSourceUrl = resolvedCached.reusableUrl,
+                                    fallbackRawSourceUrl = resolvedCached.fallbackRawUrl,
+                                    sourceHeaders = resolvedCached.requestHeaders,
+                                    fallbackRawSourceHeaders = resolvedCached.fallbackRawHeaders,
                                     sourceResponseHeaders = sanitizePlaybackResponseHeaders(cached.responseHeaders),
                                     logo = launch.logo,
                                     poster = launch.poster,
@@ -1693,6 +1758,8 @@ private fun MainAppContent(
                             }
                         }
                         val sourceUrl = stream.directPlaybackUrl ?: return@LaunchedEffect
+                        val reusableSourceUrl = selectedStream.reusableTorboxSourceUrl() ?: sourceUrl
+                        val isReusableTorboxP2P = reusableSourceUrl.isReusableTorboxP2PSource()
                         autoPlayHandled = true
                         val initialRequestHeaders = sanitizePlaybackHeaders(stream.behaviorHints.proxyHeaders?.request)
                         val resolved = StreamUrlResolver.resolve(
@@ -1713,7 +1780,7 @@ private fun MainAppContent(
                             StreamLinkCacheRepository.save(
                                 contentKey = cacheKey,
                                 url = resolvedSourceUrl,
-                                rawUrl = sourceUrl,
+                                rawUrl = reusableSourceUrl,
                                 streamName = stream.streamLabel,
                                 addonName = stream.addonName,
                                 addonId = stream.addonId,
@@ -1727,6 +1794,7 @@ private fun MainAppContent(
                         val playerLaunch = PlayerLaunch(
                                 title = launch.title,
                                 sourceUrl = resolvedSourceUrl,
+                                reusableSourceUrl = reusableSourceUrl,
                                 sourceHeaders = resolvedRequestHeaders,
                                 sourceResponseHeaders = responseHeaders,
                                 logo = launch.logo,
@@ -1748,8 +1816,8 @@ private fun MainAppContent(
                                 parentMetaType = launch.parentMetaType ?: launch.type,
                                 initialPositionMs = launch.resumePositionMs ?: 0L,
                                 initialProgressFraction = launch.resumeProgressFraction,
-                                fallbackRawSourceUrl = sourceUrl,
-                                fallbackRawSourceHeaders = initialRequestHeaders,
+                                fallbackRawSourceUrl = sourceUrl.takeUnless { isReusableTorboxP2P },
+                                fallbackRawSourceHeaders = if (isReusableTorboxP2P) emptyMap() else initialRequestHeaders,
                             )
                         StreamsRepository.consumeAutoPlay()
                         StreamsRepository.cancelLoading()
@@ -1774,9 +1842,9 @@ private fun MainAppContent(
                         resolvedResumePositionMs: Long?,
                         resolvedResumeProgressFraction: Float?,
                     ) {
-                        if (stream.isDirectDebridStream && stream.directPlaybackUrl == null) {
-                            if (resolvingDebridStream) return
-                            streamRouteScope.launch {
+                        if (resolvingDebridStream || resolvingStreamUrl) return
+                        streamRouteScope.launch {
+                            val playbackStream = if (stream.isDirectDebridStream || stream.isTorrentStream) {
                                 resolvingDebridStream = true
                                 val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
                                     stream = stream,
@@ -1785,11 +1853,7 @@ private fun MainAppContent(
                                 )
                                 resolvingDebridStream = false
                                 when (resolved) {
-                                    is DirectDebridPlayableResult.Success -> openSelectedStream(
-                                        stream = resolved.stream,
-                                        resolvedResumePositionMs = resolvedResumePositionMs,
-                                        resolvedResumeProgressFraction = resolvedResumeProgressFraction,
-                                    )
+                                    is DirectDebridPlayableResult.Success -> resolved.stream
                                     else -> {
                                         resolved.toastMessage()?.let { NuvioToastController.show(it) }
                                         if (resolved == DirectDebridPlayableResult.Stale) {
@@ -1801,16 +1865,17 @@ private fun MainAppContent(
                                                 manualSelection = launch.manualSelection,
                                             )
                                         }
+                                        return@launch
                                     }
                                 }
+                            } else {
+                                stream
                             }
-                            return
-                        }
-                        val sourceUrl = stream.directPlaybackUrl ?: return
-                        if (resolvingStreamUrl) return
-                        streamRouteScope.launch {
+                            val sourceUrl = playbackStream.directPlaybackUrl ?: return@launch
+                            val reusableSourceUrl = stream.reusableTorboxSourceUrl() ?: sourceUrl
+                            val isReusableTorboxP2P = reusableSourceUrl.isReusableTorboxP2PSource()
                             resolvingStreamUrl = true
-                            val initialRequestHeaders = sanitizePlaybackHeaders(stream.behaviorHints.proxyHeaders?.request)
+                            val initialRequestHeaders = sanitizePlaybackHeaders(playbackStream.behaviorHints.proxyHeaders?.request)
                             val resolved = StreamUrlResolver.resolve(
                                 url = sourceUrl,
                                 requestHeaders = initialRequestHeaders,
@@ -1818,7 +1883,7 @@ private fun MainAppContent(
                             resolvingStreamUrl = false
                             val resolvedSourceUrl = resolved.url
                             val resolvedRequestHeaders = sanitizePlaybackHeaders(resolved.requestHeaders)
-                            val responseHeaders = sanitizePlaybackResponseHeaders(stream.behaviorHints.proxyHeaders?.response)
+                            val responseHeaders = sanitizePlaybackResponseHeaders(playbackStream.behaviorHints.proxyHeaders?.response)
                         if (playerSettings.streamReuseLastLinkEnabled) {
                             val cacheKey = StreamLinkCacheRepository.contentKey(
                                 type = launch.type,
@@ -1830,23 +1895,24 @@ private fun MainAppContent(
                             StreamLinkCacheRepository.save(
                                 contentKey = cacheKey,
                                 url = resolvedSourceUrl,
-                                rawUrl = sourceUrl,
-                                streamName = stream.streamLabel,
-                                addonName = stream.addonName,
-                                addonId = stream.addonId,
+                                rawUrl = reusableSourceUrl,
+                                streamName = playbackStream.streamLabel,
+                                addonName = playbackStream.addonName,
+                                addonId = playbackStream.addonId,
                                 requestHeaders = resolvedRequestHeaders,
                                 responseHeaders = responseHeaders,
-                                filename = stream.behaviorHints.filename,
-                                videoSize = stream.behaviorHints.videoSize,
-                                bingeGroup = stream.behaviorHints.bingeGroup,
+                                filename = playbackStream.behaviorHints.filename,
+                                videoSize = playbackStream.behaviorHints.videoSize,
+                                bingeGroup = playbackStream.behaviorHints.bingeGroup,
                             )
                         }
                         val playerLaunch = PlayerLaunch(
                             title = launch.title,
                             sourceUrl = resolvedSourceUrl,
-                            fallbackRawSourceUrl = sourceUrl,
+                            reusableSourceUrl = reusableSourceUrl,
+                            fallbackRawSourceUrl = sourceUrl.takeUnless { isReusableTorboxP2P },
                             sourceHeaders = resolvedRequestHeaders,
-                            fallbackRawSourceHeaders = initialRequestHeaders,
+                            fallbackRawSourceHeaders = if (isReusableTorboxP2P) emptyMap() else initialRequestHeaders,
                             sourceResponseHeaders = responseHeaders,
                             logo = launch.logo,
                             poster = launch.poster,
@@ -1855,12 +1921,12 @@ private fun MainAppContent(
                             episodeNumber = launch.episodeNumber,
                             episodeTitle = launch.episodeTitle,
                             episodeThumbnail = launch.episodeThumbnail,
-                            streamTitle = stream.streamLabel,
-                            streamSubtitle = stream.streamSubtitle,
-                            bingeGroup = stream.behaviorHints.bingeGroup,
+                            streamTitle = playbackStream.streamLabel,
+                            streamSubtitle = playbackStream.streamSubtitle,
+                            bingeGroup = playbackStream.behaviorHints.bingeGroup,
                             pauseDescription = pauseDescription,
-                            providerName = stream.addonName,
-                            providerAddonId = stream.addonId,
+                            providerName = playbackStream.addonName,
+                            providerAddonId = playbackStream.addonId,
                             contentType = launch.type,
                             videoId = effectiveVideoId,
                             parentMetaId = launch.parentMetaId ?: effectiveVideoId,
@@ -1956,6 +2022,7 @@ private fun MainAppContent(
                     PlayerScreen(
                         title = launch.title,
                         sourceUrl = launch.sourceUrl,
+                        reusableSourceUrl = launch.reusableSourceUrl,
                         fallbackRawSourceUrl = launch.fallbackRawSourceUrl,
                         sourceAudioUrl = launch.sourceAudioUrl,
                         sourceHeaders = launch.sourceHeaders,

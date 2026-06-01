@@ -88,7 +88,9 @@ private const val WatchTogetherSoftSyncThresholdMs = 450L
 private const val WatchTogetherSoftSyncSettledMs = 200L
 private const val WatchTogetherHardSyncThresholdMs = 1_100L
 private const val WatchTogetherHardSyncCooldownMs = 3_000L
-private const val WatchTogetherSyncPollMs = 600L
+private const val WatchTogetherBackwardHardSyncConfirmations = 5
+private const val WatchTogetherBackwardSeekInferenceMs = 1_500L
+private const val WatchTogetherSyncPollMs = 750L
 private const val WatchTogetherFreshUpdateWindowMs = 1_500L
 private const val WatchTogetherStaleUpdateWindowMs = 4_000L
 private const val WatchTogetherFreshSpeedUpMultiplier = 1.06f
@@ -130,6 +132,7 @@ private data class PlayerAccumulatedSeekState(
 fun PlayerScreen(
     title: String,
     sourceUrl: String,
+    reusableSourceUrl: String? = null,
     fallbackRawSourceUrl: String? = null,
     sourceAudioUrl: String? = null,
     sourceHeaders: Map<String, String> = emptyMap(),
@@ -221,6 +224,7 @@ fun PlayerScreen(
         var activePauseDescription by rememberSaveable { mutableStateOf(pauseDescription) }
         val playerHeaderLogo = activeLogo.takeIf { playerSettingsUiState.useClearlogoInPlayer }
         var activeSourceUrl by rememberSaveable { mutableStateOf(sourceUrl) }
+        var activeReusableSourceUrl by rememberSaveable { mutableStateOf(reusableSourceUrl) }
         var activeFallbackRawSourceUrl by rememberSaveable { mutableStateOf(fallbackRawSourceUrl) }
         var activeFallbackAlreadyTried by rememberSaveable(sourceUrl) { mutableStateOf(false) }
         var activeSourceAudioUrl by rememberSaveable { mutableStateOf(sourceAudioUrl) }
@@ -263,6 +267,9 @@ fun PlayerScreen(
         var lastWatchTogetherMemberNames by remember { mutableStateOf<List<String>>(emptyList()) }
         var lastAppliedWatchTogetherUpdateMs by remember { mutableStateOf(0L) }
         var lastWatchTogetherHardSyncAtMs by remember { mutableStateOf(0L) }
+        var lastWatchTogetherExpectedPositionMs by remember { mutableStateOf<Long?>(null) }
+        var lastWatchTogetherPlaybackState by remember { mutableStateOf<WatchTogetherPlaybackState?>(null) }
+        var watchTogetherBackwardDriftConfirmations by remember { mutableStateOf(0) }
         var watchTogetherSoftSyncActive by remember { mutableStateOf(false) }
         val keepScreenAwake = errorMessage == null &&
             (playbackSnapshot.isPlaying || (shouldPlay && playbackSnapshot.isLoading))
@@ -374,6 +381,7 @@ fun PlayerScreen(
             activeStreamSubtitle,
             activePauseDescription,
             activeSourceUrl,
+            activeReusableSourceUrl,
             activeSourceAudioUrl,
         ) {
             WatchProgressPlaybackSession(
@@ -399,7 +407,11 @@ fun PlayerScreen(
                 lastStreamTitle = activeStreamTitle,
                 lastStreamSubtitle = activeStreamSubtitle,
                 pauseDescription = activePauseDescription,
-                lastSourceUrl = activeSourceUrl,
+                lastSourceUrl = activeReusableSourceUrl
+                    ?.takeIf { it.isNotBlank() }
+                    ?: activeFallbackRawSourceUrl
+                        ?.takeIf { it.isNotBlank() }
+                    ?: activeSourceUrl,
             )
         }
 
@@ -544,6 +556,9 @@ fun PlayerScreen(
             watchTogetherJoinCode = ""
             lastWatchTogetherMemberNames = emptyList()
             watchTogetherSoftSyncActive = false
+            lastWatchTogetherExpectedPositionMs = null
+            lastWatchTogetherPlaybackState = null
+            watchTogetherBackwardDriftConfirmations = 0
             playerController?.setPlaybackSpeed(1f)
         }
 
@@ -601,6 +616,9 @@ fun PlayerScreen(
             watchTogetherJoinCode = ""
             watchTogetherMetadataForcedVisible = false
             lastWatchTogetherMemberNames = emptyList()
+            lastWatchTogetherExpectedPositionMs = null
+            lastWatchTogetherPlaybackState = null
+            watchTogetherBackwardDriftConfirmations = 0
             if (roomId != null) {
                 scope.launch { WatchTogetherRepository.leaveRoom(roomId) }
             }
@@ -993,6 +1011,7 @@ fun PlayerScreen(
                 playerControllerSourceUrl = null
                 errorMessage = null
                 activeSourceUrl = room.sourceUrl
+                activeReusableSourceUrl = null
                 activeSourceAudioUrl = null
                 activeFallbackRawSourceUrl = null
                 activeFallbackAlreadyTried = false
@@ -1005,6 +1024,9 @@ fun PlayerScreen(
                 activeInitialProgressFraction = null
                 initialLoadCompleted = false
                 shouldPlay = room.playbackState == WatchTogetherPlaybackState.Playing
+                lastWatchTogetherExpectedPositionMs = null
+                lastWatchTogetherPlaybackState = room.playbackState
+                watchTogetherBackwardDriftConfirmations = 0
                 return
             }
 
@@ -1014,6 +1036,15 @@ fun PlayerScreen(
             val targetPositionMs = room.expectedPositionMs
             val driftMs = playbackSnapshot.positionMs - targetPositionMs
             val absoluteDriftMs = abs(driftMs)
+            val previousTargetPositionMs = lastWatchTogetherExpectedPositionMs
+            val previousPlaybackState = lastWatchTogetherPlaybackState
+            val hostLikelySeekedBackward =
+                previousTargetPositionMs != null &&
+                    previousPlaybackState == WatchTogetherPlaybackState.Playing &&
+                    room.playbackState == WatchTogetherPlaybackState.Playing &&
+                    targetPositionMs < previousTargetPositionMs - WatchTogetherBackwardSeekInferenceMs
+            lastWatchTogetherExpectedPositionMs = targetPositionMs
+            lastWatchTogetherPlaybackState = room.playbackState
             val nowMs = WatchProgressClock.nowEpochMs()
             val roomUpdateAgeMs = (nowMs - room.serverNowMs).coerceAtLeast(0L)
             val roomUpdateIsFresh = roomUpdateAgeMs <= WatchTogetherFreshUpdateWindowMs
@@ -1028,13 +1059,24 @@ fun PlayerScreen(
             } else {
                 WatchTogetherStaleSlowDownMultiplier
             }
+            if (driftMs > WatchTogetherHardSyncThresholdMs && !hostLikelySeekedBackward) {
+                watchTogetherBackwardDriftConfirmations += 1
+            } else {
+                watchTogetherBackwardDriftConfirmations = 0
+            }
+            val canHardSyncBackward =
+                hostLikelySeekedBackward ||
+                    (previousPlaybackState != null && previousPlaybackState != room.playbackState) ||
+                    watchTogetherBackwardDriftConfirmations >= WatchTogetherBackwardHardSyncConfirmations
             if (
                 roomUpdateIsFresh &&
                 absoluteDriftMs > WatchTogetherHardSyncThresholdMs &&
+                (driftMs < 0L || canHardSyncBackward) &&
                 nowMs - lastWatchTogetherHardSyncAtMs > WatchTogetherHardSyncCooldownMs
             ) {
                 lastWatchTogetherHardSyncAtMs = nowMs
                 watchTogetherSoftSyncActive = false
+                watchTogetherBackwardDriftConfirmations = 0
                 controller.seekTo(targetPositionMs)
                 controller.setPlaybackSpeed(room.playbackSpeed)
             } else if (room.playbackState == WatchTogetherPlaybackState.Playing && !roomUpdateIsStale) {
@@ -1286,6 +1328,7 @@ fun PlayerScreen(
                 }
                 errorMessage = null
                 activeSourceUrl = resolvedUrl
+                activeReusableSourceUrl = rawUrl
                 activeSourceHeaders = resolvedHeaders
                 activeInitialPositionMs = currentPositionMs
                 activeInitialProgressFraction = null

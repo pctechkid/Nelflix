@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,6 +77,13 @@ fun DetailMetaInfo(
             .animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        val uriHandler = LocalUriHandler.current
+        val imdbTitleId = remember(meta.id) { extractImdbTitleId(meta.id) }
+        fun openImdbTitle() {
+            imdbTitleId?.let { id ->
+                uriHandler.openUri("https://www.imdb.com/title/$id/")
+            }
+        }
         val releaseLine = formatMetaReleaseLineForDetails(meta)
         val runtimeText = formatRuntimeForDisplay(meta.runtime)
         val ageBadge = meta.ageRating?.trim()?.takeIf { it.isNotBlank() }
@@ -113,6 +121,10 @@ fun DetailMetaInfo(
                 if (validImdbRating != null && !hasMdbImdbRating) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable(
+                            enabled = imdbTitleId != null,
+                            onClick = ::openImdbTitle,
+                        ),
                     ) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
@@ -148,6 +160,8 @@ fun DetailMetaInfo(
         ) {
             DetailRatingsRow(
                 ratings = meta.externalRatings,
+                imdbTitleId = imdbTitleId,
+                onOpenImdbTitle = ::openImdbTitle,
             )
         }
 
@@ -205,6 +219,8 @@ fun DetailMetaInfo(
 @Composable
 private fun DetailRatingsRow(
     ratings: List<MetaExternalRating>,
+    imdbTitleId: String?,
+    onOpenImdbTitle: () -> Unit,
 ) {
     val orderedRatings = remember(ratings) {
         val bySource = ratings.associateBy { it.source }
@@ -225,6 +241,10 @@ private fun DetailRatingsRow(
         orderedRatings.forEach { (visuals, rating) ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable(
+                    enabled = visuals.source == PROVIDER_IMDB && imdbTitleId != null,
+                    onClick = onOpenImdbTitle,
+                ),
             ) {
                 Image(
                     painter = painterResource(visuals.logo),
@@ -289,6 +309,7 @@ private fun DetailHeroMetaBadge(
 
 private val ImdbYellow = Color(0xFFF5C518)
 private val ImdbBlack = Color(0xFF000000)
+private val imdbTitleIdPattern = Regex("tt\\d+")
 
 private data class RatingVisuals(
     val source: String,
@@ -368,3 +389,6 @@ private fun formatOneDecimal(value: Double): String {
 private fun formatWhole(value: Double): String = value.roundToInt().toString()
 
 private fun formatPercent(value: Double): String = "${value.roundToInt()}%"
+
+private fun extractImdbTitleId(value: String): String? =
+    imdbTitleIdPattern.find(value)?.value

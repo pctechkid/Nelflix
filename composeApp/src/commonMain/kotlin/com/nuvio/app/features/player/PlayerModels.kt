@@ -11,6 +11,7 @@ data class PlayerRoute(
 data class PlayerLaunch(
     val title: String,
     val sourceUrl: String,
+    val reusableSourceUrl: String? = null,
     val fallbackRawSourceUrl: String? = null,
     val sourceAudioUrl: String? = null,
     val sourceHeaders: Map<String, String> = emptyMap(),

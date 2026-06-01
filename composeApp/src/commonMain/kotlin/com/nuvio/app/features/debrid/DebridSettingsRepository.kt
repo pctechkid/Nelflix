@@ -32,7 +32,7 @@ object DebridSettingsRepository {
 
     fun setEnabled(value: Boolean) {
         ensureLoaded()
-        if (value && !hasVisibleApiKey()) return
+        if (value && !hasAnyConfiguredApiKey()) return
         if (enabled == value) return
         enabled = value
         publish()
@@ -96,21 +96,23 @@ object DebridSettingsRepository {
     }
 
     private fun disableIfNoKeys() {
-        if (!hasVisibleApiKey()) {
+        if (!hasAnyConfiguredApiKey()) {
             enabled = false
             DebridSettingsStorage.saveEnabled(false)
         }
     }
 
-    private fun hasVisibleApiKey(): Boolean =
-        (DebridProviders.isVisible(DebridProviders.TORBOX_ID) && torboxApiKey.isNotBlank()) ||
-            (DebridProviders.isVisible(DebridProviders.REAL_DEBRID_ID) && realDebridApiKey.isNotBlank())
+    private fun hasAnyConfiguredApiKey(): Boolean =
+        torboxApiKey.isNotBlank() || realDebridApiKey.isNotBlank()
 
     private fun loadFromDisk() {
         hasLoaded = true
-        torboxApiKey = DebridSettingsStorage.loadTorboxApiKey()?.trim().orEmpty()
+        torboxApiKey = DebridSettingsStorage.loadTorboxApiKey()
+            ?.trim()
+            .orEmpty()
+            .ifBlank { DebridConfig.TORBOX_API_KEY.trim() }
         realDebridApiKey = DebridSettingsStorage.loadRealDebridApiKey()?.trim().orEmpty()
-        enabled = (DebridSettingsStorage.loadEnabled() ?: false) && hasVisibleApiKey()
+        enabled = (DebridSettingsStorage.loadEnabled() ?: torboxApiKey.isNotBlank()) && hasAnyConfiguredApiKey()
         instantPlaybackPreparationLimit = normalizeDebridInstantPlaybackPreparationLimit(
             DebridSettingsStorage.loadInstantPlaybackPreparationLimit() ?: 0,
         )

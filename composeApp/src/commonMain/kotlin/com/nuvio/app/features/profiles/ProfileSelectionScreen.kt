@@ -82,10 +82,13 @@ fun ProfileSelectionScreen(
     val authState by AuthRepository.state.collectAsStateWithLifecycle()
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var pinDialogProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var isEditMode by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
     var isSigningOut by remember { mutableStateOf(false) }
+    var pinDialogProfile by remember { mutableStateOf<NuvioProfile?>(null) }
+    var isVerifyingPin by remember { mutableStateOf(false) }
+    var pinError by remember { mutableStateOf<String?>(null) }
+    val pinVerifyFailedMessage = stringResource(Res.string.pin_incorrect)
 
     val titleAlpha = remember { Animatable(0f) }
     val titleOffset = remember { Animatable(20f) }
@@ -110,6 +113,16 @@ fun ProfileSelectionScreen(
     }
 
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+    fun selectProfile(profile: NuvioProfile) {
+        if (profile.pinEnabled) {
+            pinError = null
+            pinDialogProfile = profile
+        } else {
+            ProfileRepository.selectProfile(profile.profileIndex)
+            onProfileSelected(profile)
+        }
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -183,11 +196,8 @@ fun ProfileSelectionScreen(
                                     onClick = {
                                         if (isEditMode) {
                                             onEditProfile(profile)
-                                        } else if (profile.pinEnabled) {
-                                            pinDialogProfile = profile
                                         } else {
-                                            ProfileRepository.selectProfile(profile.profileIndex)
-                                            onProfileSelected(profile)
+                                            selectProfile(profile)
                                         }
                                     },
                                 )
@@ -224,11 +234,8 @@ fun ProfileSelectionScreen(
                                             onClick = {
                                                 if (isEditMode) {
                                                     onEditProfile(profile)
-                                                } else if (profile.pinEnabled) {
-                                                    pinDialogProfile = profile
                                                 } else {
-                                                    ProfileRepository.selectProfile(profile.profileIndex)
-                                                    onProfileSelected(profile)
+                                                    selectProfile(profile)
                                                 }
                                             },
                                         )
@@ -254,20 +261,22 @@ fun ProfileSelectionScreen(
 
             Box(
                 modifier = Modifier
+                    .width(260.dp)
                     .graphicsLayer { alpha = manageAlpha.value }
                     .clip(RoundedCornerShape(24.dp))
                     .background(
                         if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        else Color.Transparent,
+                        else Color.White,
                     )
                     .border(
                         width = 1.dp,
                         color = if (isEditMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                        else Color.White.copy(alpha = 0.85f),
                         shape = RoundedCornerShape(24.dp),
                     )
                     .clickable { isEditMode = !isEditMode }
                     .padding(horizontal = 24.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = if (isEditMode) {
@@ -277,24 +286,23 @@ fun ProfileSelectionScreen(
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (isEditMode) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    else Color.Black,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedButton(
+            Button(
                 onClick = { showSignOutConfirm = true },
                 enabled = !isSigningOut,
                 modifier = Modifier
-                    .widthIn(min = 0.dp, max = 260.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.error.copy(alpha = 0.42f),
+                    .width(260.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFE50914),
+                    contentColor = Color.White,
+                    disabledContainerColor = Color(0xFFE50914).copy(alpha = 0.38f),
+                    disabledContentColor = Color.White.copy(alpha = 0.6f),
                 ),
             ) {
                 Text(
@@ -363,8 +371,10 @@ fun ProfileSelectionScreen(
                             enabled = !isSigningOut,
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
+                                containerColor = Color(0xFFE50914),
                                 contentColor = Color.White,
+                                disabledContainerColor = Color(0xFFE50914).copy(alpha = 0.38f),
+                                disabledContentColor = Color.White.copy(alpha = 0.7f),
                             ),
                         ) {
                             Text(stringResource(Res.string.settings_account_sign_out))
@@ -377,16 +387,33 @@ fun ProfileSelectionScreen(
 
     pinDialogProfile?.let { profile ->
         PinEntryDialog(
-            profileName = profile.name,
-            onVerify = { pin -> ProfileRepository.verifyPin(profile.profileIndex, pin) },
-            onVerified = {
-                pinDialogProfile = null
-                ProfileRepository.selectProfile(profile.profileIndex)
-                onProfileSelected(profile)
+            title = stringResource(Res.string.pin_enter_for, profile.name),
+            message = stringResource(Res.string.profile_security_pin_enabled),
+            confirmText = stringResource(Res.string.pin_enter),
+            isBusy = isVerifyingPin,
+            errorMessage = pinError,
+            onConfirm = { pin ->
+                scope.launch {
+                    isVerifyingPin = true
+                    pinError = null
+                    val result = ProfileRepository.verifyPin(profile.profileIndex, pin)
+                    isVerifyingPin = false
+                    if (result.unlocked) {
+                        pinDialogProfile = null
+                        ProfileRepository.selectProfile(profile.profileIndex)
+                        onProfileSelected(profile)
+                    } else {
+                        pinError = result.message.ifBlank { pinVerifyFailedMessage }
+                    }
+                }
             },
-            onDismiss = { pinDialogProfile = null },
+            onDismiss = {
+                pinDialogProfile = null
+                pinError = null
+            },
         )
     }
+
 }
 
 @Composable
@@ -514,13 +541,13 @@ private fun ProfileAvatarCard(
                 }
             }
 
-            if (profile.pinEnabled && !isEditMode) {
+            if (!isEditMode && profile.pinEnabled) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .size(30.dp)
+                        .size(34.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .background(MaterialTheme.colorScheme.surface)
                         .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -528,10 +555,11 @@ private fun ProfileAvatarCard(
                         imageVector = Icons.Rounded.Lock,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(16.dp),
                     )
                 }
             }
+
         }
 
         Spacer(modifier = Modifier.height(12.dp))

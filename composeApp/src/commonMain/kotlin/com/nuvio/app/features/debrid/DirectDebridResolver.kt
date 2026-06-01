@@ -116,11 +116,16 @@ object DirectDebridPlaybackResolver {
         season: Int?,
         episode: Int?,
     ): DirectDebridPlayableResult {
-        if (!stream.isDirectDebridStream || stream.directPlaybackUrl != null) {
-            return DirectDebridPlayableResult.Success(stream)
+        val effectiveStream = if (stream.isTorrentStream) {
+            stream.asTorboxDirectDebridStream()
+        } else {
+            stream
         }
-        return when (val result = resolve(stream, season, episode)) {
-            is DirectDebridResolveResult.Success -> DirectDebridPlayableResult.Success(stream.withResolvedDebridUrl(result))
+        if (!effectiveStream.isDirectDebridStream || effectiveStream.directPlaybackUrl != null) {
+            return DirectDebridPlayableResult.Success(effectiveStream)
+        }
+        return when (val result = resolve(effectiveStream, season, episode)) {
+            is DirectDebridResolveResult.Success -> DirectDebridPlayableResult.Success(effectiveStream.withResolvedDebridUrl(result))
             DirectDebridResolveResult.MissingApiKey -> DirectDebridPlayableResult.MissingApiKey
             DirectDebridResolveResult.Stale -> DirectDebridPlayableResult.Stale
             DirectDebridResolveResult.Error -> DirectDebridPlayableResult.Error
@@ -171,7 +176,7 @@ private class TorboxDirectDebridResolver(
         if (apiKey.isBlank()) {
             return DirectDebridResolveResult.MissingApiKey
         }
-        val magnet = resolve.magnetUri?.takeIf { it.isNotBlank() }
+        val magnet = resolve.magnetUri?.takeIf { it.isNotBlank() }?.withoutTorboxReusableParams()
             ?: buildMagnetUri(resolve)
             ?: run {
                 return DirectDebridResolveResult.Stale

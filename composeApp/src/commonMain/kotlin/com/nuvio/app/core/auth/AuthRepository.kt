@@ -35,18 +35,10 @@ object AuthRepository {
         if (initialized) return
         initialized = true
 
-        val savedAnonId = AuthStorage.loadAnonymousUserId()
-        if (savedAnonId != null) {
-            _state.value = AuthState.Authenticated(
-                userId = savedAnonId,
-                email = null,
-                isAnonymous = true,
-            )
-        }
+        AuthStorage.clearAnonymousUserId()
 
         scope.launch {
             SupabaseProvider.client.auth.sessionStatus.collect { status ->
-                if (AuthStorage.loadAnonymousUserId() != null) return@collect
                 when (status) {
                     is SessionStatus.Authenticated -> {
                         val user = status.session.user
@@ -60,7 +52,7 @@ object AuthRepository {
                         _state.value = AuthState.Unauthenticated
                     }
                     is SessionStatus.Initializing -> {
-                        if (savedAnonId == null) _state.value = AuthState.Loading
+                        _state.value = AuthState.Loading
                     }
                     is SessionStatus.RefreshFailure -> {
                         _state.value = AuthState.Unauthenticated
@@ -84,6 +76,7 @@ object AuthRepository {
 
     suspend fun signUpWithEmail(email: String, password: String): Result<Unit> = runCatching {
         _error.value = null
+        AuthStorage.clearAnonymousUserId()
         SupabaseProvider.client.auth.signUpWith(Email) {
             this.email = email
             this.password = password
@@ -96,6 +89,7 @@ object AuthRepository {
 
     suspend fun signInWithEmail(email: String, password: String): Result<Unit> = runCatching {
         _error.value = null
+        AuthStorage.clearAnonymousUserId()
         SupabaseProvider.client.auth.signInWith(Email) {
             this.email = email
             this.password = password

@@ -172,15 +172,17 @@ internal fun PlayerControlsShell(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(112.dp)
+                    .height(240.dp)
                     .align(Alignment.TopCenter)
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
+                                Color.Black.copy(alpha = 0.75f),
+                                Color.Black.copy(alpha = 0.66f),
                                 Color.Black.copy(alpha = 0.48f),
-                                Color.Black.copy(alpha = 0.32f),
-                                Color.Black.copy(alpha = 0.14f),
-                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.28f),
+                                Color.Black.copy(alpha = 0.12f),
+                                Color.Black.copy(alpha = 0.04f),
                                 Color.Transparent,
                             ),
                         ),

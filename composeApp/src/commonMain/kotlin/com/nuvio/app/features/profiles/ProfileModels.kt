@@ -22,6 +22,13 @@ data class NuvioProfile(
 )
 
 @Serializable
+data class PinVerifyResult(
+    val unlocked: Boolean = false,
+    @SerialName("retry_after_seconds") val retryAfterSeconds: Int = 0,
+    val message: String = "",
+)
+
+@Serializable
 data class ProfilePushPayload(
     @SerialName("profile_index") val profileIndex: Int,
     val name: String,
@@ -30,13 +37,6 @@ data class ProfilePushPayload(
     @SerialName("uses_primary_plugins") val usesPrimaryPlugins: Boolean = false,
     @SerialName("avatar_id") val avatarId: String? = null,
     @SerialName("avatar_url") val avatarUrl: String? = null,
-)
-
-@Serializable
-data class PinVerifyResult(
-    val unlocked: Boolean = false,
-    @SerialName("retry_after_seconds") val retryAfterSeconds: Int = 0,
-    val message: String? = null,
 )
 
 data class ProfileState(

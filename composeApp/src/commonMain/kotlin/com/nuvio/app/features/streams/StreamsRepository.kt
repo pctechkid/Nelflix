@@ -7,6 +7,7 @@ import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
 import com.nuvio.app.features.debrid.DirectDebridStreamSource
+import com.nuvio.app.features.debrid.TorboxP2PStreamFilter
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.plugins.PluginRepository
@@ -297,11 +298,12 @@ object StreamsRepository {
                         val displayName = addon.addonName
                         val group = runCatchingUnlessCancelled {
                             val payload = httpGetText(url)
-                            StreamParser.parse(
+                            val parsedStreams = StreamParser.parse(
                                 payload = payload,
                                 addonName = displayName,
                                 addonId = addon.addonId,
                             )
+                            TorboxP2PStreamFilter.filterCachedOnly(parsedStreams)
                         }.fold(
                             onSuccess = { streams ->
                                 log.d { "Got ${streams.size} streams from ${displayName}" }
@@ -333,7 +335,7 @@ object StreamsRepository {
                 providerGroup.scrapers.forEach { scraper ->
                     launch {
                         fetchLimiter.withPermit {
-                            val completion = PluginRepository.executeScraper(
+                            val scraperResult = PluginRepository.executeScraper(
                                 scraper = scraper,
                                 tmdbId = pluginContentId(
                                     videoId = videoId,
@@ -343,29 +345,32 @@ object StreamsRepository {
                                 mediaType = type,
                                 season = season,
                                 episode = episode,
-                            ).fold(
-                                onSuccess = { results ->
-                                    StreamLoadCompletion.PluginScraper(
-                                        addonId = providerGroup.addonId,
-                                        streams = results.map { result ->
-                                            result.toStreamItem(
-                                                scraper = scraper,
-                                                addonName = providerGroup.addonName,
-                                                addonId = providerGroup.addonId,
-                                                includeScraperNameInSubtitle = includeScraperNameInSubtitle,
-                                            )
-                                        },
-                                        error = null,
-                                    )
-                                },
-                                onFailure = { error ->
-                                    StreamLoadCompletion.PluginScraper(
-                                        addonId = providerGroup.addonId,
-                                        streams = emptyList(),
-                                        error = error.message ?: getString(Res.string.streams_failed_to_load_scraper, scraper.name),
-                                    )
-                                },
                             )
+                            val completion = if (scraperResult.isSuccess) {
+                                val results = scraperResult.getOrThrow()
+                                val streams = TorboxP2PStreamFilter.filterCachedOnly(
+                                    results.map { result ->
+                                        result.toStreamItem(
+                                            scraper = scraper,
+                                            addonName = providerGroup.addonName,
+                                            addonId = providerGroup.addonId,
+                                            includeScraperNameInSubtitle = includeScraperNameInSubtitle,
+                                        )
+                                    },
+                                )
+                                StreamLoadCompletion.PluginScraper(
+                                    addonId = providerGroup.addonId,
+                                    streams = streams,
+                                    error = null,
+                                )
+                            } else {
+                                val error = scraperResult.exceptionOrNull()
+                                StreamLoadCompletion.PluginScraper(
+                                    addonId = providerGroup.addonId,
+                                    streams = emptyList(),
+                                    error = error?.message ?: getString(Res.string.streams_failed_to_load_scraper, scraper.name),
+                                )
+                            }
                             publishCompletion(completion)
                         }
                     }

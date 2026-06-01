@@ -565,6 +565,141 @@ begin
 end;
 $$;
 
+create or replace function public.profile_pin_verify_v2(p_profile_index integer, p_pin text)
+returns table (unlocked boolean, retry_after_seconds integer, message text)
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  p profiles%rowtype;
+  retry integer;
+begin
+  if auth.uid() is null then
+    return query select false, 0, 'Sign in to unlock this profile.'::text;
+    return;
+  end if;
+
+  if p_pin is null or p_pin !~ '^[0-9]{4,8}$' then
+    return query select false, 0, 'Enter a 4-8 digit PIN.'::text;
+    return;
+  end if;
+
+  select *
+  into p
+  from public.profiles
+  where user_id = auth.uid()
+    and profile_index = p_profile_index
+  for update;
+
+  if not found or not p.pin_enabled then
+    return query select true, 0, ''::text;
+    return;
+  end if;
+
+  if p.pin_locked_until is not null and p.pin_locked_until > now() then
+    retry := greatest(0, extract(epoch from (p.pin_locked_until - now()))::integer);
+    return query select false, retry, format('Locked. Try again in %s seconds.', retry)::text;
+    return;
+  end if;
+
+  if p.pin_hash is not null and crypt(p_pin, p.pin_hash) = p.pin_hash then
+    update public.profiles
+    set failed_pin_attempts = 0,
+        pin_locked_until = null,
+        updated_at = now()
+    where id = p.id;
+
+    return query select true, 0, ''::text;
+    return;
+  end if;
+
+  update public.profiles
+  set failed_pin_attempts = failed_pin_attempts + 1,
+      pin_locked_until = case
+        when failed_pin_attempts + 1 >= 5 then now() + interval '5 minutes'
+        else null
+      end,
+      updated_at = now()
+  where id = p.id
+  returning greatest(0, extract(epoch from (coalesce(pin_locked_until, now()) - now()))::integer)
+  into retry;
+
+  if retry > 0 then
+    return query select false, retry, format('Locked. Try again in %s seconds.', retry)::text;
+  else
+    return query select false, 0, 'Incorrect PIN.'::text;
+  end if;
+end;
+$$;
+
+create or replace function public.profile_pin_set_v2(p_profile_index integer, p_pin text)
+returns table (unlocked boolean, retry_after_seconds integer, message text)
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  if auth.uid() is null then
+    return query select false, 0, 'Sign in to set a PIN.'::text;
+    return;
+  end if;
+
+  if p_pin is null or p_pin !~ '^[0-9]{4,8}$' then
+    return query select false, 0, 'Enter a 4-8 digit PIN.'::text;
+    return;
+  end if;
+
+  update public.profiles
+  set pin_enabled = true,
+      pin_hash = crypt(p_pin, gen_salt('bf')),
+      pin_updated_at = now(),
+      failed_pin_attempts = 0,
+      pin_locked_until = null,
+      updated_at = now()
+  where user_id = auth.uid()
+    and profile_index = p_profile_index;
+
+  if not found then
+    return query select false, 0, 'Profile not found.'::text;
+    return;
+  end if;
+
+  return query select true, 0, ''::text;
+end;
+$$;
+
+create or replace function public.profile_pin_clear_v2(p_profile_index integer)
+returns table (unlocked boolean, retry_after_seconds integer, message text)
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  if auth.uid() is null then
+    return query select false, 0, 'Sign in to remove the PIN.'::text;
+    return;
+  end if;
+
+  update public.profiles
+  set pin_enabled = false,
+      pin_hash = null,
+      pin_updated_at = now(),
+      failed_pin_attempts = 0,
+      pin_locked_until = null,
+      updated_at = now()
+  where user_id = auth.uid()
+    and profile_index = p_profile_index;
+
+  if not found then
+    return query select false, 0, 'Profile not found.'::text;
+    return;
+  end if;
+
+  return query select true, 0, ''::text;
+end;
+$$;
+
 create or replace function public.sync_push_addons(p_profile_id integer, p_addons jsonb)
 returns void
 language plpgsql
@@ -1312,6 +1447,9 @@ grant execute on function public.verify_profile_pin(integer, text) to authentica
 grant execute on function public.set_profile_pin(integer, text, text) to authenticated;
 grant execute on function public.clear_profile_pin(integer, text) to authenticated;
 grant execute on function public.clear_profile_pin_with_account_password(text, integer) to authenticated;
+grant execute on function public.profile_pin_verify_v2(integer, text) to authenticated;
+grant execute on function public.profile_pin_set_v2(integer, text) to authenticated;
+grant execute on function public.profile_pin_clear_v2(integer) to authenticated;
 grant execute on function public.dashboard_is_super_admin() to authenticated;
 grant execute on function public.dashboard_push_addons_to_all_users(integer) to authenticated;
 grant execute on function public.sync_push_addons(integer, jsonb) to authenticated;

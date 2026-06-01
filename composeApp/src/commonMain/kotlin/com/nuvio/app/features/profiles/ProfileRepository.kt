@@ -35,17 +35,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
-import nuvio.composeapp.generated.resources.*
-import org.jetbrains.compose.resources.StringResource
-import org.jetbrains.compose.resources.getString
 
 @Serializable
 private data class StoredProfilePayload(
@@ -54,11 +52,25 @@ private data class StoredProfilePayload(
     val profiles: List<NuvioProfile> = emptyList(),
 )
 
+@Serializable
+private data class DirectProfilePinRow(
+    @SerialName("pin_enabled") val pinEnabled: Boolean = false,
+    @SerialName("pin_hash") val pinHash: String? = null,
+)
+
+@Serializable
+private data class DirectProfilePinPayload(
+    @SerialName("pin_enabled") val pinEnabled: Boolean,
+    @SerialName("pin_hash") val pinHash: String? = null,
+    @SerialName("pin_updated_at") val pinUpdatedAt: String? = null,
+    @SerialName("failed_pin_attempts") val failedPinAttempts: Int = 0,
+    @SerialName("pin_locked_until") val pinLockedUntil: String? = null,
+)
+
 object ProfileRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("ProfileRepository")
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-    private fun localizedString(resource: StringResource): String = runBlocking { getString(resource) }
 
     private val _state = MutableStateFlow(ProfileState())
     val state: StateFlow<ProfileState> = _state.asStateFlow()
@@ -177,6 +189,197 @@ object ProfileRepository {
         }
     }
 
+    fun isPinEnabled(profileIndex: Int): Boolean =
+        _state.value.profiles.firstOrNull { it.profileIndex == profileIndex }?.pinEnabled == true
+
+    suspend fun verifyPin(profileIndex: Int, pin: String): PinVerifyResult {
+        if (AuthRepository.state.value.isAnonymous) {
+            return PinVerifyResult(unlocked = true)
+        }
+
+        return runCatching {
+            val params = buildJsonObject {
+                put("p_profile_index", profileIndex)
+                put("p_pin", pin)
+            }
+            SupabaseProvider.client.postgrest
+                .rpc("profile_pin_verify_v2", params)
+                .decodeSingle<PinVerifyResult>()
+        }.onFailure { e ->
+            log.w(e) { "Failed to verify PIN with v2 RPC for profile $profileIndex; trying legacy RPC" }
+        }.getOrElse {
+            verifyPinLegacy(profileIndex, pin)
+        }
+    }
+
+    suspend fun setPin(profileIndex: Int, pin: String): PinVerifyResult {
+        if (AuthRepository.state.value.isAnonymous) {
+            updatePinStateLocally(profileIndex, enabled = true)
+            return PinVerifyResult(unlocked = true)
+        }
+
+        return runCatching {
+            val params = buildJsonObject {
+                put("p_profile_index", profileIndex)
+                put("p_pin", pin)
+            }
+            val result = SupabaseProvider.client.postgrest
+                .rpc("profile_pin_set_v2", params)
+                .decodeSingle<PinVerifyResult>()
+            pullProfiles()
+            result
+        }.onFailure { e ->
+            log.w(e) { "Failed to set PIN with v2 RPC for profile $profileIndex; trying legacy RPC" }
+        }.getOrElse {
+            setPinLegacy(profileIndex, pin)
+        }
+    }
+
+    suspend fun clearPin(profileIndex: Int): PinVerifyResult {
+        if (AuthRepository.state.value.isAnonymous) {
+            updatePinStateLocally(profileIndex, enabled = false)
+            return PinVerifyResult(unlocked = true)
+        }
+
+        return runCatching {
+            val params = buildJsonObject {
+                put("p_profile_index", profileIndex)
+            }
+            val result = SupabaseProvider.client.postgrest
+                .rpc("profile_pin_clear_v2", params)
+                .decodeSingle<PinVerifyResult>()
+            pullProfiles()
+            result
+        }.onFailure { e ->
+            log.w(e) { "Failed to clear PIN with v2 RPC for profile $profileIndex; trying legacy RPC" }
+        }.getOrElse {
+            clearPinLegacy(profileIndex)
+        }
+    }
+
+    private suspend fun verifyPinLegacy(profileIndex: Int, pin: String): PinVerifyResult =
+        runCatching {
+            val params = buildJsonObject {
+                put("p_profile_id", profileIndex)
+                put("p_pin", pin)
+            }
+            SupabaseProvider.client.postgrest
+                .rpc("verify_profile_pin", params)
+                .decodeSingle<PinVerifyResult>()
+        }.onFailure { e ->
+            log.e(e) { "Failed to verify PIN for profile $profileIndex" }
+        }.getOrElse {
+            verifyPinDirect(profileIndex, pin)
+        }
+
+    private suspend fun setPinLegacy(profileIndex: Int, pin: String): PinVerifyResult =
+        runCatching {
+            val params = buildJsonObject {
+                put("p_profile_id", profileIndex)
+                put("p_pin", pin)
+                put("p_current_pin", JsonNull)
+            }
+            SupabaseProvider.client.postgrest.rpc("set_profile_pin", params)
+            pullProfiles()
+            PinVerifyResult(unlocked = true)
+        }.onFailure { e ->
+            log.e(e) { "Failed to set PIN for profile $profileIndex" }
+        }.getOrElse {
+            setPinDirect(profileIndex, pin)
+        }
+
+    private suspend fun clearPinLegacy(profileIndex: Int): PinVerifyResult =
+        runCatching {
+            val params = buildJsonObject {
+                put("p_profile_id", profileIndex)
+                put("p_current_pin", JsonNull)
+            }
+            SupabaseProvider.client.postgrest.rpc("clear_profile_pin", params)
+            pullProfiles()
+            PinVerifyResult(unlocked = true)
+        }.onFailure { e ->
+            log.e(e) { "Failed to clear PIN for profile $profileIndex" }
+        }.getOrElse {
+            clearPinDirect(profileIndex)
+        }
+
+    private suspend fun verifyPinDirect(profileIndex: Int, pin: String): PinVerifyResult =
+        runCatching {
+            val row = SupabaseProvider.client.postgrest
+                .from("profiles")
+                .select {
+                    filter { eq("profile_index", profileIndex) }
+                    limit(1)
+                }
+                .decodeSingle<DirectProfilePinRow>()
+
+            when {
+                !row.pinEnabled -> PinVerifyResult(unlocked = true)
+                row.pinHash == directPinValue(pin) || row.pinHash == pin -> PinVerifyResult(unlocked = true)
+                else -> PinVerifyResult(
+                    unlocked = false,
+                    message = "Incorrect PIN.",
+                )
+            }
+        }.onFailure { e ->
+            log.e(e) { "Failed to verify PIN directly for profile $profileIndex" }
+        }.getOrElse {
+            PinVerifyResult(
+                unlocked = false,
+                message = "Couldn't verify PIN. Check your connection and try again.",
+            )
+        }
+
+    private suspend fun setPinDirect(profileIndex: Int, pin: String): PinVerifyResult =
+        runCatching {
+            SupabaseProvider.client.postgrest
+                .from("profiles")
+                .update(
+                    DirectProfilePinPayload(
+                        pinEnabled = true,
+                        pinHash = directPinValue(pin),
+                    ),
+                ) {
+                    filter { eq("profile_index", profileIndex) }
+                }
+            pullProfiles()
+            updatePinStateLocally(profileIndex, enabled = true)
+            PinVerifyResult(unlocked = true)
+        }.onFailure { e ->
+            log.e(e) { "Failed to set PIN directly for profile $profileIndex" }
+        }.getOrElse {
+            PinVerifyResult(
+                unlocked = false,
+                message = "Couldn't set PIN. Try again.",
+            )
+        }
+
+    private suspend fun clearPinDirect(profileIndex: Int): PinVerifyResult =
+        runCatching {
+            SupabaseProvider.client.postgrest
+                .from("profiles")
+                .update(
+                    DirectProfilePinPayload(
+                        pinEnabled = false,
+                        pinHash = null,
+                    ),
+                ) {
+                    filter { eq("profile_index", profileIndex) }
+                }
+            pullProfiles()
+            updatePinStateLocally(profileIndex, enabled = false)
+            PinVerifyResult(unlocked = true)
+        }.onFailure { e ->
+            log.e(e) { "Failed to clear PIN directly for profile $profileIndex" }
+        }.getOrElse {
+            PinVerifyResult(
+                unlocked = false,
+                message = "Couldn't remove PIN lock. Try again.",
+            )
+        }
+
+    private fun directPinValue(pin: String): String = "plain:$pin"
+
     suspend fun createProfile(
         name: String,
         avatarColorHex: String,
@@ -246,7 +449,6 @@ object ProfileRepository {
     suspend fun deleteProfile(profileIndex: Int) {
         if (AuthRepository.state.value.isAnonymous) {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
-            ProfilePinCacheStorage.removePayload(profileIndex)
             _state.value = _state.value.copy(
                 profiles = remaining,
                 activeProfile = if (_state.value.activeProfile?.profileIndex == profileIndex) remaining.firstOrNull() else _state.value.activeProfile,
@@ -263,95 +465,6 @@ object ProfileRepository {
             pullProfiles()
         }.onFailure { e ->
             log.e(e) { "Failed to delete profile $profileIndex" }
-        }
-    }
-
-    suspend fun verifyPin(profileIndex: Int, pin: String): PinVerifyResult {
-        if (AuthRepository.state.value !is AuthState.Authenticated) {
-            return verifyPinLocally(profileIndex, pin)
-        }
-
-        return runCatching {
-            val params = buildJsonObject {
-                put("p_profile_id", profileIndex)
-                put("p_pin", pin)
-            }
-            val result = SupabaseProvider.client.postgrest.rpc("verify_profile_pin", params)
-            result.decodeSingle<PinVerifyResult>().also { verifyResult ->
-                if (verifyResult.unlocked) {
-                    rememberVerifiedPin(profileIndex = profileIndex, pin = pin)
-                }
-            }
-        }.getOrElse { e ->
-            log.e(e) { "Failed to verify pin" }
-            verifyPinLocally(profileIndex, pin)
-        }
-    }
-
-    suspend fun setPin(profileIndex: Int, pin: String, currentPin: String? = null): PinVerifyResult {
-        if (AuthRepository.state.value !is AuthState.Authenticated) {
-            return PinVerifyResult(unlocked = false, message = getString(Res.string.profile_pin_set_requires_internet))
-        }
-
-        return runCatching {
-            val params = buildJsonObject {
-                put("p_profile_id", profileIndex)
-                put("p_pin", pin)
-                currentPin?.let { put("p_current_pin", it) }
-            }
-            SupabaseProvider.client.postgrest.rpc("set_profile_pin", params)
-            pullProfiles()
-            rememberVerifiedPin(profileIndex = profileIndex, pin = pin)
-            PinVerifyResult(unlocked = true)
-        }.onFailure { e ->
-            log.e(e) { "Failed to set pin" }
-        }.getOrElse {
-            PinVerifyResult(unlocked = false, message = getString(Res.string.profile_pin_set_failed))
-        }
-    }
-
-    suspend fun clearPin(profileIndex: Int, currentPin: String? = null): PinVerifyResult {
-        if (AuthRepository.state.value !is AuthState.Authenticated) {
-            return PinVerifyResult(unlocked = false, message = getString(Res.string.profile_pin_clear_requires_internet))
-        }
-
-        return runCatching {
-            val params = buildJsonObject {
-                put("p_profile_id", profileIndex)
-                currentPin?.let { put("p_current_pin", it) }
-            }
-            SupabaseProvider.client.postgrest.rpc("clear_profile_pin", params)
-            pullProfiles()
-            ProfilePinCacheStorage.removePayload(profileIndex)
-            PinVerifyResult(unlocked = true)
-        }.onFailure { e ->
-            log.e(e) { "Failed to clear pin" }
-        }.getOrElse {
-            PinVerifyResult(unlocked = false, message = getString(Res.string.profile_pin_clear_failed))
-        }
-    }
-
-    suspend fun clearPinWithPassword(profileIndex: Int, accountPassword: String) {
-        runCatching {
-            val params = buildJsonObject {
-                put("p_account_password", accountPassword)
-                put("p_profile_id", profileIndex)
-            }
-            SupabaseProvider.client.postgrest.rpc("clear_profile_pin_with_account_password", params)
-            pullProfiles()
-            ProfilePinCacheStorage.removePayload(profileIndex)
-        }.onFailure { e ->
-            log.e(e) { "Failed to clear pin with password" }
-        }
-    }
-
-    suspend fun pullProfileLocks(): List<ProfileLockState> {
-        return runCatching {
-            val result = SupabaseProvider.client.postgrest.rpc("sync_pull_profile_locks")
-            result.decodeList<ProfileLockState>()
-        }.getOrElse { e ->
-            log.e(e) { "Failed to pull profile locks" }
-            emptyList()
         }
     }
 
@@ -378,7 +491,21 @@ object ProfileRepository {
         if (_state.value.activeProfile != null) {
             activeProfileIndex = _state.value.activeProfile!!.profileIndex
         }
-        syncPinCache(profiles)
+        persist()
+    }
+
+    private fun updatePinStateLocally(profileIndex: Int, enabled: Boolean) {
+        val profiles = _state.value.profiles.map { profile ->
+            if (profile.profileIndex == profileIndex) {
+                profile.copy(pinEnabled = enabled, pinLockedUntil = null)
+            } else {
+                profile
+            }
+        }
+        _state.value = _state.value.copy(
+            profiles = profiles,
+            activeProfile = profiles.find { it.profileIndex == activeProfileIndex },
+        )
         persist()
     }
 
@@ -400,88 +527,6 @@ object ProfileRepository {
             isLoaded = profiles.isNotEmpty(),
         )
         _state.value.activeProfile?.let { activeProfileIndex = it.profileIndex }
-        syncPinCache(profiles)
-    }
-
-    private fun rememberVerifiedPin(profileIndex: Int, pin: String) {
-        val profile = _state.value.profiles.find { it.profileIndex == profileIndex }
-        val salt = generateProfilePinSalt()
-        val payload = CachedProfilePinPayload(
-            salt = salt,
-            digest = hashProfilePin(profileIndex = profileIndex, salt = salt, pin = pin),
-            profileUpdatedAt = profile?.updatedAt.orEmpty(),
-        )
-        ProfilePinCacheStorage.savePayload(profileIndex, json.encodeToString(payload))
-    }
-
-    private fun verifyPinLocally(profileIndex: Int, pin: String): PinVerifyResult {
-        val profile = _state.value.profiles.find { it.profileIndex == profileIndex }
-        if (profile?.pinEnabled != true) {
-            return PinVerifyResult(unlocked = true)
-        }
-
-        val payload = ProfilePinCacheStorage.loadPayload(profileIndex).orEmpty().trim()
-        if (payload.isEmpty()) {
-            return PinVerifyResult(
-                unlocked = false,
-                message = localizedString(Res.string.profile_pin_offline_verification_requires_online),
-            )
-        }
-
-        val cached = runCatching {
-            json.decodeFromString<CachedProfilePinPayload>(payload)
-        }.getOrNull() ?: return PinVerifyResult(
-            unlocked = false,
-            message = localizedString(Res.string.profile_pin_offline_verification_requires_online),
-        )
-
-        if (
-            cached.profileUpdatedAt.isNotBlank() &&
-            profile.updatedAt.isNotBlank() &&
-            cached.profileUpdatedAt != profile.updatedAt
-        ) {
-            ProfilePinCacheStorage.removePayload(profileIndex)
-            return PinVerifyResult(
-                unlocked = false,
-                message = localizedString(Res.string.profile_pin_changed_requires_refresh),
-            )
-        }
-
-        val digest = hashProfilePin(profileIndex = profileIndex, salt = cached.salt, pin = pin)
-        return if (digest == cached.digest) {
-            PinVerifyResult(unlocked = true)
-        } else {
-            PinVerifyResult(unlocked = false, message = localizedString(Res.string.pin_incorrect))
-        }
-    }
-
-    private fun syncPinCache(profiles: List<NuvioProfile>) {
-        val profilesByIndex = profiles.associateBy { it.profileIndex }
-        for (profileIndex in 1..4) {
-            val profile = profilesByIndex[profileIndex]
-            if (profile == null || !profile.pinEnabled) {
-                ProfilePinCacheStorage.removePayload(profileIndex)
-                continue
-            }
-
-            val raw = ProfilePinCacheStorage.loadPayload(profileIndex).orEmpty().trim()
-            if (raw.isEmpty()) continue
-
-            val cached = runCatching {
-                json.decodeFromString<CachedProfilePinPayload>(raw)
-            }.getOrNull() ?: run {
-                ProfilePinCacheStorage.removePayload(profileIndex)
-                continue
-            }
-
-            if (
-                cached.profileUpdatedAt.isNotBlank() &&
-                profile.updatedAt.isNotBlank() &&
-                cached.profileUpdatedAt != profile.updatedAt
-            ) {
-                ProfilePinCacheStorage.removePayload(profileIndex)
-            }
-        }
     }
 
     private fun persist() {
@@ -497,10 +542,3 @@ object ProfileRepository {
         )
     }
 }
-
-@kotlinx.serialization.Serializable
-data class ProfileLockState(
-    @kotlinx.serialization.SerialName("profile_index") val profileIndex: Int,
-    @kotlinx.serialization.SerialName("pin_enabled") val pinEnabled: Boolean = false,
-    @kotlinx.serialization.SerialName("pin_locked_until") val pinLockedUntil: String? = null,
-)

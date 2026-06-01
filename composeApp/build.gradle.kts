@@ -98,6 +98,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |
                 |object DebridConfig {
                 |    const val DIRECT_DEBRID_API_BASE_URL = "${props.getProperty("DIRECT_DEBRID_API_BASE_URL", "")}"
+                |    const val TORBOX_API_KEY = "${props.getProperty("TORBOX_API_KEY", "")}"
                 |}
                 """.trimMargin()
             )
