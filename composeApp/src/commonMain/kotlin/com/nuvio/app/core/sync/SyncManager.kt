@@ -121,6 +121,11 @@ object SyncManager {
                 runCatching { WatchProgressRepository.pullFromServer(profileId) }
                     .onFailure { log.e(it) { "Foreground watch progress pull failed" } }
             }
+
+            launch {
+                runCatching { WatchedRepository.pullFromServer(profileId) }
+                    .onFailure { log.e(it) { "Foreground watched pull failed" } }
+            }
         }
     }
 }

@@ -233,6 +233,7 @@ internal object MetaDetailsParser {
                 episode = video.int("episode"),
                 overview = video.string("overview") ?: video.string("description"),
                 runtime = video.int("runtime"),
+                imdbRating = video.string("imdbRating") ?: video.string("imdb_rating") ?: video.string("rating"),
                 streams = video.embeddedStreams(),
             )
         }

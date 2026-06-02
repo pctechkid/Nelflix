@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -70,6 +73,7 @@ import kotlin.math.roundToInt
 fun DetailMetaInfo(
     meta: MetaDetails,
     modifier: Modifier = Modifier,
+    onShareClick: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -93,7 +97,8 @@ fun DetailMetaInfo(
         val hasMetaRow = releaseLine != null ||
             runtimeText != null ||
             ageBadge != null ||
-            (validImdbRating != null && !hasMdbImdbRating)
+            (validImdbRating != null && !hasMdbImdbRating) ||
+            onShareClick != null
         if (hasMetaRow) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -149,6 +154,9 @@ fun DetailMetaInfo(
                             fontWeight = FontWeight.Bold,
                         )
                     }
+                }
+                onShareClick?.let { share ->
+                    ShareMetaButton(onClick = share)
                 }
             }
         }
@@ -212,6 +220,30 @@ fun DetailMetaInfo(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ShareMetaButton(
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .size(30.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Default.Share,
+                contentDescription = stringResource(Res.string.action_share),
+                modifier = Modifier.size(15.dp),
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }

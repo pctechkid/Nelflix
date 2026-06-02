@@ -138,5 +138,6 @@ fun DetailActionButtons(
                 )
             }
         }
+
     }
 }

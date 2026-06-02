@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nelflix</title>
+    <meta name="description" content="Open this title in Nelflix." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Nelflix" />
+    <meta property="og:title" content="Watch on Nelflix" />
+    <meta property="og:description" content="Open this title in Nelflix." />
+    <meta property="og:image" content="/app_logo_wordmark.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body style="margin:0;background:#070707;color:#fff;font-family:Inter,Arial,sans-serif;">
+    <main style="min-height:100vh;display:grid;place-items:center;padding:24px;">
+      <section style="width:min(380px,100%);text-align:center;">
+        <img src="/app_logo_wordmark.png" alt="Nelflix" style="width:190px;max-width:70vw;margin-bottom:24px;" />
+        <h1 style="font-size:26px;line-height:1.15;margin:0 0 10px;">Open in Nelflix</h1>
+        <p style="color:#cfcfcf;line-height:1.5;margin:0 0 22px;">This shared title opens inside the Nelflix app.</p>
+        <a id="open-link" href="nelflix://meta" style="display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 22px;border-radius:999px;background:#e50914;color:#fff;text-decoration:none;font-weight:700;">Open App</a>
+      </section>
+    </main>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const type = params.get("type") || "movie";
+      const id = params.get("id") || "";
+      const appUrl = `nelflix://meta?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}`;
+      document.getElementById("open-link").href = appUrl;
+      setTimeout(() => {
+        window.location.href = appUrl;
+      }, 350);
+    </script>
+  </body>
+</html>

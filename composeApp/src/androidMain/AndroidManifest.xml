@@ -44,6 +44,30 @@
                     android:host="auth"
                     android:path="/trakt" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="nelflix"
+                    android:host="meta" />
+                <data
+                    android:scheme="nelflix"
+                    android:host="downloads" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="https"
+                    android:host="${shareHost}"
+                    android:pathPrefix="/watch" />
+            </intent-filter>
         </activity>
 
         <receiver

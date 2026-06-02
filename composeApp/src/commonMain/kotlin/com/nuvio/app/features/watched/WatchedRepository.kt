@@ -28,7 +28,7 @@ private data class StoredWatchedPayload(
 )
 
 object WatchedRepository {
-    private const val watchedItemsPageSize = 900
+    private const val watchedItemsPageSize = 500
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("WatchedRepository")
@@ -87,6 +87,9 @@ object WatchedRepository {
     suspend fun pullFromServer(profileId: Int) {
         TraktAuthRepository.ensureLoaded()
         TraktSettingsRepository.ensureLoaded()
+        if (!hasLoaded || currentProfileId != profileId) {
+            loadFromDisk(profileId)
+        }
         currentProfileId = profileId
         runCatching {
             val serverItems = activePullSyncAdapter().pull(
@@ -94,13 +97,32 @@ object WatchedRepository {
                 pageSize = watchedItemsPageSize,
             )
 
-            itemsByKey = serverItems
+            val serverByKey = serverItems
                 .map(WatchedItem::normalizedMarkedAt)
                 .associateBy { watchedItemKey(it.type, it.id, it.season, it.episode) }
-                .toMutableMap()
+            val localItems = itemsByKey.values.map(WatchedItem::normalizedMarkedAt)
+            val mergedByKey = serverByKey.toMutableMap()
+            val localOnlyItems = mutableListOf<WatchedItem>()
+
+            localItems.forEach { localItem ->
+                val key = watchedItemKey(localItem.type, localItem.id, localItem.season, localItem.episode)
+                val serverItem = mergedByKey[key]
+                if (serverItem == null) {
+                    mergedByKey[key] = localItem
+                    localOnlyItems += localItem
+                } else if (localItem.markedAtEpochMs > serverItem.markedAtEpochMs) {
+                    mergedByKey[key] = localItem
+                    localOnlyItems += localItem
+                }
+            }
+
+            itemsByKey = mergedByKey
             hasLoaded = true
             publish()
             persist()
+            if (localOnlyItems.isNotEmpty()) {
+                pushToActiveTargets(profileId = profileId, items = localOnlyItems)
+            }
         }.onFailure { e ->
             log.e(e) { "Failed to pull watched items from server" }
         }

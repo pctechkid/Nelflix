@@ -18,6 +18,7 @@
     <string name="action_resume">Resume</string>
     <string name="action_retry">Retry</string>
     <string name="action_save">Save</string>
+    <string name="action_share">Share</string>
     <string name="action_validate">Validate</string>
     <string name="addon_installing">Installing</string>
     <string name="addon_title">Addons</string>
@@ -1151,6 +1152,8 @@
     <string name="external_player_not_configured">Choose an external player in settings first</string>
     <string name="external_player_unavailable">No external player is available</string>
     <string name="trailer_close">Close trailer</string>
+    <string name="trailer_enter_fullscreen">Fullscreen trailer</string>
+    <string name="trailer_exit_fullscreen">Exit fullscreen trailer</string>
     <string name="trailer_unable_to_play">Unable to play trailer</string>
     <string name="trakt_lists_load_failed">Failed to load Trakt lists</string>
     <string name="trakt_lists_update_failed">Failed to update Trakt lists</string>
@@ -1231,6 +1234,7 @@
     <string name="generic_unknown">Unknown</string>
     <string name="generic_addon">Addon</string>
     <string name="action_saved">Saved</string>
+    <string name="share_meta_text">Watch %1$s on Nelflix: %2$s</string>
     <string name="action_play_episode">Play %1$s</string>
     <string name="action_resume_episode">Resume %1$s</string>
     <string name="collections_import_error_empty_json">JSON is empty.</string>

@@ -57,8 +57,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
+import com.nuvio.app.core.deeplink.buildMetaShareUrl
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.share.ShareSheet
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.TraktListPickerDialog
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
@@ -336,6 +338,14 @@ fun MetaDetailsScreen(
                     {
                         LibraryRepository.toggleSaved(meta.toLibraryItem(savedAtEpochMs = 0L))
                     }
+                }
+                val shareUrl = remember(meta.type, meta.id) {
+                    buildMetaShareUrl(type = meta.type, id = meta.id)
+                }
+                val shareText = stringResource(Res.string.share_meta_text, meta.name, shareUrl)
+                val shareTitle = meta.name
+                val shareMeta = remember(shareTitle, shareText) {
+                    { ShareSheet.shareText(title = shareTitle, text = shareText) }
                 }
                 val movieProgress = watchProgressUiState.byVideoId[meta.id]
                     ?.takeUnless { it.isCompleted }
@@ -666,6 +676,7 @@ fun MetaDetailsScreen(
                                     onPrimaryPlayLongClick = onPrimaryPlayLongClick,
                                     onSaveClick = toggleSaved,
                                     onSaveLongClick = openLibraryListPicker,
+                                    onShareClick = shareMeta,
                                     showManualPlayOption = showManualPlayOption,
                                     preferredEpisodeSeasonNumber = seriesAction?.seasonNumber,
                                     preferredEpisodeNumber = seriesAction?.episodeNumber,
@@ -1000,6 +1011,7 @@ private fun ConfiguredMetaSections(
     onPrimaryPlayLongClick: (() -> Unit)?,
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
+    onShareClick: () -> Unit,
     showManualPlayOption: Boolean,
     preferredEpisodeSeasonNumber: Int?,
     preferredEpisodeNumber: Int?,
@@ -1070,7 +1082,10 @@ private fun ConfiguredMetaSections(
                 )
             }
             MetaScreenSectionKey.OVERVIEW -> {
-                DetailMetaInfo(meta = meta)
+                DetailMetaInfo(
+                    meta = meta,
+                    onShareClick = onShareClick,
+                )
             }
             MetaScreenSectionKey.PRODUCTION -> {
                 if (hasProductionSection) {

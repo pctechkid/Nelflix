@@ -93,6 +93,7 @@ actual fun PlatformPlayerSurface(
 
     DisposableEffect(Unit) {
         val observer = NuvioMpvObserver(
+            context = context,
             requestSnapshot = {
                 scope.launch {
                     MpvCalls.callOrNull(MpvSnapshotTimeoutMs) { MPVLib.snapshot() }
@@ -100,6 +101,7 @@ actual fun PlatformPlayerSurface(
                 }
             },
             onError = { latestOnError.value(it) },
+            currentExternalAudioUrl = { playerView?.currentExternalAudioUrl() },
         )
         MPVLib.addObserver(observer)
         onDispose {
@@ -200,12 +202,12 @@ class NuvioMpvView(
             applyYoutubeChunkedCompat(source.useYoutubeChunkedPlayback)
             MPVLib.command("loadfile", source.url.toPlayablePath(context), "replace")
             applyRegularSubtitleOverride()
-            source.audioUrl?.takeIf { it.isNotBlank() }?.let { audioUrl ->
-                MPVLib.command("audio-add", audioUrl.toPlayablePath(context), "auto")
-            }
             MPVLib.setPropertyBoolean("pause", !playWhenReady)
         }
     }
+
+    internal fun currentExternalAudioUrl(): String? =
+        currentSource?.audioUrl?.takeIf { it.isNotBlank() }
 
     override fun initOptions() {
         PlayerSettingsRepository.ensureLoaded()
@@ -284,8 +286,10 @@ class NuvioMpvView(
 }
 
 private class NuvioMpvObserver(
+    private val context: Context,
     private val requestSnapshot: () -> Unit,
     private val onError: (String?) -> Unit,
+    private val currentExternalAudioUrl: () -> String?,
 ) : MPVLib.EventObserver {
     private val lastSnapshotRequestMs = AtomicLong(0L)
 
@@ -316,7 +320,12 @@ private class NuvioMpvObserver(
     override fun event(eventId: Int) {
         when (eventId) {
             MPVLib.mpvEventId.MPV_EVENT_FILE_LOADED -> {
-                MpvCalls.execute { applyRegularSubtitleOverride() }
+                MpvCalls.execute {
+                    applyRegularSubtitleOverride()
+                    currentExternalAudioUrl()?.let { audioUrl ->
+                        MPVLib.command("audio-add", audioUrl.toPlayablePath(context), "select")
+                    }
+                }
                 onError(null)
                 requestSnapshotThrottled(force = true)
             }

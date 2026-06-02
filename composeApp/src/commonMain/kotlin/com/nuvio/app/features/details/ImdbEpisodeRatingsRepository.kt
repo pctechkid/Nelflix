@@ -79,6 +79,9 @@ object ImdbEpisodeRatingsRepository {
             val primary = toRatingsMap(ImdbTapframeApi.getSeasonRatings(imdbId))
             if (primary.isNotEmpty()) return primary
             log.w { "Primary episode ratings empty for imdbId=$imdbId, trying fallback" }
+
+            val publicFallback = ImdbApiDevEpisodeRatingsApi.getEpisodeRatings(imdbId)
+            if (publicFallback.isNotEmpty()) return publicFallback
         }
 
         if (tmdbId != null) {

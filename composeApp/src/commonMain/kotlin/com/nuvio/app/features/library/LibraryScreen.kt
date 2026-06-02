@@ -34,9 +34,9 @@ import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watching.application.WatchingState
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -64,8 +64,12 @@ fun LibraryScreen(
     val retryLibraryLoad: () -> Unit = {
         NetworkStatusRepository.requestRefresh(force = true)
         coroutineScope.launch {
-            LibraryRepository.pullFromServer(ProfileRepository.activeProfileId)
+            refreshLibraryAndWatchedState()
         }
+    }
+
+    LaunchedEffect(uiState.sourceMode) {
+        refreshLibraryAndWatchedState()
     }
 
     LaunchedEffect(networkStatusUiState.condition, isTraktSource) {
@@ -81,7 +85,7 @@ fun LibraryScreen(
                 observedOfflineState = false
                 if (isTraktSource) {
                     coroutineScope.launch {
-                        LibraryRepository.pullFromServer(ProfileRepository.activeProfileId)
+                        refreshLibraryAndWatchedState()
                     }
                 }
             }
@@ -190,6 +194,12 @@ fun LibraryScreen(
             }
         }
     }
+}
+
+private suspend fun refreshLibraryAndWatchedState() {
+    val profileId = ProfileRepository.activeProfileId
+    LibraryRepository.pullFromServer(profileId)
+    WatchedRepository.pullFromServer(profileId)
 }
 
 private fun LazyListScope.librarySections(

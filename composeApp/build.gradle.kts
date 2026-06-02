@@ -127,6 +127,15 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |}
                 """.trimMargin()
             )
+            resolve("ShareConfig.kt").writeText(
+                """
+                |package com.nuvio.app.core.build
+                |
+                |object ShareConfig {
+                |    const val SHARE_BASE_URL = "${props.getProperty("SHARE_BASE_URL", "https://nelflix-ronnel.vercel.app")}"
+                |}
+                """.trimMargin()
+            )
         }
 
         outDir.resolve("com/nuvio/app/features/settings").apply {
@@ -362,6 +371,12 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = releaseAppVersionCode
         versionName = releaseAppVersionName
+        manifestPlaceholders["shareHost"] = supabaseProps
+            .getProperty("SHARE_BASE_URL", "https://nelflix-ronnel.vercel.app")
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore('/')
+            .ifBlank { "nelflix-ronnel.vercel.app" }
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }

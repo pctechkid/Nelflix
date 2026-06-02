@@ -6,24 +6,25 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
@@ -31,18 +32,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import com.nuvio.app.core.ui.NuvioBottomSheetDivider
-import com.nuvio.app.core.ui.NuvioModalBottomSheet
-import com.nuvio.app.core.ui.dismissNuvioBottomSheet
-import com.nuvio.app.core.ui.nuvioSafeBottomPadding
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.nuvio.app.features.player.EnterImmersivePlayerMode
+import com.nuvio.app.features.player.LockPlayerToLandscape
 import com.nuvio.app.features.player.PlatformPlayerSurface
 import com.nuvio.app.features.player.PlayerResizeMode
 import com.nuvio.app.features.trailer.TrailerPlaybackSource
-import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrailerPlayerPopup(
     visible: Boolean,
@@ -67,30 +66,48 @@ fun TrailerPlayerPopup(
         }
     }.joinToString(separator = " • ")
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val coroutineScope = rememberCoroutineScope()
     var playerError by remember(playbackSource?.videoUrl, playbackSource?.audioUrl) {
         mutableStateOf<String?>(null)
     }
-
-    val activeError = errorMessage ?: playerError
-
-    val dismissSheet: () -> Unit = {
-        coroutineScope.launch {
-            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
-        }
+    var fullscreen by remember(playbackSource?.videoUrl, playbackSource?.audioUrl) {
+        mutableStateOf(false)
     }
 
-    NuvioModalBottomSheet(
-        onDismissRequest = dismissSheet,
-        sheetState = sheetState,
+    val activeError = errorMessage ?: playerError
+    if (fullscreen) {
+        LockPlayerToLandscape()
+        EnterImmersivePlayerMode(keepScreenAwake = true)
+    }
+
+    Dialog(
+        onDismissRequest = {
+            if (fullscreen) {
+                fullscreen = false
+            } else {
+                onDismiss()
+            }
+        },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = nuvioSafeBottomPadding(14.dp)),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .then(
+                    if (fullscreen) {
+                        Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.scrim)
+                            .padding(8.dp)
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 920.dp)
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(16.dp)
+                    },
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (fullscreen) 8.dp else 12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -118,7 +135,21 @@ fun TrailerPlayerPopup(
                     }
                 }
 
-                IconButton(onClick = dismissSheet) {
+                IconButton(onClick = { fullscreen = !fullscreen }) {
+                    Icon(
+                        imageVector = if (fullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                        contentDescription = stringResource(
+                            if (fullscreen) {
+                                Res.string.trailer_exit_fullscreen
+                            } else {
+                                Res.string.trailer_enter_fullscreen
+                            },
+                        ),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+
+                IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(Res.string.trailer_close),
@@ -127,14 +158,12 @@ fun TrailerPlayerPopup(
                 }
             }
 
-            NuvioBottomSheetDivider()
-
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
+                    .then(if (fullscreen) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth())
+                    .clip(RoundedCornerShape(if (fullscreen) 8.dp else 18.dp))
                     .background(MaterialTheme.colorScheme.scrim)
-                    .aspectRatio(16f / 9f),
+                    .then(if (fullscreen) Modifier else Modifier.aspectRatio(16f / 9f)),
                 contentAlignment = Alignment.Center,
             ) {
                 when {
@@ -173,7 +202,7 @@ fun TrailerPlayerPopup(
                             sourceUrl = playbackSource.videoUrl,
                             sourceAudioUrl = playbackSource.audioUrl,
                             useYoutubeChunkedPlayback = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxSize(),
                             playWhenReady = true,
                             resizeMode = PlayerResizeMode.Fit,
                             useNativeController = true,

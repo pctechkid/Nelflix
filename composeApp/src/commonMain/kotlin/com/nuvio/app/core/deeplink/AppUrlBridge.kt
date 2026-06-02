@@ -1,6 +1,7 @@
 package com.nuvio.app.core.deeplink
 
 import com.nuvio.app.features.trakt.handleTraktAuthCallbackUrl
+import com.nuvio.app.core.build.ShareConfig
 import io.ktor.http.Url
 import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,17 +46,34 @@ fun buildMetaDeepLinkUrl(
     type: String,
     id: String,
 ): String = buildString {
-    append("nuvio://meta?type=")
+    append("nelflix://meta?type=")
     append(type.trim().encodeURLParameter())
     append("&id=")
     append(id.trim().encodeURLParameter())
 }
 
-fun buildDownloadsDeepLinkUrl(): String = "nuvio://downloads"
+fun buildMetaShareUrl(
+    type: String,
+    id: String,
+): String = buildString {
+    append(ShareConfig.SHARE_BASE_URL.trim().ifBlank { DefaultShareBaseUrl }.trimEnd('/'))
+    append("/watch?type=")
+    append(type.trim().encodeURLParameter())
+    append("&id=")
+    append(id.trim().encodeURLParameter())
+}
+
+fun buildDownloadsDeepLinkUrl(): String = "nelflix://downloads"
 
 private fun parseAppDeepLink(url: String): AppDeepLink? {
     val parsedUrl = runCatching { Url(url) }.getOrNull() ?: return null
-    if (!parsedUrl.protocol.name.equals("nuvio", ignoreCase = true)) return null
+    if (parsedUrl.protocol.name.equals("http", ignoreCase = true) ||
+        parsedUrl.protocol.name.equals("https", ignoreCase = true)
+    ) {
+        return parseWebShareDeepLink(parsedUrl)
+    }
+
+    if (!parsedUrl.protocol.name.equals("nelflix", ignoreCase = true)) return null
 
     return when (parsedUrl.host.lowercase()) {
         "meta" -> {
@@ -69,3 +87,21 @@ private fun parseAppDeepLink(url: String): AppDeepLink? {
         else -> null
     }
 }
+
+private fun parseWebShareDeepLink(parsedUrl: Url): AppDeepLink? {
+    val shareHost = ShareConfig.SHARE_BASE_URL
+        .trim()
+        .ifBlank { DefaultShareBaseUrl }
+        .removePrefix("https://")
+        .removePrefix("http://")
+        .substringBefore('/')
+        .lowercase()
+    if (!parsedUrl.host.equals(shareHost, ignoreCase = true)) return null
+    if (parsedUrl.encodedPath.trim('/').lowercase() != "watch") return null
+
+    val type = parsedUrl.parameters["type"]?.trim().orEmpty()
+    val id = parsedUrl.parameters["id"]?.trim().orEmpty()
+    return if (type.isBlank() || id.isBlank()) null else AppDeepLink.Meta(type = type, id = id)
+}
+
+private const val DefaultShareBaseUrl = "https://nelflix-ronnel.vercel.app"
