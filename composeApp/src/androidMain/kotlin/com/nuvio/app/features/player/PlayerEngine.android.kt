@@ -51,7 +51,6 @@ private const val MpvSnapshotIntervalMs = 1_000L
 private const val MpvSnapshotTimeoutMs = 750L
 private const val MpvReadTimeoutMs = 1_200L
 private const val MpvReleaseTimeoutMs = 5_000L
-
 @Composable
 actual fun PlatformPlayerSurface(
     sourceUrl: String,
@@ -178,6 +177,7 @@ class NuvioMpvView(
     attrs: AttributeSet,
 ) : BaseMPVView(context, attrs) {
     private var currentSource: MpvSource? = null
+    private var currentResizeMode: PlayerResizeMode = PlayerResizeMode.Fit
     var isReleasing: Boolean = false
         private set
 
@@ -202,6 +202,7 @@ class NuvioMpvView(
             applyYoutubeChunkedCompat(source.useYoutubeChunkedPlayback)
             MPVLib.command("loadfile", source.url.toPlayablePath(context), "replace")
             applyRegularSubtitleOverride()
+            applyResizeModeNow(currentResizeMode)
             MPVLib.setPropertyBoolean("pause", !playWhenReady)
         }
     }
@@ -233,6 +234,9 @@ class NuvioMpvView(
         MPVLib.setOptionString("sub-ass-force-style", RegularSubtitleAssForceStyle)
         MPVLib.setOptionString("sub-bold", "no")
         MPVLib.setOptionString("sub-italic", "no")
+        MPVLib.setOptionString("blend-subtitles", "no")
+        MPVLib.setOptionString("sub-ass-use-video-data", "all")
+        MPVLib.setOptionString("sub-ass-video-aspect-override", "no")
     }
 
     override fun observeProperties() {
@@ -251,23 +255,130 @@ class NuvioMpvView(
         Log.w(TAG, "surface destroyed during release; MPV stop/destroy already queued")
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (currentResizeMode == PlayerResizeMode.Stretch && w > 0 && h > 0 && (w != oldw || h != oldh)) {
+            applyResizeMode(currentResizeMode)
+        }
+    }
+
     fun applyResizeMode(resizeMode: PlayerResizeMode) {
+        currentResizeMode = resizeMode
         MpvCalls.execute {
-            when (resizeMode) {
-                PlayerResizeMode.Fit -> {
-                    MPVLib.setPropertyDouble("panscan", 0.0)
-                    MPVLib.setPropertyString("video-aspect-override", "no")
+            applyResizeModeNow(resizeMode)
+        }
+    }
+
+    private fun applyResizeModeNow(resizeMode: PlayerResizeMode) {
+        when (resizeMode) {
+            PlayerResizeMode.Fit -> {
+                resetVideoGeometry()
+            }
+            PlayerResizeMode.Fill -> {
+                resetVideoGeometry()
+            }
+            PlayerResizeMode.Zoom -> {
+                removeStretchVideoFilter()
+                MPVLib.setPropertyBoolean("keepaspect", true)
+                MPVLib.setPropertyDouble("panscan", 1.0)
+                MPVLib.setPropertyString("video-aspect-override", "no")
+                MPVLib.setPropertyDouble("video-scale-x", 1.0)
+                MPVLib.setPropertyDouble("video-scale-y", 1.0)
+            }
+            PlayerResizeMode.Stretch -> {
+                if (selectedSubtitleNeedsSafeStretchFallback()) {
+                    resetVideoGeometry()
+                    return
                 }
-                PlayerResizeMode.Fill -> {
-                    MPVLib.setPropertyDouble("panscan", 0.0)
-                    MPVLib.setPropertyString("video-aspect-override", "no")
-                }
-                PlayerResizeMode.Zoom -> {
-                    MPVLib.setPropertyDouble("panscan", 1.0)
-                    MPVLib.setPropertyString("video-aspect-override", "no")
-                }
+                val stretchScale = stretchVideoScale()
+                removeStretchVideoFilter()
+                MPVLib.setPropertyBoolean("keepaspect", true)
+                MPVLib.setPropertyDouble("panscan", 0.0)
+                MPVLib.setPropertyString("video-aspect-override", "no")
+                MPVLib.setPropertyDouble("video-scale-x", stretchScale.first)
+                MPVLib.setPropertyDouble("video-scale-y", stretchScale.second)
+                MPVLib.setPropertyString("sub-ass-use-video-data", "none")
+                MPVLib.setPropertyString("sub-ass-video-aspect-override", "no")
             }
         }
+    }
+
+    private fun resetVideoGeometry() {
+        removeStretchVideoFilter()
+        MPVLib.setPropertyBoolean("keepaspect", true)
+        MPVLib.setPropertyDouble("panscan", 0.0)
+        MPVLib.setPropertyString("video-aspect-override", "no")
+        MPVLib.setPropertyDouble("video-scale-x", 1.0)
+        MPVLib.setPropertyDouble("video-scale-y", 1.0)
+        MPVLib.setPropertyString("sub-ass-use-video-data", "all")
+        MPVLib.setPropertyString("sub-ass-video-aspect-override", "no")
+    }
+
+    private fun stretchVideoScale(): Pair<Double, Double> {
+        val surfaceWidth = width.takeIf { it > 0 } ?: measuredWidth.takeIf { it > 0 }
+        val surfaceHeight = height.takeIf { it > 0 } ?: measuredHeight.takeIf { it > 0 }
+        val targetAspect = if (surfaceWidth != null && surfaceHeight != null) {
+            surfaceWidth.toDouble() / surfaceHeight.toDouble()
+        } else {
+            return 1.0 to 1.0
+        }
+        val sourceAspect = sourceVideoAspect()
+        if (sourceAspect <= 0.0) return 1.0 to 1.0
+
+        return if (targetAspect >= sourceAspect) {
+            (targetAspect / sourceAspect) to 1.0
+        } else {
+            1.0 to (sourceAspect / targetAspect)
+        }
+    }
+
+    private fun sourceVideoAspect(): Double {
+        MPVLib.getPropertyDouble("video-params/aspect")
+            ?.takeIf { it.isFinite() && it > 0.0 }
+            ?.let { return it }
+
+        val videoWidth = MPVLib.getPropertyDouble("video-params/w")
+            ?.takeIf { it.isFinite() && it > 0.0 }
+        val videoHeight = MPVLib.getPropertyDouble("video-params/h")
+            ?.takeIf { it.isFinite() && it > 0.0 }
+        if (videoWidth != null && videoHeight != null) {
+            return videoWidth / videoHeight
+        }
+        return 16.0 / 9.0
+    }
+
+    private fun selectedSubtitleNeedsSafeStretchFallback(): Boolean {
+        val subtitleTracks = mpvTracks().filter { it.isSubtitle }
+        val track = subtitleTracks.firstOrNull { it.selected == true } ?: return false
+        val codec = listOfNotNull(track.codec, track.codecDescription).joinToString(" ").lowercase()
+        if (!codec.contains("ass")) return false
+
+        val title = track.title.orEmpty().trim()
+        if (
+            title.equals("CR", ignoreCase = true) ||
+            title.endsWith("_CR", ignoreCase = true) ||
+            title.contains("crunchyroll", ignoreCase = true)
+        ) return true
+
+        val source = currentSource?.url.orEmpty().lowercase()
+        if (
+            source.contains("cr.web-dl") ||
+            source.contains("cr%20web-dl") ||
+            source.contains("cr web-dl") ||
+            source.contains("erai-raws")
+        ) return true
+
+        return subtitleTracks.size >= 4 &&
+            subtitleTracks.all { subtitle ->
+                listOfNotNull(subtitle.codec, subtitle.codecDescription)
+                    .joinToString(" ")
+                    .lowercase()
+                    .contains("ass")
+            }
+    }
+
+    private fun removeStretchVideoFilter() {
+        runCatching { MPVLib.command("vf", "remove", "@nelflix_stretch_video") }
     }
 
     companion object {
@@ -492,6 +603,9 @@ private fun applyRegularSubtitleOverride() {
         MPVLib.setPropertyString("sub-ass-force-style", RegularSubtitleAssForceStyle)
         MPVLib.setPropertyString("sub-bold", "no")
         MPVLib.setPropertyString("sub-italic", "no")
+        MPVLib.setPropertyString("blend-subtitles", "no")
+        MPVLib.setPropertyString("sub-ass-use-video-data", "all")
+        MPVLib.setPropertyString("sub-ass-video-aspect-override", "no")
     }
 }
 
@@ -504,6 +618,9 @@ private fun String.withPersistentRegularSubtitleOverrides(): String {
         sub-ass-force-style=${persistentRegularSubtitleForceStyle()}
         sub-bold=no
         sub-italic=no
+        blend-subtitles=no
+        sub-ass-use-video-data=all
+        sub-ass-video-aspect-override=no
     """.trimIndent()
     return if (trimmed.isBlank()) {
         block + "\n"

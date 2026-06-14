@@ -102,6 +102,15 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |}
                 """.trimMargin()
             )
+            resolve("TheIntroDbConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.player.skip
+                |
+                |object TheIntroDbConfig {
+                |    const val URL = "${props.getProperty("THEINTRODB_API_URL", "https://api.theintrodb.org/v3")}" 
+                |}
+                """.trimMargin()
+            )
         }
 
         outDir.resolve("com/nuvio/app/core/build").apply {

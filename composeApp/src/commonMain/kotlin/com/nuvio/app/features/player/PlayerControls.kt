@@ -168,12 +168,18 @@ internal fun PlayerControlsShell(
             )
         }
 
-        if ((showParentalGuide || showStartupTitleIntro) && !showPlaybackControls && !metadataInfoOnly) {
+        val introBackdropAlpha by animateFloatAsState(
+            targetValue = if ((showParentalGuide || showStartupTitleIntro) && !showPlaybackControls && !metadataInfoOnly) 1f else 0f,
+            animationSpec = tween(durationMillis = if (showParentalGuide || showStartupTitleIntro) 180 else 1000, easing = FastOutSlowInEasing),
+            label = "playerIntroBackdropAlpha",
+        )
+        if (introBackdropAlpha > 0.001f) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(240.dp)
                     .align(Alignment.TopCenter)
+                    .graphicsLayer { alpha = introBackdropAlpha }
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
@@ -301,13 +307,11 @@ private fun PlayerHeader(
         label = "playerHeaderMetadataAlpha",
     )
     Column(modifier = modifier) {
-        var textTitleLineCount by remember(title, logo) { mutableIntStateOf(1) }
         val episodeLine = if (seasonNumber != null && episodeNumber != null && !episodeTitle.isNullOrBlank()) {
             "S${seasonNumber}E${episodeNumber}: $episodeTitle"
         } else {
             null
         }
-        val showEpisodeInsideTextHeader = logo.isNullOrBlank() && episodeLine != null && textTitleLineCount <= 1
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -334,13 +338,13 @@ private fun PlayerHeader(
                     } else {
                         NetflixHeaderTitle(
                             title = title,
-                            episodeLine = if (showEpisodeInsideTextHeader) episodeLine else null,
+                            episodeLine = episodeLine,
                             fontSize = metrics.episodeInfoSize * 1.08f,
                             episodeFontSize = metrics.episodeInfoSize,
-                            onTitleLineCountChanged = { textTitleLineCount = it },
+                            onTitleLineCountChanged = {},
                         )
                     }
-    if (episodeLine != null && !showEpisodeInsideTextHeader) {
+                    if (episodeLine != null && !logo.isNullOrBlank()) {
                         AnimatedHeaderLine(
                             text = episodeLine,
                             fontSize = metrics.episodeInfoSize,
@@ -485,27 +489,29 @@ private fun NetflixHeaderTitle(
     var accentVisible by remember(title, episodeLine) { mutableStateOf(false) }
     val accentScaleY by animateFloatAsState(
         targetValue = if (accentVisible && visible) 1f else 0f,
-        animationSpec = tween(durationMillis = if (visible) 760 else 1200, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = if (visible) 760 else 1700, easing = FastOutSlowInEasing),
         label = "playerTitleAccentScale",
     )
     val textAlpha by animateFloatAsState(
         targetValue = if (accentVisible && visible) 1f else 0f,
         animationSpec = tween(
-            durationMillis = if (visible) 720 else 980,
+            durationMillis = if (visible) 720 else 1500,
             delayMillis = if (visible) 110 else 0,
             easing = FastOutSlowInEasing,
         ),
         label = "playerTitleTextAlpha",
     )
     val textOffset by animateFloatAsState(
-        targetValue = if (accentVisible && visible) 0f else -12f,
+        targetValue = if (accentVisible && visible) 0f else -18f,
         animationSpec = tween(
-            durationMillis = if (visible) 720 else 980,
+            durationMillis = if (visible) 720 else 1500,
             delayMillis = if (visible) 110 else 0,
             easing = FastOutSlowInEasing,
         ),
         label = "playerTitleTextOffset",
     )
+    var titleLineCount by remember(title) { mutableIntStateOf(1) }
+    val episodeInsideAccent = !episodeLine.isNullOrBlank() && titleLineCount <= 1
     LaunchedEffect(title, episodeLine) {
         accentVisible = true
     }
@@ -516,7 +522,7 @@ private fun NetflixHeaderTitle(
                 alpha = textAlpha
                 translationX = textOffset
             },
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(if (episodeInsideAccent) 1.dp else 2.dp),
     ) {
         Row(
             verticalAlignment = Alignment.Top,
@@ -533,23 +539,46 @@ private fun NetflixHeaderTitle(
                     .clip(RoundedCornerShape(1.dp))
                     .background(NetflixProgressRed),
             )
-            Text(
-                text = title.uppercase(),
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = fontSize,
-                    lineHeight = fontSize * 1.05f,
-                    fontWeight = FontWeight.Bold,
-                ),
-                color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .padding(start = 8.dp, top = 4.dp, bottom = 4.dp)
-                    .widthIn(max = 320.dp),
-                onTextLayout = { onTitleLineCountChanged(it.lineCount) },
-            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(if (episodeInsideAccent) 0.dp else 2.dp),
+            ) {
+                Text(
+                    text = title.uppercase(),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = fontSize,
+                        lineHeight = fontSize * 1.05f,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .padding(start = 8.dp, top = 4.dp, bottom = if (episodeInsideAccent) 0.dp else 4.dp)
+                        .widthIn(max = 320.dp),
+                    onTextLayout = {
+                        titleLineCount = it.lineCount
+                        onTitleLineCountChanged(it.lineCount)
+                    },
+                )
+                if (!episodeLine.isNullOrBlank() && episodeInsideAccent) {
+                    Text(
+                        text = episodeLine,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = episodeFontSize,
+                            lineHeight = episodeFontSize * 1.25f,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .padding(start = 8.dp, bottom = 3.dp)
+                            .widthIn(max = 320.dp),
+                    )
+                }
+            }
         }
-        if (!episodeLine.isNullOrBlank()) {
+        if (!episodeLine.isNullOrBlank() && !episodeInsideAccent) {
             Text(
                 text = episodeLine,
                 style = MaterialTheme.typography.bodyMedium.copy(

@@ -11,20 +11,91 @@ object SkipIntroRepository {
     private val introDbConfigured: Boolean
         get() = IntroDbConfig.URL.isNotBlank()
 
-    suspend fun getSkipIntervals(imdbId: String?, season: Int, episode: Int): List<SkipInterval> {
-        if (imdbId == null) return emptyList()
+    suspend fun getSkipIntervals(
+        imdbId: String?,
+        tmdbId: Int?,
+        malId: String?,
+        anilistId: String?,
+        season: Int,
+        episode: Int,
+        durationMs: Long,
+    ): List<SkipInterval> {
         val settings = PlayerSettingsRepository.uiState.value
         if (!settings.skipIntroEnabled) return emptyList()
 
-        val cacheKey = "$imdbId:$season:$episode"
+        val cacheKey = listOf(
+            "all",
+            imdbId.orEmpty(),
+            tmdbId?.toString().orEmpty(),
+            malId.orEmpty(),
+            anilistId.orEmpty(),
+            season.toString(),
+            episode.toString(),
+            durationMs.takeIf { it > 0L }?.toString().orEmpty(),
+        ).joinToString(":")
         cache[cacheKey]?.let { return it }
 
+        val theIntroDbResult = fetchFromTheIntroDb(
+            tmdbId = tmdbId,
+            imdbId = imdbId,
+            season = season,
+            episode = episode,
+            durationMs = durationMs,
+        )
+        if (theIntroDbResult.isNotEmpty()) return theIntroDbResult.also { cache[cacheKey] = it }
+
         if (introDbConfigured) {
-            val result = fetchFromIntroDb(imdbId, season, episode)
+            val result = imdbId?.let { fetchFromIntroDb(it, season, episode) }.orEmpty()
             if (result.isNotEmpty()) return result.also { cache[cacheKey] = it }
         }
 
+        val aniSkipResult = malId?.let { fetchFromAniSkip(it, episode) }.orEmpty()
+        if (aniSkipResult.isNotEmpty()) return aniSkipResult.also { cache[cacheKey] = it }
+
+        val animeSkipResult = anilistId?.let {
+            fetchFromAnimeSkip(it, episode, season = season)
+        }.orEmpty()
+        if (animeSkipResult.isNotEmpty()) return animeSkipResult.also { cache[cacheKey] = it }
+
         return emptyList<SkipInterval>().also { cache[cacheKey] = it }
+    }
+
+    suspend fun getSkipIntervals(imdbId: String?, season: Int, episode: Int): List<SkipInterval> {
+        return getSkipIntervals(
+            imdbId = imdbId,
+            tmdbId = null,
+            malId = null,
+            anilistId = null,
+            season = season,
+            episode = episode,
+            durationMs = 0L,
+        )
+    }
+
+    private suspend fun fetchFromTheIntroDb(
+        tmdbId: Int?,
+        imdbId: String?,
+        season: Int,
+        episode: Int,
+        durationMs: Long,
+    ): List<SkipInterval> {
+        return try {
+            val data = SkipIntroApi.getTheIntroDbMedia(
+                tmdbId = tmdbId,
+                imdbId = imdbId,
+                season = season,
+                episode = episode,
+                durationMs = durationMs,
+            ) ?: return emptyList()
+            buildList {
+                addAll(data.intro.mapNotNull { it.toSkipIntervalOrNull("intro", durationMs) })
+                addAll(data.recap.mapNotNull { it.toSkipIntervalOrNull("recap", durationMs) })
+                addAll(data.credits.mapNotNull { it.toSkipIntervalOrNull("outro", durationMs) })
+                addAll(data.preview.mapNotNull { it.toSkipIntervalOrNull("preview", durationMs) })
+            }.sortedBy { it.startTime }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     suspend fun getSkipIntervalsForMal(malId: String, episode: Int): List<SkipInterval> {
@@ -73,6 +144,16 @@ object SkipIntroRepository {
         val end = endSec ?: endMs?.let { it / 1000.0 }
         if (start == null || end == null || end <= start) return null
         return SkipInterval(startTime = start, endTime = end, type = type, provider = "introdb")
+    }
+
+    private fun TheIntroDbSegment.toSkipIntervalOrNull(type: String, durationMs: Long): SkipInterval? {
+        val start = startSec ?: startMs?.let { it / 1000.0 } ?: 0.0
+        val end = endSec
+            ?: endMs?.let { it / 1000.0 }
+            ?: durationMs.takeIf { it > 0L }?.let { it / 1000.0 }
+            ?: return null
+        if (end <= start) return null
+        return SkipInterval(startTime = start, endTime = end, type = type, provider = "theintrodb")
     }
 
     private suspend fun fetchFromAniSkip(malId: String, episode: Int): List<SkipInterval> {

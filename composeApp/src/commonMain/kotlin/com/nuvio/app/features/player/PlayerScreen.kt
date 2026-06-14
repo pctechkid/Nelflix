@@ -197,6 +197,7 @@ fun PlayerScreen(
         val resizeModeFitLabel = stringResource(Res.string.compose_player_resize_fit)
         val resizeModeFillLabel = stringResource(Res.string.compose_player_resize_fill)
         val resizeModeZoomLabel = stringResource(Res.string.compose_player_resize_zoom)
+        val resizeModeStretchLabel = stringResource(Res.string.compose_player_resize_stretch)
         val downloadedLabel = stringResource(Res.string.compose_player_downloaded)
         val airsPrefix = stringResource(Res.string.compose_player_airs_prefix)
         val tbaLabel = stringResource(Res.string.compose_player_tba)
@@ -252,6 +253,12 @@ fun PlayerScreen(
         var shouldPlay by rememberSaveable(activeSourceUrl) { mutableStateOf(true) }
         var resizeMode by rememberSaveable(playerSettingsUiState.resizeMode) {
             mutableStateOf(playerSettingsUiState.resizeMode)
+        }
+        LaunchedEffect(activeSourceUrl) {
+            if (resizeMode == PlayerResizeMode.Stretch) {
+                resizeMode = PlayerResizeMode.Fit
+                PlayerSettingsRepository.setResizeMode(PlayerResizeMode.Fit)
+            }
         }
         var layoutSize by remember { mutableStateOf(IntSize.Zero) }
         var playbackSnapshot by remember { mutableStateOf(PlayerPlaybackSnapshot()) }
@@ -313,6 +320,7 @@ fun PlayerScreen(
         val currentGestureFeedback = liveGestureFeedback ?: gestureFeedback
         val showManualPauseMetadata = watchTogetherMetadataForcedVisible
         val metadataOverlayVisible = !playerControlsLocked &&
+            !playbackSnapshot.isEnded &&
             (pausedOverlayVisible || showManualPauseMetadata) &&
             (!controlsVisible || showManualPauseMetadata)
 
@@ -1188,6 +1196,7 @@ fun PlayerScreen(
                     PlayerResizeMode.Fit -> resizeModeFitLabel
                     PlayerResizeMode.Fill -> resizeModeFillLabel
                     PlayerResizeMode.Zoom -> resizeModeZoomLabel
+                    PlayerResizeMode.Stretch -> resizeModeStretchLabel
                 },
             )
             controlsVisible = true
@@ -1238,7 +1247,7 @@ fun PlayerScreen(
                 watchTogetherMetadataForcedVisible = false
                 return@rememberUpdatedState
             }
-            if (!playbackSnapshot.isPlaying && !playbackSnapshot.isLoading && playbackSnapshot.durationMs > 0L) {
+            if (!playbackSnapshot.isEnded && !playbackSnapshot.isPlaying && !playbackSnapshot.isLoading && playbackSnapshot.durationMs > 0L) {
                 if (pausedOverlayVisible && !controlsVisible) {
                     pausedOverlayVisible = false
                     controlsVisible = true
@@ -1487,14 +1496,33 @@ fun PlayerScreen(
             lockedOverlayVisible = false
         }
 
-        LaunchedEffect(playbackSnapshot.isPlaying, playbackSnapshot.isLoading, playbackSnapshot.durationMs, errorMessage) {
+        LaunchedEffect(
+            playbackSnapshot.isPlaying,
+            playbackSnapshot.isLoading,
+            playbackSnapshot.isEnded,
+            playbackSnapshot.durationMs,
+            errorMessage,
+        ) {
             pausedOverlayVisible = false
-            if (playbackSnapshot.isPlaying || playbackSnapshot.isLoading || playbackSnapshot.durationMs <= 0L || errorMessage != null) {
+            if (
+                playbackSnapshot.isPlaying ||
+                playbackSnapshot.isLoading ||
+                playbackSnapshot.isEnded ||
+                playbackSnapshot.durationMs <= 0L ||
+                errorMessage != null
+            ) {
                 return@LaunchedEffect
             }
             delay(1000)
             controlsVisible = false
             pausedOverlayVisible = true
+        }
+
+        LaunchedEffect(playbackSnapshot.isEnded) {
+            if (!playbackSnapshot.isEnded) return@LaunchedEffect
+            pausedOverlayVisible = false
+            watchTogetherMetadataForcedVisible = false
+            controlsVisible = false
         }
 
         LaunchedEffect(
@@ -1577,7 +1605,7 @@ fun PlayerScreen(
             if (!showStartupTitleIntro) return@LaunchedEffect
             delay(10_000)
             startupTitleIntroVisible = false
-            delay(1300)
+            delay(1900)
             showStartupTitleIntro = false
             startupIntroFinished = true
         }
@@ -1590,7 +1618,13 @@ fun PlayerScreen(
         }
 
         // Fetch skip intervals when episode changes
-        LaunchedEffect(activeVideoId, activeSeasonNumber, activeEpisodeNumber) {
+        LaunchedEffect(
+            activeVideoId,
+            activeParentMetaId,
+            activeSeasonNumber,
+            activeEpisodeNumber,
+            playbackSnapshot.durationMs,
+        ) {
             skipIntervals = emptyList()
             activeSkipInterval = null
             skipIntervalDismissed = false
@@ -1602,25 +1636,18 @@ fun PlayerScreen(
             launch {
                 val ids = listOfNotNull(activeVideoId, activeParentMetaId)
                 val imdbId = resolveParentalGuideImdbId()
+                val tmdbId = ids.firstNotNullOfOrNull(::extractParentalGuideTmdbId)
                 val malId = ids.firstNotNullOfOrNull { id -> extractProviderId(id, "mal") ?: extractProviderId(id, "myanimelist") }
                 val anilistId = ids.firstNotNullOfOrNull { id -> extractProviderId(id, "anilist") }
-                val intervals = when {
-                    imdbId != null -> SkipIntroRepository.getSkipIntervals(
-                        imdbId = imdbId,
-                        season = season,
-                        episode = episode,
-                    )
-                    malId != null -> SkipIntroRepository.getSkipIntervalsForMal(
-                        malId = malId,
-                        episode = episode,
-                    )
-                    anilistId != null -> SkipIntroRepository.getSkipIntervalsForAnilist(
-                        anilistId = anilistId,
-                        episode = episode,
-                        season = season,
-                    )
-                    else -> emptyList()
-                }
+                val intervals = SkipIntroRepository.getSkipIntervals(
+                    imdbId = imdbId,
+                    tmdbId = tmdbId,
+                    malId = malId,
+                    anilistId = anilistId,
+                    season = season,
+                    episode = episode,
+                    durationMs = playbackSnapshot.durationMs,
+                )
                 skipIntervals = intervals
             }
         }
@@ -1881,8 +1908,8 @@ fun PlayerScreen(
 
             AnimatedVisibility(
                 visible = (controlsVisible || showParentalGuide || showStartupTitleIntro || showManualPauseMetadata) && !playerControlsLocked,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                enter = fadeIn(animationSpec = tween(durationMillis = 260)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 900)),
                 modifier = Modifier.zIndex(if (showManualPauseMetadata) 4f else 0f),
             ) {
                 PlayerControlsShell(

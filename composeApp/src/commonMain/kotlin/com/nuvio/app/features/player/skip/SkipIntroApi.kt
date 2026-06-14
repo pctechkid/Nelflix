@@ -11,6 +11,32 @@ internal object SkipIntroApi {
     private const val ANISKIP_BASE = "https://api.aniskip.com/v2/"
     private const val ANIMESKIP_BASE = "https://api.anime-skip.com/"
 
+    // --- TheIntroDB ---
+
+    suspend fun getTheIntroDbMedia(
+        tmdbId: Int?,
+        imdbId: String?,
+        season: Int,
+        episode: Int,
+        durationMs: Long,
+    ): TheIntroDbMediaResponse? {
+        val baseUrl = TheIntroDbConfig.URL.trimEnd('/')
+        if (baseUrl.isBlank()) return null
+        val idQuery = when {
+            tmdbId != null && tmdbId > 0 -> "tmdb_id=$tmdbId"
+            !imdbId.isNullOrBlank() -> "imdb_id=$imdbId"
+            else -> return null
+        }
+        val durationQuery = durationMs.takeIf { it > 0L }?.let { "&duration_ms=$it" }.orEmpty()
+        val url = "$baseUrl/media?$idQuery&season=$season&episode=$episode$durationQuery"
+        return try {
+            val text = httpGetText(url)
+            json.decodeFromString<TheIntroDbMediaResponse>(text)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // --- IntroDb ---
 
     suspend fun getIntroDbSegments(

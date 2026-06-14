@@ -50,6 +50,26 @@ data class IntroDbSegment(
     @SerialName("updated_at") val updatedAt: String? = null,
 )
 
+// --- TheIntroDB API response models ---
+
+@Serializable
+data class TheIntroDbMediaResponse(
+    @SerialName("tmdb_id") val tmdbId: Int? = null,
+    @SerialName("type") val type: String? = null,
+    @SerialName("intro") val intro: List<TheIntroDbSegment> = emptyList(),
+    @SerialName("recap") val recap: List<TheIntroDbSegment> = emptyList(),
+    @SerialName("credits") val credits: List<TheIntroDbSegment> = emptyList(),
+    @SerialName("preview") val preview: List<TheIntroDbSegment> = emptyList(),
+)
+
+@Serializable
+data class TheIntroDbSegment(
+    @SerialName("start_sec") val startSec: Double? = null,
+    @SerialName("end_sec") val endSec: Double? = null,
+    @SerialName("start_ms") val startMs: Long? = null,
+    @SerialName("end_ms") val endMs: Long? = null,
+)
+
 @Serializable
 data class SubmitIntroRequest(
     @SerialName("imdb_id") val imdbId: String,

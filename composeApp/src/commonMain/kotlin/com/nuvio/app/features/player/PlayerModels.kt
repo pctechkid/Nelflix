@@ -65,6 +65,7 @@ enum class PlayerResizeMode {
     Fit,
     Fill,
     Zoom,
+    Stretch,
 }
 
 data class PlayerPlaybackSnapshot(

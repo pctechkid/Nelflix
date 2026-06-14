@@ -691,7 +691,7 @@ vd-lavc-dr=no
 demuxer-max-bytes=1024MiB
 demuxer-max-back-bytes=128MiB
 cache=yes
-blend-subtitles=yes
+blend-subtitles=no
 osd-font-size=18
 sub-auto=fuzzy
 sub-ass-force-style=Bold=0,Italic=0
@@ -722,7 +722,7 @@ slang=eng,en,enUS,en-US,English
 demuxer-max-bytes=1024MiB
 demuxer-max-back-bytes=128MiB
 cache=yes
-blend-subtitles=yes
+blend-subtitles=no
 osd-font-size=18
 sub-auto=fuzzy
 sub-ass-force-style=Bold=0,Italic=0
@@ -752,7 +752,7 @@ sub-ass-force-style=FontName=Helvetica
 slang=eng,en,enUS,en-US,English
 demuxer-max-bytes=1024MiB
 cache=yes
-blend-subtitles=yes
+blend-subtitles=no
 osd-font-size=18
 sub-auto=fuzzy
 sub-ass-force-style=Bold=0,Italic=0
@@ -782,7 +782,7 @@ sub-ass-force-style=FontName=Helvetica
 slang=eng,en,enUS,en-US,English
 demuxer-max-bytes=2000MiB
 cache=yes
-blend-subtitles=yes
+blend-subtitles=no
 osd-font-size=18
 sub-auto=fuzzy
 sub-ass-force-style=Bold=0,Italic=0
