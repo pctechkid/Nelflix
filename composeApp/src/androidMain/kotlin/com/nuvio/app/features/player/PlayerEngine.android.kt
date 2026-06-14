@@ -234,7 +234,7 @@ class NuvioMpvView(
         MPVLib.setOptionString("sub-ass-force-style", RegularSubtitleAssForceStyle)
         MPVLib.setOptionString("sub-bold", "no")
         MPVLib.setOptionString("sub-italic", "no")
-        MPVLib.setOptionString("blend-subtitles", "no")
+        MPVLib.setOptionString("blend-subtitles", "yes")
         MPVLib.setOptionString("sub-ass-use-video-data", "all")
         MPVLib.setOptionString("sub-ass-video-aspect-override", "no")
     }
@@ -297,6 +297,7 @@ class NuvioMpvView(
                 MPVLib.setPropertyString("video-aspect-override", "no")
                 MPVLib.setPropertyDouble("video-scale-x", stretchScale.first)
                 MPVLib.setPropertyDouble("video-scale-y", stretchScale.second)
+                MPVLib.setPropertyString("blend-subtitles", "no")
                 MPVLib.setPropertyString("sub-ass-use-video-data", "none")
                 MPVLib.setPropertyString("sub-ass-video-aspect-override", "no")
             }
@@ -310,6 +311,7 @@ class NuvioMpvView(
         MPVLib.setPropertyString("video-aspect-override", "no")
         MPVLib.setPropertyDouble("video-scale-x", 1.0)
         MPVLib.setPropertyDouble("video-scale-y", 1.0)
+        MPVLib.setPropertyString("blend-subtitles", "yes")
         MPVLib.setPropertyString("sub-ass-use-video-data", "all")
         MPVLib.setPropertyString("sub-ass-video-aspect-override", "no")
     }
@@ -603,7 +605,6 @@ private fun applyRegularSubtitleOverride() {
         MPVLib.setPropertyString("sub-ass-force-style", RegularSubtitleAssForceStyle)
         MPVLib.setPropertyString("sub-bold", "no")
         MPVLib.setPropertyString("sub-italic", "no")
-        MPVLib.setPropertyString("blend-subtitles", "no")
         MPVLib.setPropertyString("sub-ass-use-video-data", "all")
         MPVLib.setPropertyString("sub-ass-video-aspect-override", "no")
     }
@@ -618,7 +619,7 @@ private fun String.withPersistentRegularSubtitleOverrides(): String {
         sub-ass-force-style=${persistentRegularSubtitleForceStyle()}
         sub-bold=no
         sub-italic=no
-        blend-subtitles=no
+        blend-subtitles=yes
         sub-ass-use-video-data=all
         sub-ass-video-aspect-override=no
     """.trimIndent()
