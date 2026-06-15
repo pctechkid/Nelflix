@@ -18,6 +18,7 @@ actual object DebridSettingsStorage {
     private const val enabledKey = "debrid_enabled"
     private const val torboxApiKeyKey = "debrid_torbox_api_key"
     private const val realDebridApiKeyKey = "debrid_real_debrid_api_key"
+    private const val showUncachedP2PStreamsKey = "debrid_show_uncached_p2p_streams"
     private const val instantPlaybackPreparationLimitKey = "debrid_instant_playback_preparation_limit"
     private const val streamNameTemplateKey = "debrid_stream_name_template"
     private const val streamDescriptionTemplateKey = "debrid_stream_description_template"
@@ -25,6 +26,7 @@ actual object DebridSettingsStorage {
         enabledKey,
         torboxApiKeyKey,
         realDebridApiKeyKey,
+        showUncachedP2PStreamsKey,
         instantPlaybackPreparationLimitKey,
         streamNameTemplateKey,
         streamDescriptionTemplateKey,
@@ -52,6 +54,12 @@ actual object DebridSettingsStorage {
 
     actual fun saveRealDebridApiKey(apiKey: String) {
         saveString(realDebridApiKeyKey, apiKey)
+    }
+
+    actual fun loadShowUncachedP2PStreams(): Boolean? = loadBoolean(showUncachedP2PStreamsKey)
+
+    actual fun saveShowUncachedP2PStreams(enabled: Boolean) {
+        saveBoolean(showUncachedP2PStreamsKey, enabled)
     }
 
     actual fun loadInstantPlaybackPreparationLimit(): Int? = loadInt(instantPlaybackPreparationLimitKey)
@@ -120,6 +128,7 @@ actual object DebridSettingsStorage {
         loadEnabled()?.let { put(enabledKey, encodeSyncBoolean(it)) }
         loadTorboxApiKey()?.let { put(torboxApiKeyKey, encodeSyncString(it)) }
         loadRealDebridApiKey()?.let { put(realDebridApiKeyKey, encodeSyncString(it)) }
+        loadShowUncachedP2PStreams()?.let { put(showUncachedP2PStreamsKey, encodeSyncBoolean(it)) }
         loadInstantPlaybackPreparationLimit()?.let { put(instantPlaybackPreparationLimitKey, encodeSyncInt(it)) }
         loadStreamNameTemplate()?.let { put(streamNameTemplateKey, encodeSyncString(it)) }
         loadStreamDescriptionTemplate()?.let { put(streamDescriptionTemplateKey, encodeSyncString(it)) }
@@ -133,6 +142,7 @@ actual object DebridSettingsStorage {
         payload.decodeSyncBoolean(enabledKey)?.let(::saveEnabled)
         payload.decodeSyncString(torboxApiKeyKey)?.let(::saveTorboxApiKey)
         payload.decodeSyncString(realDebridApiKeyKey)?.let(::saveRealDebridApiKey)
+        payload.decodeSyncBoolean(showUncachedP2PStreamsKey)?.let(::saveShowUncachedP2PStreams)
         payload.decodeSyncInt(instantPlaybackPreparationLimitKey)?.let(::saveInstantPlaybackPreparationLimit)
         payload.decodeSyncString(streamNameTemplateKey)?.let(::saveStreamNameTemplate)
         payload.decodeSyncString(streamDescriptionTemplateKey)?.let(::saveStreamDescriptionTemplate)

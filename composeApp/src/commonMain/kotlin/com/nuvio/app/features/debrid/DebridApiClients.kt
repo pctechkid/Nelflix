@@ -1,7 +1,9 @@
 package com.nuvio.app.features.debrid
 
 import com.nuvio.app.features.addons.RawHttpResponse
+import com.nuvio.app.features.addons.httpGetBytesWithHeaders
 import com.nuvio.app.features.addons.httpRequestRaw
+import com.nuvio.app.features.addons.httpRequestRawBytes
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
@@ -42,12 +44,16 @@ internal object TorboxApiClient {
             body = "",
         )
 
-    suspend fun createTorrent(apiKey: String, magnet: String): DebridApiResponse<TorboxEnvelopeDto<TorboxCreateTorrentDataDto>> {
+    suspend fun createTorrent(
+        apiKey: String,
+        magnet: String,
+        addOnlyIfCached: Boolean = true,
+    ): DebridApiResponse<TorboxEnvelopeDto<TorboxCreateTorrentDataDto>> {
         val boundary = "NuvioDebrid${magnet.hashCode().toUInt()}"
         val body = multipartFormBody(
             boundary = boundary,
             "magnet" to magnet,
-            "add_only_if_cached" to "true",
+            "add_only_if_cached" to addOnlyIfCached.toString(),
             "allow_zip" to "false",
         )
         return request(
@@ -56,6 +62,34 @@ internal object TorboxApiClient {
             apiKey = apiKey,
             body = body,
             contentType = "multipart/form-data; boundary=$boundary",
+        )
+    }
+
+    suspend fun createTorrentFromFileUrl(
+        apiKey: String,
+        torrentUrl: String,
+        fileName: String?,
+        addOnlyIfCached: Boolean = true,
+    ): DebridApiResponse<TorboxEnvelopeDto<TorboxCreateTorrentDataDto>> {
+        val torrentResponse = httpGetBytesWithHeaders(
+            url = torrentUrl,
+            headers = mapOf("Accept" to "application/x-bittorrent,*/*"),
+        )
+        if (torrentResponse.status !in 200..299 || torrentResponse.body.isEmpty()) {
+            return DebridApiResponse(
+                status = torrentResponse.status,
+                body = null,
+                rawBody = "Could not download torrent file",
+            )
+        }
+        val safeName = fileName?.takeIf { it.isNotBlank() }
+            ?: torrentUrl.substringBefore('?').substringAfterLast('/').takeIf { it.isNotBlank() }
+            ?: "download.torrent"
+        return createTorrentFromFileBytes(
+            apiKey = apiKey,
+            fileBytes = torrentResponse.body,
+            fileName = safeName.ensureTorrentExtension(),
+            addOnlyIfCached = addOnlyIfCached,
         )
     }
 
@@ -92,6 +126,17 @@ internal object TorboxApiClient {
             url = "$BASE_URL/v1/api/torrents/mylist?${
                 queryString(
                     "id" to id.toString(),
+                    "bypass_cache" to "true",
+                )
+            }",
+            apiKey = apiKey,
+        )
+
+    suspend fun getTorrentList(apiKey: String): DebridApiResponse<TorboxEnvelopeDto<List<TorboxTorrentDataDto>>> =
+        request(
+            method = "GET",
+            url = "$BASE_URL/v1/api/torrents/mylist?${
+                queryString(
                     "bypass_cache" to "true",
                 )
             }",
@@ -139,6 +184,57 @@ internal object TorboxApiClient {
             status = response.status,
             body = response.decodeBody<T>(),
             rawBody = response.body,
+        )
+    }
+
+    private suspend inline fun <reified T> requestBytes(
+        method: String,
+        url: String,
+        apiKey: String,
+        body: ByteArray,
+        contentType: String,
+    ): DebridApiResponse<T> {
+        val headers = authHeaders(apiKey) + mapOf(
+            "Content-Type" to contentType,
+            "Accept" to "application/json",
+        )
+        val response = httpRequestRawBytes(
+            method = method,
+            url = url,
+            headers = headers,
+            body = body,
+        )
+        return DebridApiResponse(
+            status = response.status,
+            body = response.decodeBody<T>(),
+            rawBody = response.body,
+        )
+    }
+
+    private suspend fun createTorrentFromFileBytes(
+        apiKey: String,
+        fileBytes: ByteArray,
+        fileName: String,
+        addOnlyIfCached: Boolean,
+    ): DebridApiResponse<TorboxEnvelopeDto<TorboxCreateTorrentDataDto>> {
+        val boundary = "NuvioDebridFile${fileBytes.size.toUInt()}${fileName.hashCode().toUInt()}"
+        val body = multipartFormBodyBytes(
+            boundary = boundary,
+            fields = listOf(
+                "add_only_if_cached" to addOnlyIfCached.toString(),
+                "allow_zip" to "false",
+            ),
+            fileFieldName = "file",
+            fileName = fileName,
+            contentType = "application/x-bittorrent",
+            fileBytes = fileBytes,
+        )
+        return requestBytes(
+            method = "POST",
+            url = "$BASE_URL/v1/api/torrents/createtorrent",
+            apiKey = apiKey,
+            body = body,
+            contentType = "multipart/form-data; boundary=$boundary",
         )
     }
 
@@ -273,3 +369,39 @@ private fun multipartFormBody(boundary: String, vararg fields: Pair<String, Stri
         }
         append("--").append(boundary).append("--\r\n")
     }
+
+private fun multipartFormBodyBytes(
+    boundary: String,
+    fields: List<Pair<String, String>>,
+    fileFieldName: String,
+    fileName: String,
+    contentType: String,
+    fileBytes: ByteArray,
+): ByteArray {
+    val prefix = buildString {
+        fields.forEach { (name, value) ->
+            append("--").append(boundary).append("\r\n")
+            append("Content-Disposition: form-data; name=\"").append(name).append("\"\r\n\r\n")
+            append(value).append("\r\n")
+        }
+        append("--").append(boundary).append("\r\n")
+        append("Content-Disposition: form-data; name=\"")
+            .append(fileFieldName)
+            .append("\"; filename=\"")
+            .append(fileName.escapeMultipartQuotedValue())
+            .append("\"\r\n")
+        append("Content-Type: ").append(contentType).append("\r\n\r\n")
+    }.encodeToByteArray()
+    val suffix = "\r\n--$boundary--\r\n".encodeToByteArray()
+    return ByteArray(prefix.size + fileBytes.size + suffix.size).also { output ->
+        prefix.copyInto(output, destinationOffset = 0)
+        fileBytes.copyInto(output, destinationOffset = prefix.size)
+        suffix.copyInto(output, destinationOffset = prefix.size + fileBytes.size)
+    }
+}
+
+private fun String.ensureTorrentExtension(): String =
+    if (endsWith(".torrent", ignoreCase = true)) this else "$this.torrent"
+
+private fun String.escapeMultipartQuotedValue(): String =
+    replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", " ").replace("\n", " ")

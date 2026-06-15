@@ -303,7 +303,7 @@ object StreamsRepository {
                                 addonName = displayName,
                                 addonId = addon.addonId,
                             )
-                            TorboxP2PStreamFilter.filterCachedOnly(parsedStreams)
+                            TorboxP2PStreamFilter.processStreams(parsedStreams)
                         }.fold(
                             onSuccess = { streams ->
                                 log.d { "Got ${streams.size} streams from ${displayName}" }
@@ -348,7 +348,7 @@ object StreamsRepository {
                             )
                             val completion = if (scraperResult.isSuccess) {
                                 val results = scraperResult.getOrThrow()
-                                val streams = TorboxP2PStreamFilter.filterCachedOnly(
+                                val streams = TorboxP2PStreamFilter.processStreams(
                                     results.map { result ->
                                         result.toStreamItem(
                                             scraper = scraper,

@@ -35,7 +35,9 @@ data class StreamItem(
         get() = !isDirectDebridStream && (
             !infoHash.isNullOrBlank() ||
             url.isMagnetLink() ||
-            externalUrl.isMagnetLink()
+            externalUrl.isMagnetLink() ||
+            url.isTorrentFileLink() ||
+            externalUrl.isTorrentFileLink()
         )
 
     val hasPlayableSource: Boolean
@@ -44,6 +46,12 @@ data class StreamItem(
 
 private fun String?.isMagnetLink(): Boolean =
     this?.trimStart()?.startsWith("magnet:", ignoreCase = true) == true
+
+private fun String?.isTorrentFileLink(): Boolean {
+    val normalized = this?.trim()?.lowercase() ?: return false
+    return (normalized.startsWith("http://") || normalized.startsWith("https://")) &&
+        (normalized.endsWith(".torrent") || normalized.contains(".torrent?"))
+}
 
 data class StreamBehaviorHints(
     val bingeGroup: String? = null,
@@ -64,6 +72,7 @@ data class StreamClientResolve(
     val infoHash: String? = null,
     val fileIdx: Int? = null,
     val magnetUri: String? = null,
+    val torrentUrl: String? = null,
     val sources: List<String> = emptyList(),
     val torrentName: String? = null,
     val filename: String? = null,

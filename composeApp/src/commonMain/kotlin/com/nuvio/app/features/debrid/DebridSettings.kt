@@ -4,6 +4,7 @@ data class DebridSettings(
     val enabled: Boolean = false,
     val torboxApiKey: String = "",
     val realDebridApiKey: String = "",
+    val showUncachedP2PStreams: Boolean = true,
     val instantPlaybackPreparationLimit: Int = 0,
     val streamNameTemplate: String = DebridStreamFormatterDefaults.NAME_TEMPLATE,
     val streamDescriptionTemplate: String = DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE,

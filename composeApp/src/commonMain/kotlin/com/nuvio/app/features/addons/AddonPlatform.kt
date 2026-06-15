@@ -15,6 +15,14 @@ data class RawHttpResponse(
     val headers: Map<String, String>,
 )
 
+data class RawBinaryHttpResponse(
+    val status: Int,
+    val statusText: String,
+    val url: String,
+    val body: ByteArray,
+    val headers: Map<String, String>,
+)
+
 expect suspend fun httpGetText(url: String): String
 
 expect suspend fun httpPostJson(url: String, body: String): String
@@ -37,3 +45,17 @@ expect suspend fun httpRequestRaw(
     body: String,
     followRedirects: Boolean = true,
 ): RawHttpResponse
+
+expect suspend fun httpRequestRawBytes(
+    method: String,
+    url: String,
+    headers: Map<String, String>,
+    body: ByteArray,
+    followRedirects: Boolean = true,
+): RawHttpResponse
+
+expect suspend fun httpGetBytesWithHeaders(
+    url: String,
+    headers: Map<String, String> = emptyMap(),
+    maxBytes: Int = 25 * 1024 * 1024,
+): RawBinaryHttpResponse

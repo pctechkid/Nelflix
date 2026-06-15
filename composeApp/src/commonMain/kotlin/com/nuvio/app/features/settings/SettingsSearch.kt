@@ -104,6 +104,7 @@ internal fun settingsSearchEntries(
     val collectionsPage = stringResource(Res.string.collections_header)
     val tmdbPage = stringResource(Res.string.compose_settings_page_tmdb_enrichment)
     val mdbListPage = stringResource(Res.string.compose_settings_page_mdblist_ratings)
+    val debridPage = stringResource(Res.string.compose_settings_page_debrid)
 
     val entries = mutableListOf<SettingsSearchEntry>()
 
@@ -585,6 +586,22 @@ internal fun settingsSearchEntries(
         key = "mdblist",
         title = mdbListPage,
         description = stringResource(Res.string.settings_integrations_mdblist_description),
+        icon = Icons.Rounded.Link,
+    )
+    addPage(
+        page = SettingsPage.Debrid,
+        key = "debrid",
+        title = debridPage,
+        description = stringResource(Res.string.settings_integrations_debrid_description),
+        icon = Icons.Rounded.Link,
+    )
+    addRow(
+        page = SettingsPage.Debrid,
+        key = "debrid-uncached-p2p",
+        title = stringResource(Res.string.settings_debrid_show_uncached_p2p),
+        description = stringResource(Res.string.settings_debrid_show_uncached_p2p_description),
+        pageLabel = debridPage,
+        section = stringResource(Res.string.settings_debrid_section_title),
         icon = Icons.Rounded.Link,
     )
     val tmdbModulesSection = stringResource(Res.string.settings_tmdb_section_modules)

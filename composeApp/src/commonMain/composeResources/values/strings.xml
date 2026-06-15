@@ -596,6 +596,8 @@
     <string name="settings_debrid_enable">Enable sources</string>
     <string name="settings_debrid_enable_description">Show playable results from connected accounts.</string>
     <string name="settings_debrid_add_key_first">Add an API key first.</string>
+    <string name="settings_debrid_show_uncached_p2p">Show uncached P2P streams</string>
+    <string name="settings_debrid_show_uncached_p2p_description">Display uncached addon torrents below cached streams so they can be prepared before playback.</string>
     <string name="settings_debrid_section_providers">Account</string>
     <string name="settings_debrid_provider_torbox_description">Connect your Torbox account.</string>
     <string name="settings_debrid_section_instant_playback">Instant Playback</string>
@@ -1147,7 +1149,10 @@
     <string name="streams_size">SIZE %1$s</string>
     <string name="streams_torrent_not_supported">This stream type is not supported</string>
     <string name="debrid_missing_api_key">Add a Debrid API key in Settings.</string>
-    <string name="debrid_stream_stale">This Debrid result expired. Refreshing streams.</string>
+    <string name="debrid_p2p_added_to_torbox">Preparing stream. Check back shortly.</string>
+    <string name="debrid_p2p_already_preparing">Stream is already being prepared. Check back later.</string>
+    <string name="debrid_p2p_add_failed">Could not prepare this stream.</string>
+    <string name="debrid_stream_stale">This stream link expired. Refreshing sources.</string>
     <string name="debrid_resolve_failed">Could not resolve this Debrid stream.</string>
     <string name="external_player_failed">Couldn&apos;t open external player</string>
     <string name="external_player_not_configured">Choose an external player in settings first</string>

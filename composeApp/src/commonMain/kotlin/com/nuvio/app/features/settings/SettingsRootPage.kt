@@ -175,6 +175,14 @@ internal fun LazyListScope.settingsRootContent(
                         isTablet = isTablet,
                         onClick = onNotificationsClick,
                     )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.compose_settings_page_integrations),
+                        description = stringResource(Res.string.compose_settings_root_integrations_description),
+                        icon = Icons.Rounded.Link,
+                        isTablet = isTablet,
+                        onClick = onIntegrationsClick,
+                    )
                 }
             }
         }

@@ -113,6 +113,7 @@ object StreamParser {
             infoHash = string("infoHash"),
             fileIdx = int("fileIdx"),
             magnetUri = string("magnetUri"),
+            torrentUrl = string("torrentUrl"),
             sources = stringList("sources"),
             torrentName = string("torrentName"),
             filename = string("filename"),

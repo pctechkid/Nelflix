@@ -1,6 +1,7 @@
 package com.nuvio.app.features.addons
 
 import io.ktor.client.HttpClient
+import io.ktor.client.call.body
 import io.ktor.client.engine.darwin.Darwin
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.accept
@@ -181,6 +182,63 @@ actual suspend fun httpRequestRaw(
                 statusText = response.status.description,
                 url = response.call.request.url.toString(),
                 body = response.bodyAsText(),
+                headers = response.headers.entries().associate { (name, values) ->
+                    name.lowercase() to values.joinToString(",")
+                },
+            )
+        }
+
+actual suspend fun httpRequestRawBytes(
+    method: String,
+    url: String,
+    headers: Map<String, String>,
+    body: ByteArray,
+    followRedirects: Boolean,
+): RawHttpResponse =
+    addonHttpClient
+        .request {
+            url(url)
+            this.method = HttpMethod.parse(method.uppercase())
+            headers.forEach { (key, value) ->
+                header(key, value)
+            }
+            if (this.method == HttpMethod.Post || this.method == HttpMethod.Put || this.method == HttpMethod.Patch) {
+                setBody(body)
+            }
+        }
+        .let { response ->
+            RawHttpResponse(
+                status = response.status.value,
+                statusText = response.status.description,
+                url = response.call.request.url.toString(),
+                body = response.bodyAsText(),
+                headers = response.headers.entries().associate { (name, values) ->
+                    name.lowercase() to values.joinToString(",")
+                },
+            )
+        }
+
+actual suspend fun httpGetBytesWithHeaders(
+    url: String,
+    headers: Map<String, String>,
+    maxBytes: Int,
+): RawBinaryHttpResponse =
+    addonHttpClient
+        .get(url) {
+            headers.forEach { (key, value) ->
+                header(key, value)
+            }
+        }
+        .let { response ->
+            val payload = response.body<ByteArray>()
+            if (payload.size > maxBytes) {
+                error("Response exceeded maximum size")
+            }
+            RawBinaryHttpResponse(
+                status = response.status.value,
+                statusText = response.status.description,
+                url = response.call.request.url.toString(),
+                body = payload,
                 headers = response.headers.entries().associate { (name, values) ->
                     name.lowercase() to values.joinToString(",")
                 },

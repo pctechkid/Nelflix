@@ -53,6 +53,8 @@ import nuvio.composeapp.generated.resources.settings_debrid_prepare_count_one
 import nuvio.composeapp.generated.resources.settings_debrid_prepare_instant_playback
 import nuvio.composeapp.generated.resources.settings_debrid_prepare_instant_playback_description
 import nuvio.composeapp.generated.resources.settings_debrid_prepare_stream_count
+import nuvio.composeapp.generated.resources.settings_debrid_show_uncached_p2p
+import nuvio.composeapp.generated.resources.settings_debrid_show_uncached_p2p_description
 import nuvio.composeapp.generated.resources.settings_debrid_key_valid
 import nuvio.composeapp.generated.resources.settings_debrid_key_invalid
 import nuvio.composeapp.generated.resources.settings_debrid_name_template
@@ -94,6 +96,14 @@ internal fun LazyListScope.debridSettingsContent(
                         text = stringResource(Res.string.settings_debrid_add_key_first),
                     )
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_debrid_show_uncached_p2p),
+                    description = stringResource(Res.string.settings_debrid_show_uncached_p2p_description),
+                    checked = settings.showUncachedP2PStreams,
+                    isTablet = isTablet,
+                    onCheckedChange = DebridSettingsRepository::setShowUncachedP2PStreams,
+                )
             }
         }
     }

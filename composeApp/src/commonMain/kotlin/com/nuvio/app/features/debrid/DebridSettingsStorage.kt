@@ -9,6 +9,8 @@ internal expect object DebridSettingsStorage {
     fun saveTorboxApiKey(apiKey: String)
     fun loadRealDebridApiKey(): String?
     fun saveRealDebridApiKey(apiKey: String)
+    fun loadShowUncachedP2PStreams(): Boolean?
+    fun saveShowUncachedP2PStreams(enabled: Boolean)
     fun loadInstantPlaybackPreparationLimit(): Int?
     fun saveInstantPlaybackPreparationLimit(limit: Int)
     fun loadStreamNameTemplate(): String?

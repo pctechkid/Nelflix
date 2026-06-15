@@ -14,11 +14,13 @@ internal data class TorboxEnvelopeDto<T>(
 @Serializable
 internal data class TorboxCreateTorrentDataDto(
     @SerialName("torrent_id") val torrentId: Int? = null,
+    @SerialName("queued_id") val queuedId: Int? = null,
     val id: Int? = null,
     val hash: String? = null,
     @SerialName("auth_id") val authId: String? = null,
 ) {
     fun resolvedTorrentId(): Int? = torrentId ?: id
+    fun wasQueued(): Boolean = queuedId != null
 }
 
 @Serializable
@@ -27,6 +29,15 @@ internal data class TorboxTorrentDataDto(
     val hash: String? = null,
     val name: String? = null,
     val files: List<TorboxTorrentFileDto>? = null,
+    val progress: Double? = null,
+    @SerialName("download_state") val downloadState: String? = null,
+    val seeds: Int? = null,
+    val peers: Int? = null,
+    @SerialName("download_speed") val downloadSpeed: Long? = null,
+    val eta: Long? = null,
+    @SerialName("download_finished") val downloadFinished: Boolean? = null,
+    @SerialName("download_present") val downloadPresent: Boolean? = null,
+    val cached: Boolean? = null,
 )
 
 @Serializable

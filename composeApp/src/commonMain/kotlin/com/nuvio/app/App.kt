@@ -114,6 +114,8 @@ import com.nuvio.app.features.catalog.CatalogScreen
 import com.nuvio.app.features.catalog.INTERNAL_LIBRARY_MANIFEST_URL
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
+import com.nuvio.app.features.debrid.DirectDebridAddResult
+import com.nuvio.app.features.debrid.isUncachedP2PStream
 import com.nuvio.app.features.debrid.isReusableTorboxP2PSource
 import com.nuvio.app.features.debrid.reusableTorboxSourceUrl
 import com.nuvio.app.features.debrid.toastMessage
@@ -1846,6 +1848,12 @@ private fun MainAppContent(
                         streamRouteScope.launch {
                             val playbackStream = if (stream.isDirectDebridStream || stream.isTorrentStream) {
                                 resolvingDebridStream = true
+                                if (stream.isUncachedP2PStream()) {
+                                    val addResult = DirectDebridPlaybackResolver.addUncachedP2PToTorbox(stream)
+                                    resolvingDebridStream = false
+                                    NuvioToastController.show(addResult.toastMessage())
+                                    return@launch
+                                }
                                 val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
                                     stream = stream,
                                     season = launch.seasonNumber,

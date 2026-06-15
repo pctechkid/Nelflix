@@ -11,17 +11,33 @@ private const val TorboxCacheCheckChunkSize = 100
 
 object TorboxP2PStreamFilter {
     suspend fun filterCachedOnly(streams: List<StreamItem>): List<StreamItem> {
+        return processStreams(streams, showUncached = false)
+    }
+
+    suspend fun processStreams(
+        streams: List<StreamItem>,
+        showUncached: Boolean = DebridSettingsRepository.snapshot().showUncachedP2PStreams,
+    ): List<StreamItem> {
         if (streams.isEmpty()) return streams
         val apiKey = DebridSettingsRepository.snapshot().torboxApiKey.trim()
         val regularStreams = streams.filterNot { it.isPlainP2PStream() }
         val p2pStreams = streams.filter { it.isPlainP2PStream() }
-        if (apiKey.isBlank() || p2pStreams.isEmpty()) return regularStreams
+        if (p2pStreams.isEmpty()) return regularStreams
+        if (apiKey.isBlank()) {
+            return if (showUncached) {
+                regularStreams + p2pStreams.map { it.asUncachedP2PStream() }
+            } else {
+                regularStreams
+            }
+        }
 
         val hashes = p2pStreams
             .mapNotNull { it.torboxInfoHash() }
             .map { it.lowercase() }
             .distinct()
-        if (hashes.isEmpty()) return regularStreams
+        if (hashes.isEmpty()) {
+            return if (showUncached) regularStreams + p2pStreams.map { it.asUncachedP2PStream() } else regularStreams
+        }
 
         val cachedHashes = mutableSetOf<String>()
         try {
@@ -37,16 +53,27 @@ object TorboxP2PStreamFilter {
             }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            return regularStreams
+            return if (showUncached) regularStreams + p2pStreams.map { it.asUncachedP2PStream() } else regularStreams
         }
 
-        val cachedP2PStreams = p2pStreams.mapNotNull { stream ->
-            val hash = stream.torboxInfoHash()?.lowercase() ?: return@mapNotNull null
-            if (hash !in cachedHashes) return@mapNotNull null
-            stream.asTorboxDirectDebridStream()
+        val cachedP2PStreams = mutableListOf<StreamItem>()
+        val uncachedP2PStreams = mutableListOf<StreamItem>()
+        p2pStreams.forEach { stream ->
+            val hash = stream.torboxInfoHash()?.lowercase()
+            if (hash == null) {
+                if (showUncached && stream.torrentFileUrl() != null) {
+                    uncachedP2PStreams += stream.asUncachedP2PStream()
+                }
+                return@forEach
+            }
+            if (hash in cachedHashes) {
+                cachedP2PStreams += stream.asTorboxDirectDebridStream()
+            } else if (showUncached) {
+                uncachedP2PStreams += stream.asUncachedP2PStream()
+            }
         }
 
-        return (regularStreams + cachedP2PStreams).distinctBy {
+        return (regularStreams + cachedP2PStreams + uncachedP2PStreams).distinctBy {
             listOf(
                 it.addonId,
                 it.streamLabel,
@@ -63,7 +90,8 @@ fun StreamItem.asTorboxDirectDebridStream(): StreamItem {
     if (isDirectDebridStream) return this
     val hash = torboxInfoHash()
     val magnet = reusableTorboxSourceUrl() ?: directPlaybackUrl?.takeIf { it.isMagnetUri() }
-    if (hash.isNullOrBlank() && magnet.isNullOrBlank()) return this
+    val torrentUrl = torrentFileUrl()
+    if (hash.isNullOrBlank() && magnet.isNullOrBlank() && torrentUrl.isNullOrBlank()) return this
     val filename = behaviorHints.filename
         ?: title
         ?: name
@@ -77,12 +105,36 @@ fun StreamItem.asTorboxDirectDebridStream(): StreamItem {
             infoHash = hash,
             fileIdx = fileIdx,
             magnetUri = magnet,
+            torrentUrl = torrentUrl,
             sources = sources,
             torrentName = title ?: name,
             filename = filename,
         ),
     )
 }
+
+fun StreamItem.asUncachedP2PStream(): StreamItem =
+    copy(
+        name = name.replaceCachedIndicator(cached = false),
+        title = title.replaceCachedIndicator(cached = false),
+        description = description.replaceCachedIndicator(cached = false),
+    )
+
+fun StreamItem.isUncachedP2PStream(): Boolean =
+    isTorrentStream && !isDirectDebridStream
+
+private fun String?.replaceCachedIndicator(cached: Boolean): String? {
+    val value = this ?: return null
+    val target = if (cached) CachedP2PIndicator else UncachedP2PIndicator
+    return when {
+        value.contains(CachedP2PIndicator) -> value.replace(CachedP2PIndicator, target)
+        value.contains(UncachedP2PIndicator) -> value.replace(UncachedP2PIndicator, target)
+        else -> value
+    }
+}
+
+private const val CachedP2PIndicator = "\uD83D\uDFE2"
+private const val UncachedP2PIndicator = "\uD83D\uDD34"
 
 fun StreamItem.reusableTorboxSourceUrl(): String? {
     if (!isPlainP2PStream() && clientResolve?.service != DebridProviders.TORBOX_ID) return null
@@ -147,11 +199,16 @@ fun StreamItem.torboxInfoHash(): String? =
         ?: clientResolve?.magnetUri?.extractBtihHash()
         ?: directPlaybackUrl?.extractBtihHash()
 
+fun StreamItem.torrentFileUrl(): String? =
+    clientResolve?.torrentUrl?.takeIf { it.isTorrentFileUrl() }
+        ?: directPlaybackUrl?.takeIf { it.isTorrentFileUrl() }
+
 private fun StreamItem.isPlainP2PStream(): Boolean =
     !isDirectDebridStream &&
         (
             !infoHash.isNullOrBlank() ||
-                directPlaybackUrl.isMagnetUri()
+                directPlaybackUrl.isMagnetUri() ||
+                directPlaybackUrl.isTorrentFileUrl()
         )
 
 private fun buildMagnetUri(hash: String, trackers: List<String>): String =
@@ -162,7 +219,7 @@ private fun buildMagnetUri(hash: String, trackers: List<String>): String =
             .filter { it.isNotBlank() }
             .forEach { tracker ->
                 append("&tr=")
-                append(encodePathSegment(tracker))
+                append(encodePathSegment(tracker.removePrefix("tracker:")))
             }
     }
 
@@ -185,6 +242,12 @@ private fun String.withTorboxReusableParams(fileIndex: Int?, filename: String?):
 
 private fun String?.isMagnetUri(): Boolean =
     this?.trimStart()?.startsWith("magnet:", ignoreCase = true) == true
+
+private fun String?.isTorrentFileUrl(): Boolean {
+    val normalized = this?.trim()?.lowercase() ?: return false
+    return (normalized.startsWith("http://") || normalized.startsWith("https://")) &&
+        (normalized.endsWith(".torrent") || normalized.contains(".torrent?"))
+}
 
 private fun String.extractBtihHash(): String? {
     if (!isMagnetUri()) return null

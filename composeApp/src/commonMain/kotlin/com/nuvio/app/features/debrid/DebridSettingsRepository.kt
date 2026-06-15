@@ -12,6 +12,7 @@ object DebridSettingsRepository {
     private var enabled = false
     private var torboxApiKey = ""
     private var realDebridApiKey = ""
+    private var showUncachedP2PStreams = true
     private var instantPlaybackPreparationLimit = 0
     private var streamNameTemplate = DebridStreamFormatterDefaults.NAME_TEMPLATE
     private var streamDescriptionTemplate = DebridStreamFormatterDefaults.DESCRIPTION_TEMPLATE
@@ -102,6 +103,14 @@ object DebridSettingsRepository {
         }
     }
 
+    fun setShowUncachedP2PStreams(value: Boolean) {
+        ensureLoaded()
+        if (showUncachedP2PStreams == value) return
+        showUncachedP2PStreams = value
+        publish()
+        DebridSettingsStorage.saveShowUncachedP2PStreams(value)
+    }
+
     private fun hasAnyConfiguredApiKey(): Boolean =
         torboxApiKey.isNotBlank() || realDebridApiKey.isNotBlank()
 
@@ -113,6 +122,7 @@ object DebridSettingsRepository {
             .ifBlank { DebridConfig.TORBOX_API_KEY.trim() }
         realDebridApiKey = DebridSettingsStorage.loadRealDebridApiKey()?.trim().orEmpty()
         enabled = (DebridSettingsStorage.loadEnabled() ?: torboxApiKey.isNotBlank()) && hasAnyConfiguredApiKey()
+        showUncachedP2PStreams = DebridSettingsStorage.loadShowUncachedP2PStreams() ?: true
         instantPlaybackPreparationLimit = normalizeDebridInstantPlaybackPreparationLimit(
             DebridSettingsStorage.loadInstantPlaybackPreparationLimit() ?: 0,
         )
@@ -130,6 +140,7 @@ object DebridSettingsRepository {
             enabled = enabled,
             torboxApiKey = torboxApiKey,
             realDebridApiKey = realDebridApiKey,
+            showUncachedP2PStreams = showUncachedP2PStreams,
             instantPlaybackPreparationLimit = instantPlaybackPreparationLimit,
             streamNameTemplate = streamNameTemplate,
             streamDescriptionTemplate = streamDescriptionTemplate,

@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -147,7 +146,6 @@ fun StreamsScreen(
     val clipboardManager = LocalClipboardManager.current
     val streamLinkCopiedText = stringResource(Res.string.streams_link_copied)
     val noDirectStreamLinkText = stringResource(Res.string.streams_no_direct_link)
-    val torrentUnsupportedText = stringResource(Res.string.streams_torrent_not_supported)
     var streamActionsTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
     var preferredFilterApplied by remember(videoId) { mutableStateOf(false) }
     val storedProgress = if (startFromBeginning) {
@@ -243,13 +241,7 @@ fun StreamsScreen(
                 uiState = uiState,
                 resumePositionMs = effectiveResumePositionMs,
                 resumeProgressFraction = effectiveResumeProgressFraction,
-                onStreamSelected = { stream, positionMs, progressFraction ->
-                    if (stream.isTorrentStream) {
-                        NuvioToastController.show(torrentUnsupportedText)
-                    } else {
-                        onStreamSelected(stream, positionMs, progressFraction)
-                    }
-                },
+                onStreamSelected = onStreamSelected,
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
             )
         } else {
@@ -264,13 +256,7 @@ fun StreamsScreen(
                 uiState = uiState,
                 resumePositionMs = effectiveResumePositionMs,
                 resumeProgressFraction = effectiveResumeProgressFraction,
-                onStreamSelected = { stream, positionMs, progressFraction ->
-                    if (stream.isTorrentStream) {
-                        NuvioToastController.show(torrentUnsupportedText)
-                    } else {
-                        onStreamSelected(stream, positionMs, progressFraction)
-                    }
-                },
+                onStreamSelected = onStreamSelected,
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
             )
         }
