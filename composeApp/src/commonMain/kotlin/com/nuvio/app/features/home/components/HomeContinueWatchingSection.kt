@@ -54,6 +54,21 @@ import org.jetbrains.compose.resources.stringResource
 private fun continueWatchingProgressPercent(progressFraction: Float): Int =
     (progressFraction * 100f).roundToInt().coerceIn(1, 99)
 
+private fun continueWatchingRemainingLabel(item: ContinueWatchingItem): String {
+    val durationMs = item.durationMs.takeIf { it > 0L }
+        ?: return "${continueWatchingProgressPercent(item.progressFraction)}% watched"
+    val remainingMs = (durationMs - (durationMs * item.progressFraction.coerceIn(0f, 1f)).toLong())
+        .coerceAtLeast(0L)
+    val totalMinutes = ((remainingMs + 59_999L) / 60_000L).coerceAtLeast(1L)
+    val hours = totalMinutes / 60L
+    val minutes = totalMinutes % 60L
+    return when {
+        hours > 0L && minutes > 0L -> "${hours}h ${minutes}m left"
+        hours > 0L -> "${hours}h left"
+        else -> "${minutes}m left"
+    }
+}
+
 @Composable
 private fun localizedContinueWatchingMetaLine(item: ContinueWatchingItem): String =
     when {
@@ -491,10 +506,7 @@ private fun ContinueWatchingLandscapeCard(
                         fillColor = NetflixProgressRed,
                     )
                     Text(
-                        text = stringResource(
-                            Res.string.home_continue_watching_watched,
-                            "${continueWatchingProgressPercent(item.progressFraction)}%",
-                        ),
+                        text = continueWatchingRemainingLabel(item),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = layout.progressLabelSize,
                             fontWeight = FontWeight.SemiBold,
@@ -627,10 +639,7 @@ private fun LegacyContinueWatchingWideCard(
                         trackColor = Color.White.copy(alpha = 0.10f),
                     )
                     Text(
-                        text = stringResource(
-                            Res.string.home_continue_watching_watched,
-                            "${continueWatchingProgressPercent(item.progressFraction)}%",
-                        ),
+                        text = continueWatchingRemainingLabel(item),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = layout.progressLabelSize,
                             fontWeight = FontWeight.Medium,

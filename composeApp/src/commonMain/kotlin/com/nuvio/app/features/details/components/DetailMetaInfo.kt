@@ -173,20 +173,6 @@ fun DetailMetaInfo(
             )
         }
 
-        if (meta.director.isNotEmpty()) {
-            MetaLabelValueRow(
-                label = stringResource(Res.string.details_director),
-                value = meta.director.joinToString(", "),
-            )
-        }
-
-        if (meta.writer.isNotEmpty()) {
-            MetaLabelValueRow(
-                label = stringResource(Res.string.details_writer),
-                value = meta.writer.joinToString(", "),
-            )
-        }
-
         if (!meta.description.isNullOrBlank()) {
             var expanded by remember { mutableStateOf(false) }
             var canExpand by remember(meta.description) { mutableStateOf(false) }
@@ -220,6 +206,20 @@ fun DetailMetaInfo(
                     )
                 }
             }
+        }
+
+        if (meta.director.isNotEmpty()) {
+            MetaLabelValueRow(
+                label = stringResource(Res.string.details_director),
+                value = meta.director.joinToString(", "),
+            )
+        }
+
+        if (meta.writer.isNotEmpty()) {
+            MetaLabelValueRow(
+                label = stringResource(Res.string.details_writer),
+                value = meta.writer.joinToString(", "),
+            )
         }
     }
 }

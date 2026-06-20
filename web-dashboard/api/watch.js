@@ -25,10 +25,24 @@ function isImdbId(value) {
 
 async function fetchMeta(type, id) {
   if (!isImdbId(id)) return null;
-  const response = await fetch(`https://v3-cinemeta.strem.io/meta/${type}/${encodeURIComponent(id)}.json`);
-  if (!response.ok) return null;
-  const json = await response.json();
-  return json?.meta ?? null;
+  const endpoints = [
+    `https://aiometadata.home.kg/stremio/02253c19-8905-4cee-a5db-8c894551a50a/meta/${type}/${encodeURIComponent(id)}.json`,
+    `https://v3-cinemeta.strem.io/meta/${type}/${encodeURIComponent(id)}.json`,
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint);
+      if (!response.ok) continue;
+      const json = await response.json();
+      const meta = json?.meta ?? null;
+      if (meta) return meta;
+    } catch {
+      // Try the next metadata provider.
+    }
+  }
+
+  return null;
 }
 
 function absoluteUrl(request, pathOrUrl) {
@@ -54,7 +68,16 @@ export default async function handler(request, response) {
 
   const title = firstString(meta?.name, DEFAULT_TITLE);
   const description = firstString(meta?.description, meta?.overview, DEFAULT_DESCRIPTION);
-  const image = absoluteUrl(request, firstString(meta?.poster, meta?.background, DEFAULT_IMAGE));
+  const image = absoluteUrl(
+    request,
+    firstString(
+      meta?.poster,
+      meta?.posterShape === "landscape" ? meta?.background : "",
+      meta?.background,
+      meta?.landscapePoster,
+      DEFAULT_IMAGE,
+    ),
+  );
   const ogType = type === "series" ? "video.tv_show" : "video.movie";
   const pageTitle = `${title} | Nelflix`;
 

@@ -402,6 +402,27 @@ fun App() {
                 return
             }
 
+            val activeProfile = profileState.activeProfile
+                ?.takeIf { active -> profiles.any { it.profileIndex == active.profileIndex } }
+            if (activeProfile != null && gateScreen != AppGateScreen.ProfileSelection.name) {
+                ProfileRepository.selectProfile(activeProfile.profileIndex)
+                if (syncOnEnter && authState is AuthState.Authenticated) {
+                    SyncManager.pullAllForProfile(activeProfile.profileIndex)
+                }
+                gateScreen = AppGateScreen.Main.name
+                return
+            }
+
+            if (profiles.size == 1) {
+                val onlyProfile = profiles.first()
+                ProfileRepository.selectProfile(onlyProfile.profileIndex)
+                if (syncOnEnter && authState is AuthState.Authenticated) {
+                    SyncManager.pullAllForProfile(onlyProfile.profileIndex)
+                }
+                gateScreen = AppGateScreen.Main.name
+                return
+            }
+
             gateScreen = AppGateScreen.ProfileSelection.name
         }
 
@@ -782,7 +803,13 @@ private fun MainAppContent(
         }
     }
 
-        LaunchedEffect(navController) {
+        LaunchedEffect(
+            navController,
+            initialHomeReady,
+            profileSwitchLoading,
+            profileState.activeProfile?.profileIndex,
+        ) {
+            if (!initialHomeReady || profileSwitchLoading || profileState.activeProfile == null) return@LaunchedEffect
             AppDeepLinkRepository.pendingDeepLink.collectLatest { deepLink ->
                 when (deepLink) {
                     is AppDeepLink.Meta -> {

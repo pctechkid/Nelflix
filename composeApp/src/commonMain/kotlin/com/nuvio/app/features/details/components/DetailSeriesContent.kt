@@ -85,6 +85,7 @@ import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
 private val log = Logger.withTag("SeriesContent")
+private val EpisodeProgressRed = Color(0xFFE50914)
 
 @Composable
 fun DetailSeriesContent(
@@ -683,10 +684,10 @@ private fun EpisodeHorizontalCard(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.10f),
-                            Color.Black.copy(alpha = 0.42f),
-                            Color.Black.copy(alpha = 0.78f),
+                            Color.Black.copy(alpha = 0.04f),
+                            Color.Black.copy(alpha = 0.18f),
+                            Color.Black.copy(alpha = 0.62f),
+                            Color.Black.copy(alpha = 0.92f),
                         ),
                     ),
                 ),
@@ -780,22 +781,19 @@ private fun EpisodeHorizontalCard(
                     }
                 }
             }
-        }
 
-        progressEntry
-            ?.takeIf { it.durationMs > 0L && !it.isCompleted }
-            ?.let { entry ->
-                NuvioProgressBar(
-                    progress = entry.progressFraction,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(horizontal = metrics.contentPadding, vertical = 8.dp),
-                    height = 4.dp,
-                    trackColor = Color.White.copy(alpha = 0.22f),
-                    fillColor = MaterialTheme.colorScheme.primary,
-                )
-            }
+            progressEntry
+                ?.takeIf { it.durationMs > 0L && !it.isCompleted }
+                ?.let { entry ->
+                    NuvioProgressBar(
+                        progress = entry.progressFraction,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 4.dp,
+                        trackColor = Color.White.copy(alpha = 0.22f),
+                        fillColor = EpisodeProgressRed,
+                    )
+                }
+        }
     }
 }
 
@@ -1048,6 +1046,20 @@ private fun EpisodeListCard(
                     )
                 }
 
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.06f),
+                                    Color.Black.copy(alpha = 0.34f),
+                                    Color.Black.copy(alpha = 0.78f),
+                                ),
+                            ),
+                        ),
+                )
+
                 EpisodeCodeBadge(
                     text = video.episodeBadge(),
                     textSize = sizing.badgeTextSize,
@@ -1133,23 +1145,20 @@ private fun EpisodeListCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+
+                progressEntry
+                    ?.takeIf { it.durationMs > 0L && !it.isCompleted }
+                    ?.let { entry ->
+                        NuvioProgressBar(
+                            progress = entry.progressFraction,
+                            modifier = Modifier.fillMaxWidth(),
+                            height = 4.dp,
+                            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f),
+                            fillColor = EpisodeProgressRed,
+                        )
+                    }
             }
         }
-
-        progressEntry
-            ?.takeIf { it.durationMs > 0L && !it.isCompleted }
-            ?.let { entry ->
-                NuvioProgressBar(
-                    progress = entry.progressFraction,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .width(sizing.imageWidth - 24.dp)
-                        .padding(start = 12.dp, bottom = 10.dp),
-                    height = 5.dp,
-                    trackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.14f),
-                    fillColor = MaterialTheme.colorScheme.primary,
-                )
-            }
     }
 }
 

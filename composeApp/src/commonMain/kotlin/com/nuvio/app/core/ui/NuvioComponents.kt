@@ -396,6 +396,8 @@ fun NuvioStatusModal(
     isBusy: Boolean = false,
     confirmText: String = stringResource(Res.string.action_ok),
     dismissText: String? = null,
+    confirmContainerColor: Color = MaterialTheme.colorScheme.primary,
+    confirmContentColor: Color = MaterialTheme.colorScheme.onPrimary,
     onConfirm: () -> Unit,
     onDismiss: (() -> Unit)? = null,
 ) {
@@ -456,6 +458,10 @@ fun NuvioStatusModal(
                         onClick = onConfirm,
                         enabled = !isBusy,
                         shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = confirmContainerColor,
+                            contentColor = confirmContentColor,
+                        ),
                     ) {
                         Text(confirmText)
                     }

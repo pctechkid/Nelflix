@@ -162,6 +162,8 @@ private fun AccountSettingsBody(
         isVisible = showSignOutConfirm,
         confirmText = stringResource(Res.string.settings_account_sign_out),
         dismissText = stringResource(Res.string.action_cancel),
+        confirmContainerColor = Color(0xFFE50914),
+        confirmContentColor = Color.White,
         onConfirm = {
             showSignOutConfirm = false
             scope.launch { AuthRepository.signOut() }

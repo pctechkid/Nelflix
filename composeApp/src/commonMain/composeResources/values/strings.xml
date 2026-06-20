@@ -1240,7 +1240,7 @@
     <string name="generic_unknown">Unknown</string>
     <string name="generic_addon">Addon</string>
     <string name="action_saved">Saved</string>
-    <string name="share_meta_text">Watch %1$s on Nelflix: %2$s</string>
+    <string name="share_meta_text">Watch %1$s in Nelflix:\n\n%2$s</string>
     <string name="action_play_episode">Play %1$s</string>
     <string name="action_resume_episode">Resume %1$s</string>
     <string name="collections_import_error_empty_json">JSON is empty.</string>
