@@ -85,12 +85,28 @@ internal object TorboxApiClient {
         val safeName = fileName?.takeIf { it.isNotBlank() }
             ?: torrentUrl.substringBefore('?').substringAfterLast('/').takeIf { it.isNotBlank() }
             ?: "download.torrent"
-        return createTorrentFromFileBytes(
+        val uploadResponse = createTorrentFromFileBytes(
             apiKey = apiKey,
             fileBytes = torrentResponse.body,
             fileName = safeName.ensureTorrentExtension(),
             addOnlyIfCached = addOnlyIfCached,
         )
+        if (uploadResponse.isSuccessfulTorboxCreate()) {
+            return uploadResponse
+        }
+
+        val fallbackMagnet = TorrentMagnetConverter.convertToMagnet(torrentResponse.body)
+            ?: return uploadResponse
+        val magnetResponse = createTorrent(
+            apiKey = apiKey,
+            magnet = fallbackMagnet,
+            addOnlyIfCached = addOnlyIfCached,
+        )
+        return if (magnetResponse.isSuccessfulTorboxCreate()) {
+            magnetResponse
+        } else {
+            uploadResponse
+        }
     }
 
     suspend fun checkCached(
@@ -402,6 +418,9 @@ private fun multipartFormBodyBytes(
 
 private fun String.ensureTorrentExtension(): String =
     if (endsWith(".torrent", ignoreCase = true)) this else "$this.torrent"
+
+private fun DebridApiResponse<TorboxEnvelopeDto<TorboxCreateTorrentDataDto>>.isSuccessfulTorboxCreate(): Boolean =
+    isSuccessful && body?.success != false && body?.data != null
 
 private fun String.escapeMultipartQuotedValue(): String =
     replace("\\", "\\\\").replace("\"", "\\\"").replace("\r", " ").replace("\n", " ")

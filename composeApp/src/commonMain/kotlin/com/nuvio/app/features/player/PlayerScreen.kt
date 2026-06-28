@@ -81,6 +81,7 @@ private const val PlaybackProgressPersistIntervalMs = 60_000L
 private const val PlayerDoubleTapSeekStepMs = 10_000L
 private const val PlayerDoubleTapSeekResetDelayMs = 800L
 private const val PlayerLockedOverlayDurationMs = 2_000L
+private const val PlayerControlsExitAnimationMs = 520
 private const val PlayerLeftGestureBoundary = 0.4f
 private const val PlayerRightGestureBoundary = 0.6f
 private const val PlayerVerticalGestureSensitivity = 1f
@@ -213,6 +214,7 @@ fun PlayerScreen(
         )
         val gestureController = rememberPlayerGestureController()
         var controlsVisible by rememberSaveable { mutableStateOf(false) }
+        var controlsExitAnimating by remember { mutableStateOf(false) }
         var playerControlsLocked by rememberSaveable { mutableStateOf(false) }
         // Active playback state (mutable to support source/episode switching)
         var activeTitle by rememberSaveable { mutableStateOf(title) }
@@ -329,6 +331,16 @@ fun PlayerScreen(
         LaunchedEffect(currentGestureFeedback) {
             if (currentGestureFeedback != null) {
                 renderedGestureFeedback = currentGestureFeedback
+            }
+        }
+
+        LaunchedEffect(controlsVisible, playerControlsLocked) {
+            if (controlsVisible || playerControlsLocked) {
+                controlsExitAnimating = false
+            } else {
+                controlsExitAnimating = true
+                delay(PlayerControlsExitAnimationMs.toLong())
+                controlsExitAnimating = false
             }
         }
 
@@ -806,14 +818,26 @@ fun PlayerScreen(
             liveGestureFeedback = null
         }
 
-        fun revealLockedOverlay() {
+        fun showPlaybackControls() {
+            controlsExitAnimating = false
+            controlsVisible = true
+        }
+
+        fun hidePlaybackControls() {
+            if (controlsVisible) {
+                controlsExitAnimating = true
+            }
             controlsVisible = false
+        }
+
+        fun revealLockedOverlay() {
+            hidePlaybackControls()
             lockedOverlayVisible = true
         }
 
         fun lockPlayerControls() {
             playerControlsLocked = true
-            controlsVisible = false
+            hidePlaybackControls()
             lockedOverlayVisible = false
             pausedOverlayVisible = false
             isScrubbingTimeline = false
@@ -830,7 +854,7 @@ fun PlayerScreen(
         fun unlockPlayerControls() {
             playerControlsLocked = false
             lockedOverlayVisible = false
-            controlsVisible = true
+            showPlaybackControls()
         }
 
         fun showSeekFeedback(direction: PlayerSeekDirection, amountMs: Long) {
@@ -904,12 +928,12 @@ fun PlayerScreen(
                 shouldPlay = true
                 playerController?.play()
             }
-            controlsVisible = true
+            showPlaybackControls()
         }
 
         fun seekBy(offsetMs: Long) {
             playerController?.seekBy(offsetMs)
-            controlsVisible = true
+            showPlaybackControls()
             when {
                 offsetMs > 0L -> showSeekFeedback(PlayerSeekDirection.Forward, offsetMs)
                 offsetMs < 0L -> showSeekFeedback(PlayerSeekDirection.Backward, abs(offsetMs))
@@ -1204,7 +1228,7 @@ fun PlayerScreen(
                     icon = GestureFeedbackIcon.Resize,
                 ),
             )
-            controlsVisible = true
+            showPlaybackControls()
         }
 
         fun cyclePlaybackSpeed() {
@@ -1213,7 +1237,7 @@ fun PlayerScreen(
             val next = speeds.firstOrNull { it > current + 0.01f } ?: speeds.first()
             playerController?.setPlaybackSpeed(next)
             showGestureMessage(formatPlaybackSpeedLabel(next))
-            controlsVisible = true
+            showPlaybackControls()
         }
 
         val currentPositionMsState = rememberUpdatedState(playbackSnapshot.positionMs.coerceAtLeast(0L))
@@ -1252,7 +1276,7 @@ fun PlayerScreen(
             val controller = playerController ?: return
 
             isHoldToRewindGestureActive = true
-            controlsVisible = true
+            showPlaybackControls()
             liveGestureFeedback = GestureFeedbackState(
                 messageRes = Res.string.compose_player_seek_feedback_backward,
                 messageArgs = listOf(PlayerDoubleTapSeekStepMs / 1000L),
@@ -1292,9 +1316,9 @@ fun PlayerScreen(
             if (!playbackSnapshot.isEnded && !playbackSnapshot.isPlaying && !playbackSnapshot.isLoading && playbackSnapshot.durationMs > 0L) {
                 if (pausedOverlayVisible && !controlsVisible) {
                     pausedOverlayVisible = false
-                    controlsVisible = true
+                    showPlaybackControls()
                 } else if (controlsVisible) {
-                    controlsVisible = false
+                    hidePlaybackControls()
                     pausedOverlayVisible = true
                 } else {
                     pausedOverlayVisible = true
@@ -1304,9 +1328,9 @@ fun PlayerScreen(
             val centerStart = layoutSize.width * PlayerLeftGestureBoundary
             val centerEnd = layoutSize.width * PlayerRightGestureBoundary
             if (controlsVisible && offset.x in centerStart..centerEnd) {
-                controlsVisible = false
+                hidePlaybackControls()
             } else {
-                controlsVisible = !controlsVisible
+                if (controlsVisible) hidePlaybackControls() else showPlaybackControls()
             }
         }
         val onSurfaceDoubleTap = rememberUpdatedState { offset: Offset ->
@@ -1323,7 +1347,7 @@ fun PlayerScreen(
                     handleDoubleTapSeek(PlayerSeekDirection.Forward)
                 }
 
-                else -> controlsVisible = !controlsVisible
+                else -> if (controlsVisible) hidePlaybackControls() else showPlaybackControls()
             }
         }
         val activateHoldToSpeedState = rememberUpdatedState(::activateHoldToSpeed)
@@ -1385,7 +1409,7 @@ fun PlayerScreen(
                 activeInitialPositionMs = currentPositionMs
                 activeInitialProgressFraction = null
                 shouldPlay = true
-                controlsVisible = true
+                showPlaybackControls()
             }
             return true
         }
@@ -1528,7 +1552,7 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
             delay(3500)
-            controlsVisible = false
+            hidePlaybackControls()
         }
 
         LaunchedEffect(playerControlsLocked, lockedOverlayVisible) {
@@ -1557,7 +1581,7 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
             delay(1000)
-            controlsVisible = false
+            hidePlaybackControls()
             pausedOverlayVisible = true
         }
 
@@ -1565,7 +1589,7 @@ fun PlayerScreen(
             if (!playbackSnapshot.isEnded) return@LaunchedEffect
             pausedOverlayVisible = false
             watchTogetherMetadataForcedVisible = false
-            controlsVisible = false
+            hidePlaybackControls()
         }
 
         LaunchedEffect(
@@ -1907,14 +1931,14 @@ fun PlayerScreen(
                     }
                     if (snapshot.isEnded) {
                         shouldPlay = false
-                        controlsVisible = !playerControlsLocked
+                        if (!playerControlsLocked) showPlaybackControls() else hidePlaybackControls()
                     }
                 },
                 onError = { message ->
                     errorMessage = message
                     if (message != null) {
                         if (!resolveFallbackRawSource()) {
-                            controlsVisible = !playerControlsLocked
+                            if (!playerControlsLocked) showPlaybackControls() else hidePlaybackControls()
                             val currentVideoId = activeVideoId
                             if (currentVideoId != null) {
                                 val cacheKey = StreamLinkCacheRepository.contentKey(
@@ -1954,7 +1978,7 @@ fun PlayerScreen(
             AnimatedVisibility(
                 visible = (controlsVisible || showParentalGuide || showStartupTitleIntro || showManualPauseMetadata) && !playerControlsLocked,
                 enter = fadeIn(animationSpec = tween(durationMillis = 260)),
-                exit = fadeOut(animationSpec = tween(durationMillis = 900)),
+                exit = fadeOut(animationSpec = tween(durationMillis = PlayerControlsExitAnimationMs)),
                 modifier = Modifier.zIndex(if (showManualPauseMetadata) 4f else 0f),
             ) {
                 PlayerControlsShell(
@@ -1969,7 +1993,7 @@ fun PlayerScreen(
                     metrics = metrics,
                     resizeMode = resizeMode,
                     isLocked = playerControlsLocked,
-                    showPlaybackControls = controlsVisible && !showManualPauseMetadata,
+                    showPlaybackControls = (controlsVisible || controlsExitAnimating) && !showManualPauseMetadata,
                     showHeaderMetadata = startupIntroFinished,
                     showStartupTitleIntro = showStartupTitleIntro,
                     startupTitleIntroVisible = startupTitleIntroVisible,
