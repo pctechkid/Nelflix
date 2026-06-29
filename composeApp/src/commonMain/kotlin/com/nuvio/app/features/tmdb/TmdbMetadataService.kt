@@ -423,11 +423,11 @@ object TmdbMetadataService {
         return result
     }
 
-    private suspend fun fetchEntityHeader(
+    suspend fun fetchEntityHeader(
         entityKind: TmdbEntityKind,
         entityId: Int,
         fallbackName: String?,
-        language: String,
+        language: String = normalizeTmdbLanguage(TmdbSettingsRepository.uiState.value.language),
     ): TmdbEntityHeader? {
         val cacheKey = "${entityKind.routeValue}:$entityId:$language:header"
         entityHeaderCache[cacheKey]?.let { return it }

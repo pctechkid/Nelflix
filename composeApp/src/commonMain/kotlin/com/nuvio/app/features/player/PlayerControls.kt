@@ -312,6 +312,10 @@ private fun PlayerHeader(
         } else {
             null
         }
+        var logoLoadFailed by remember(logo) { mutableStateOf(false) }
+        LaunchedEffect(logo) {
+            logoLoadFailed = false
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -326,7 +330,7 @@ private fun PlayerHeader(
                         .padding(end = 24.dp, bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (!logo.isNullOrBlank()) {
+                    if (!logo.isNullOrBlank() && !logoLoadFailed) {
                         AsyncImage(
                             model = logo,
                             contentDescription = title,
@@ -334,6 +338,7 @@ private fun PlayerHeader(
                                 .height(if (seasonNumber != null && episodeNumber != null) 64.dp else 76.dp)
                                 .widthIn(max = 360.dp),
                             contentScale = ContentScale.Fit,
+                            onError = { logoLoadFailed = true },
                         )
                     } else {
                         NetflixHeaderTitle(
@@ -344,11 +349,10 @@ private fun PlayerHeader(
                             onTitleLineCountChanged = {},
                         )
                     }
-                    if (episodeLine != null && !logo.isNullOrBlank()) {
+                    if (episodeLine != null && !logo.isNullOrBlank() && !logoLoadFailed) {
                         AnimatedHeaderLine(
                             text = episodeLine,
                             fontSize = metrics.episodeInfoSize,
-                            modifier = Modifier.padding(start = if (logo.isNullOrBlank()) 11.dp else 0.dp),
                         )
                     }
                 }

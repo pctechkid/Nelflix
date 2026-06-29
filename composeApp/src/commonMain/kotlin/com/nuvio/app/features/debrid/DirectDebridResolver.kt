@@ -164,12 +164,14 @@ object DirectDebridPlaybackResolver {
                     torrentUrl = torrentUrl,
                     fileName = resolve.filename ?: resolve.torrentName,
                     addOnlyIfCached = false,
+                    seedMode = TorboxSeedMode.Always,
                 )
             } else {
                 TorboxApiClient.createTorrent(
                     apiKey = apiKey,
                     magnet = magnet.orEmpty(),
                     addOnlyIfCached = false,
+                    seedMode = TorboxSeedMode.Always,
                 )
             }
             val data = create.body?.takeIf { it.success != false }?.data

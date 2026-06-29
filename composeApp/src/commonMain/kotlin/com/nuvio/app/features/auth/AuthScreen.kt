@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -129,27 +130,34 @@ fun AuthScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 24.dp, end = 24.dp, top = statusBarTop + 60.dp, bottom = 40.dp),
+                .padding(start = 24.dp, end = 24.dp, top = statusBarTop + 24.dp, bottom = 40.dp),
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Image(
-                painter = painterResource(Res.drawable.app_logo_wordmark),
-                contentDescription = null,
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .height(48.dp),
-                contentScale = ContentScale.Fit,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = stringResource(Res.string.compose_auth_tagline),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+                    .widthIn(max = 500.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Image(
+                    painter = painterResource(Res.drawable.app_logo_wordmark),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxWidth(0.58f)
+                        .height(48.dp),
+                    contentScale = ContentScale.Fit,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = stringResource(Res.string.compose_auth_tagline),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
-            Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(48.dp))
 
-            NuvioSurfaceCard {
+                NuvioSurfaceCard {
                 AnimatedContent(
                     targetState = isSignUp,
                     transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -389,6 +397,7 @@ fun AuthScreen(
                         )
                     }
                 }
+            }
             }
         }
     }

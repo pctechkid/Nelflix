@@ -148,6 +148,10 @@ fun StreamsScreen(
     val noDirectStreamLinkText = stringResource(Res.string.streams_no_direct_link)
     var streamActionsTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
     var preferredFilterApplied by remember(videoId) { mutableStateOf(false) }
+    var autoplayLogoLoadFailed by remember(logo) { mutableStateOf(false) }
+    LaunchedEffect(logo) {
+        autoplayLogoLoadFailed = false
+    }
     val storedProgress = if (startFromBeginning) {
         null
     } else {
@@ -321,13 +325,27 @@ fun StreamsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    if (!logo.isNullOrBlank()) {
+                    if (!logo.isNullOrBlank() && !autoplayLogoLoadFailed) {
                         AsyncImage(
                             model = logo,
                             contentDescription = null,
                             modifier = Modifier
                                 .height(48.dp),
                             contentScale = ContentScale.Fit,
+                            onError = { autoplayLogoLoadFailed = true },
+                        )
+                    } else {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = (-0.4).sp,
+                            ),
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 24.dp),
                         )
                     }
                     CircularProgressIndicator(
@@ -531,6 +549,11 @@ private fun MovieHeroBlock(
     logo: String?,
     modifier: Modifier = Modifier,
 ) {
+    var logoLoadFailed by remember(logo) { mutableStateOf(false) }
+    LaunchedEffect(logo) {
+        logoLoadFailed = false
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -538,7 +561,7 @@ private fun MovieHeroBlock(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)),
         contentAlignment = Alignment.Center,
     ) {
-        if (logo != null) {
+        if (!logo.isNullOrBlank() && !logoLoadFailed) {
             AsyncImage(
                 model = logo,
                 contentDescription = null,
@@ -546,6 +569,7 @@ private fun MovieHeroBlock(
                     .height(80.dp)
                     .fillMaxWidth(0.85f),
                 contentScale = ContentScale.Fit,
+                onError = { logoLoadFailed = true },
             )
         } else {
             Text(

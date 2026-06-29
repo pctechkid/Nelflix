@@ -30,6 +30,7 @@ import com.nuvio.app.features.details.nextReleasedEpisodeAfter
 import com.nuvio.app.features.home.components.HomeCatalogRowSection
 import com.nuvio.app.features.home.components.HomeContinueWatchingSection
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
+import com.nuvio.app.features.home.components.HomeFeaturedProductionsSection
 import com.nuvio.app.features.home.components.HomeHeroReservedSpace
 import com.nuvio.app.features.home.components.HomeHeroSection
 import com.nuvio.app.features.home.components.HomeSkeletonHero
@@ -85,6 +86,8 @@ fun HomeScreen(
     onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
     onContinueWatchingLongPress: ((ContinueWatchingItem) -> Unit)? = null,
     onFolderClick: ((collectionId: String, folderId: String) -> Unit)? = null,
+    onFeaturedProductionClick: ((FeaturedProductionEntity) -> Unit)? = null,
+    onFeaturedProductionsViewAllClick: (() -> Unit)? = null,
     onFirstCatalogRendered: (() -> Unit)? = null,
 ) {
     LaunchedEffect(Unit) {
@@ -603,6 +606,7 @@ fun HomeScreen(
                         }
                     }
 
+                    var featuredProductionsInserted = false
                     enabledHomeItems.forEach { settingsItem ->
                         if (settingsItem.isCollection) {
                             val collection = collectionsMap[settingsItem.key]
@@ -635,6 +639,21 @@ fun HomeScreen(
                                         onPosterClick = onPosterClick,
                                         onPosterLongClick = onPosterLongClick,
                                     )
+                                }
+                                if (!featuredProductionsInserted &&
+                                    onFeaturedProductionClick != null &&
+                                    onFeaturedProductionsViewAllClick != null
+                                ) {
+                                    item(key = "featured-productions-home-rail") {
+                                        HomeFeaturedProductionsSection(
+                                            entries = featuredProductionEntities.take(10),
+                                            modifier = Modifier.padding(bottom = 12.dp),
+                                            sectionPadding = homeSectionPadding,
+                                            onEntityClick = onFeaturedProductionClick,
+                                            onViewAllClick = onFeaturedProductionsViewAllClick,
+                                        )
+                                    }
+                                    featuredProductionsInserted = true
                                 }
                             }
                         }

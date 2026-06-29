@@ -25,8 +25,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -365,6 +368,10 @@ private fun ContinueWatchingLandscapeCard(
     val description = item.pauseDescription?.trim()?.takeIf { it.isNotBlank() }
     val supportingText = episodeTitle ?: description ?: metaLine
     val clearlogo = item.logo?.trim()?.takeIf { it.isNotBlank() && useClearlogo }
+    var clearlogoLoadFailed by remember(clearlogo) { mutableStateOf(false) }
+    LaunchedEffect(clearlogo) {
+        clearlogoLoadFailed = false
+    }
     Box(
         modifier = Modifier
             .width(layout.wideCardWidth)
@@ -459,7 +466,7 @@ private fun ContinueWatchingLandscapeCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (clearlogo != null) {
+            if (clearlogo != null && !clearlogoLoadFailed) {
                 AsyncImage(
                     model = clearlogo,
                     contentDescription = item.title,
@@ -467,6 +474,7 @@ private fun ContinueWatchingLandscapeCard(
                         .widthIn(max = layout.wideCardWidth * 0.62f)
                         .heightIn(max = layout.wideTitleSize.value.dp * 2.15f),
                     contentScale = ContentScale.Fit,
+                    onError = { clearlogoLoadFailed = true },
                 )
             } else {
                 Text(

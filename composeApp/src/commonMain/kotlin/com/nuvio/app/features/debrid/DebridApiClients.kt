@@ -30,6 +30,12 @@ internal object DebridApiJson {
     }
 }
 
+internal enum class TorboxSeedMode(val apiValue: String) {
+    Auto("1"),
+    Always("2"),
+    Never("3"),
+}
+
 internal object TorboxApiClient {
     private const val BASE_URL = "https://api.torbox.app"
 
@@ -48,13 +54,18 @@ internal object TorboxApiClient {
         apiKey: String,
         magnet: String,
         addOnlyIfCached: Boolean = true,
+        seedMode: TorboxSeedMode? = null,
     ): DebridApiResponse<TorboxEnvelopeDto<TorboxCreateTorrentDataDto>> {
         val boundary = "NuvioDebrid${magnet.hashCode().toUInt()}"
-        val body = multipartFormBody(
-            boundary = boundary,
+        val fields = listOfNotNull(
             "magnet" to magnet,
             "add_only_if_cached" to addOnlyIfCached.toString(),
             "allow_zip" to "false",
+            seedMode?.let { "seed" to it.apiValue },
+        )
+        val body = multipartFormBody(
+            boundary = boundary,
+            *fields.toTypedArray(),
         )
         return request(
             method = "POST",
@@ -70,6 +81,7 @@ internal object TorboxApiClient {
         torrentUrl: String,
         fileName: String?,
         addOnlyIfCached: Boolean = true,
+        seedMode: TorboxSeedMode? = null,
     ): DebridApiResponse<TorboxEnvelopeDto<TorboxCreateTorrentDataDto>> {
         val torrentResponse = httpGetBytesWithHeaders(
             url = torrentUrl,
@@ -90,6 +102,7 @@ internal object TorboxApiClient {
             fileBytes = torrentResponse.body,
             fileName = safeName.ensureTorrentExtension(),
             addOnlyIfCached = addOnlyIfCached,
+            seedMode = seedMode,
         )
         if (uploadResponse.isSuccessfulTorboxCreate()) {
             return uploadResponse
@@ -101,6 +114,7 @@ internal object TorboxApiClient {
             apiKey = apiKey,
             magnet = fallbackMagnet,
             addOnlyIfCached = addOnlyIfCached,
+            seedMode = seedMode,
         )
         return if (magnetResponse.isSuccessfulTorboxCreate()) {
             magnetResponse
@@ -232,13 +246,15 @@ internal object TorboxApiClient {
         fileBytes: ByteArray,
         fileName: String,
         addOnlyIfCached: Boolean,
+        seedMode: TorboxSeedMode?,
     ): DebridApiResponse<TorboxEnvelopeDto<TorboxCreateTorrentDataDto>> {
         val boundary = "NuvioDebridFile${fileBytes.size.toUInt()}${fileName.hashCode().toUInt()}"
         val body = multipartFormBodyBytes(
             boundary = boundary,
-            fields = listOf(
+            fields = listOfNotNull(
                 "add_only_if_cached" to addOnlyIfCached.toString(),
                 "allow_zip" to "false",
+                seedMode?.let { "seed" to it.apiValue },
             ),
             fileFieldName = "file",
             fileName = fileName,

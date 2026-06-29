@@ -128,6 +128,8 @@ import com.nuvio.app.features.details.MetaPerson
 import com.nuvio.app.features.details.PersonDetailScreen
 import com.nuvio.app.features.details.TmdbEntityBrowseScreen
 import com.nuvio.app.features.tmdb.TmdbEntityKind
+import com.nuvio.app.features.home.FeaturedProductionEntity
+import com.nuvio.app.features.home.FeaturedProductionsScreen
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeScreen
 import com.nuvio.app.features.home.MetaPreview
@@ -246,6 +248,9 @@ data class EntityBrowseRoute(
     val entityName: String,
     val sourceType: String = "tv",
 )
+
+@Serializable
+object FeaturedProductionsRoute
 
 @Serializable
 object HomescreenSettingsRoute
@@ -1222,6 +1227,17 @@ private fun MainAppContent(
             )
         }
 
+        val onFeaturedProductionClick: (FeaturedProductionEntity) -> Unit = { entity ->
+            navController.navigate(
+                EntityBrowseRoute(
+                    entityKind = entity.kind.routeValue,
+                    entityId = entity.id,
+                    entityName = entity.name,
+                    sourceType = entity.sourceType,
+                ),
+            )
+        }
+
         val librarySectionSubtitle = if (libraryUiState.sourceMode == LibrarySourceMode.TRAKT) {
             stringResource(Res.string.compose_catalog_subtitle_trakt_library)
         } else {
@@ -1395,6 +1411,10 @@ private fun MainAppContent(
                                         onLibrarySectionViewAllClick = onLibrarySectionViewAllClick,
                                         onContinueWatchingClick = onContinueWatchingClick,
                                         onContinueWatchingLongPress = onContinueWatchingLongPress,
+                                        onFeaturedProductionClick = onFeaturedProductionClick,
+                                        onFeaturedProductionsViewAllClick = {
+                                            navController.navigate(FeaturedProductionsRoute)
+                                        },
                                         onWatchTogetherClick = {
                                             watchTogetherJoinError = null
                                             showWatchTogetherJoinDialog = true
@@ -1446,6 +1466,13 @@ private fun MainAppContent(
                             }
                         }
                     }
+                }
+                composable<FeaturedProductionsRoute> {
+                    FeaturedProductionsScreen(
+                        onBack = { navController.popBackStack() },
+                        onEntityClick = onFeaturedProductionClick,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
                 composable<DetailRoute> { backStackEntry ->
                     val route = backStackEntry.toRoute<DetailRoute>()
@@ -2631,6 +2658,8 @@ private fun AppTabHost(
     onLibrarySectionViewAllClick: ((LibrarySection) -> Unit)? = null,
     onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
     onContinueWatchingLongPress: ((ContinueWatchingItem) -> Unit)? = null,
+    onFeaturedProductionClick: ((FeaturedProductionEntity) -> Unit)? = null,
+    onFeaturedProductionsViewAllClick: (() -> Unit)? = null,
     onWatchTogetherClick: (() -> Unit)? = null,
     onSwitchProfile: (() -> Unit)? = null,
     onHomescreenSettingsClick: () -> Unit = {},
@@ -2662,6 +2691,8 @@ private fun AppTabHost(
                         onPosterLongClick = onPosterLongClick,
                         onContinueWatchingClick = onContinueWatchingClick,
                         onContinueWatchingLongPress = onContinueWatchingLongPress,
+                        onFeaturedProductionClick = onFeaturedProductionClick,
+                        onFeaturedProductionsViewAllClick = onFeaturedProductionsViewAllClick,
                         onFolderClick = onFolderClick,
                         onFirstCatalogRendered = onInitialHomeContentRendered,
                     )

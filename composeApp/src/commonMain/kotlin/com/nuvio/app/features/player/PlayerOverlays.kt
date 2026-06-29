@@ -43,7 +43,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -321,6 +325,10 @@ internal fun PauseMetadataOverlay(
         }
         val descriptionMaxLines = if (compactHeight) 2 else 3
         val descriptionWidthFraction = if (compactHeight) 0.82f else 0.62f
+        var logoLoadFailed by remember(logo) { mutableStateOf(false) }
+        LaunchedEffect(logo) {
+            logoLoadFailed = false
+        }
 
         Column(
             modifier = Modifier
@@ -340,13 +348,14 @@ internal fun PauseMetadataOverlay(
             )
             androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(if (compactHeight) 8.dp else 12.dp))
 
-            if (!logo.isNullOrBlank()) {
+            if (!logo.isNullOrBlank() && !logoLoadFailed) {
                 AsyncImage(
                     model = logo,
                     contentDescription = title,
                     contentScale = ContentScale.Fit,
                     alignment = Alignment.BottomStart,
                     modifier = Modifier.height(logoHeight),
+                    onError = { logoLoadFailed = true },
                 )
             } else {
                 Text(
