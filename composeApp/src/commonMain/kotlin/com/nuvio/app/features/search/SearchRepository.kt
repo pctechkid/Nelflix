@@ -5,6 +5,7 @@ import com.nuvio.app.core.i18n.localizedMediaTypeLabel
 import com.nuvio.app.features.addons.AddonCatalog
 import com.nuvio.app.features.addons.AddonExtraProperty
 import com.nuvio.app.features.addons.ManagedAddon
+import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.catalog.CatalogPage
 import com.nuvio.app.features.catalog.buildCatalogUrl
 import com.nuvio.app.features.catalog.fetchCatalogPage
@@ -26,6 +27,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
@@ -367,7 +371,12 @@ object SearchRepository {
             catalogId = catalogId,
             search = query,
         ).withUnreleasedFilter()
-        val items = page.items
+        val fallbackItems = if (page.items.isEmpty() && isAnimeSeriesSearch()) {
+            fetchAnimeSeriesFallbacks(query)
+        } else {
+            emptyList()
+        }
+        val items = page.items.ifEmpty { fallbackItems }
         require(items.isNotEmpty()) { "No search results returned for $catalogName." }
 
         return HomeCatalogSection(
@@ -379,7 +388,7 @@ object SearchRepository {
             manifestUrl = manifest.transportUrl,
             catalogId = catalogId,
             items = items,
-            availableItemCount = page.rawItemCount,
+            availableItemCount = page.rawItemCount.takeIf { it > 0 } ?: items.size,
             supportsPagination = supportsPagination,
         )
     }
@@ -501,11 +510,39 @@ private data class SearchCatalogRequest(
     val supportsPagination: Boolean,
 )
 
+private val fallbackSearchLog = Logger.withTag("SearchRepository")
+private val fallbackSearchJson = Json { ignoreUnknownKeys = true }
+
+private const val ANIME_SEARCH_FALLBACK_LIMIT = 12
+
+@Serializable
+private data class MalPrefixSearchResponse(
+    val categories: List<MalPrefixCategory> = emptyList(),
+)
+
+@Serializable
+private data class MalPrefixCategory(
+    val type: String = "",
+    val items: List<MalPrefixItem> = emptyList(),
+)
+
+@Serializable
+private data class MalPrefixItem(
+    val id: Int? = null,
+    val name: String? = null,
+    @SerialName("image_url") val imageUrl: String? = null,
+)
+
 private fun AddonCatalog.supportsSearch(): Boolean =
-    extra.any { property -> property.name == "search" } &&
+    (
+        extra.any { property -> property.name == "search" } ||
+            isSearchLikeCatalog()
+        ) &&
         extra.none { property -> property.isRequired && property.name != "search" }
 
 private fun AddonCatalog.supportsDiscover(): Boolean {
+    if (isSearchLikeCatalog()) return false
+
     if (extra.any { property -> property.name == "search" && property.isRequired }) {
         return false
     }
@@ -518,6 +555,127 @@ private fun AddonCatalog.supportsDiscover(): Boolean {
             else -> property.isRequired
         }
     }
+}
+
+private suspend fun SearchCatalogRequest.fetchAnimeSeriesFallbacks(query: String): List<MetaPreview> {
+    val malItems = fetchMalPrefixFallback(query)
+    if (malItems.isNotEmpty()) return malItems
+    return fetchSeriesSearchFallback(query)
+}
+
+private suspend fun SearchCatalogRequest.fetchMalPrefixFallback(query: String): List<MetaPreview> =
+    runCatching {
+        val url = "https://myanimelist.net/search/prefix.json?type=anime&keyword=${query.encodeSearchQuery()}"
+        val response = httpGetTextWithHeaders(
+            url = url,
+            headers = mapOf(
+                "Accept" to "application/json,text/plain,*/*",
+                "User-Agent" to "Mozilla/5.0",
+            ),
+        )
+        fallbackSearchJson.decodeFromString<MalPrefixSearchResponse>(response)
+            .categories
+            .firstOrNull { category -> category.type.equals("anime", ignoreCase = true) }
+            ?.items
+            .orEmpty()
+            .mapNotNull { item -> item.toMetaPreview() }
+            .distinctBy { item -> "${item.type}:${item.id}" }
+            .take(ANIME_SEARCH_FALLBACK_LIMIT)
+            .also { items ->
+                if (items.isNotEmpty()) {
+                    fallbackSearchLog.d {
+                        "MAL prefix fallback returned ${items.size} items for anime search query='$query' " +
+                            "catalog=$catalogId sample=${items.previewNames()}"
+                    }
+                }
+            }
+    }.getOrElse { error ->
+        fallbackSearchLog.w(error) {
+            "MAL prefix fallback failed for anime search query='$query' catalog=$catalogId"
+        }
+        emptyList()
+    }
+
+private suspend fun SearchCatalogRequest.fetchSeriesSearchFallback(query: String): List<MetaPreview> =
+    runCatching {
+        val manifest = requireNotNull(addon.manifest)
+        val page = fetchCatalogPage(
+            manifestUrl = manifest.transportUrl,
+            type = "series",
+            catalogId = "search.series",
+            search = query,
+        ).withUnreleasedFilter()
+        page.items
+            .distinctBy { item -> "${item.type}:${item.id}" }
+            .take(ANIME_SEARCH_FALLBACK_LIMIT)
+            .also { items ->
+                if (items.isNotEmpty()) {
+                    fallbackSearchLog.d {
+                        "Series search fallback returned ${items.size} items for anime search query='$query' " +
+                            "catalog=$catalogId sample=${items.previewNames()}"
+                    }
+                }
+            }
+    }.getOrElse { error ->
+        fallbackSearchLog.w(error) {
+            "Series search fallback failed for anime search query='$query' catalog=$catalogId"
+        }
+        emptyList()
+    }
+
+private fun SearchCatalogRequest.isAnimeSeriesSearch(): Boolean {
+    val normalizedId = catalogId.trim().lowercase()
+    val normalizedName = catalogName.trim().lowercase()
+    return normalizedId == "search.anime_series" ||
+        (normalizedId.contains("anime") && normalizedId.contains("search")) ||
+        normalizedName == "anime series search"
+}
+
+private fun MalPrefixItem.toMetaPreview(): MetaPreview? {
+    val malId = id ?: return null
+    val title = name?.takeIf { it.isNotBlank() } ?: return null
+    return MetaPreview(
+        id = "mal:$malId",
+        type = "series",
+        name = title,
+        poster = imageUrl?.takeIf { it.isNotBlank() },
+    )
+}
+
+private fun String.encodeSearchQuery(): String =
+    buildString {
+        encodeToByteArray().forEach { byte ->
+            val value = byte.toInt() and 0xFF
+            val char = value.toChar()
+            if (
+                char in 'a'..'z' ||
+                char in 'A'..'Z' ||
+                char in '0'..'9' ||
+                char == '-' ||
+                char == '_' ||
+                char == '.' ||
+                char == '~'
+            ) {
+                append(char)
+            } else {
+                append('%')
+                append(SEARCH_HEX[value shr 4])
+                append(SEARCH_HEX[value and 0x0F])
+            }
+        }
+    }
+
+private val SEARCH_HEX = "0123456789ABCDEF"
+
+private fun AddonCatalog.isSearchLikeCatalog(): Boolean {
+    val normalizedId = id.trim().lowercase()
+    val normalizedName = name.trim().lowercase()
+    return normalizedId == "search" ||
+        normalizedId.startsWith("search.") ||
+        normalizedId.endsWith(".search") ||
+        normalizedId.contains("_search") ||
+        normalizedName == "search" ||
+        normalizedName.endsWith(" search")
 }
 
 private fun AddonCatalog.genreExtra(): AddonExtraProperty? =

@@ -9,5 +9,11 @@ actual object CurrentDateProvider {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.stringFromDate(NSDate())
     }
+
+    actual fun currentLocalIsoDateTime(): String {
+        val formatter = NSDateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter.stringFromDate(NSDate())
+    }
 }
 

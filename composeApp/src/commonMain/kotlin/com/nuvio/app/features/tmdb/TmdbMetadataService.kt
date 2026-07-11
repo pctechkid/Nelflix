@@ -397,16 +397,10 @@ object TmdbMetadataService {
             val results = response?.results.orEmpty()
             val totalPages = response?.totalPages ?: page
 
-            val mappedItems = coroutineScope {
-                results
-                    .filter { it.id > 0 }
-                    .map { item ->
-                        async { mapEntityDiscoverResult(item, mediaType, language) }
-                    }
-                    .awaitAll()
-                    .filterNotNull()
-                    .take(ENTITY_RAIL_MAX_ITEMS)
-            }
+            val mappedItems = results
+                .filter { it.id > 0 }
+                .mapNotNull { item -> mapEntityDiscoverResult(item, mediaType) }
+                .take(ENTITY_RAIL_MAX_ITEMS)
 
             TmdbEntityRailPageResult(
                 items = mappedItems,
@@ -488,10 +482,9 @@ object TmdbMetadataService {
         return header
     }
 
-    private suspend fun mapEntityDiscoverResult(
+    private fun mapEntityDiscoverResult(
         result: TmdbDiscoverResult,
         mediaType: TmdbEntityMediaType,
-        language: String,
     ): MetaPreview? {
         val title = result.title?.takeIf { it.isNotBlank() }
             ?: result.name?.takeIf { it.isNotBlank() }
@@ -499,15 +492,8 @@ object TmdbMetadataService {
             ?: result.originalName?.takeIf { it.isNotBlank() }
             ?: return null
 
-        val artwork = fetchPreviewArtwork(
-            tmdbId = result.id,
-            mediaType = mediaType.value,
-            language = language,
-        )
-
         val poster = buildImageUrl(result.posterPath, "w500")
             ?: buildImageUrl(result.backdropPath, "w780")
-            ?: artwork?.backdrop
             ?: return null
         val releaseInfo = when (mediaType) {
             TmdbEntityMediaType.MOVIE -> result.releaseDate?.take(4)
@@ -518,8 +504,8 @@ object TmdbMetadataService {
             type = if (mediaType == TmdbEntityMediaType.TV) "series" else "movie",
             name = title,
             poster = poster,
-            banner = buildImageUrl(result.backdropPath, "w780") ?: artwork?.backdrop,
-            logo = artwork?.logo,
+            banner = buildImageUrl(result.backdropPath, "w780"),
+            logo = null,
             description = result.overview?.takeIf { it.isNotBlank() },
             releaseInfo = releaseInfo,
         )
@@ -787,6 +773,8 @@ object TmdbMetadataService {
                             } else {
                                 video.thumbnail
                             },
+                            imdbRating = video.imdbRating?.takeIf { it.isNotBlank() }
+                                ?: enrichmentForEpisode.voteAverage?.takeIf { it > 0.0 }?.formatRating(),
                             seasonPoster = if (settings.useSeasonPosters) {
                                 enrichmentForEpisode.seasonPoster ?: video.seasonPoster
                             } else {
@@ -986,6 +974,7 @@ object TmdbMetadataService {
                                 seasonPoster = buildImageUrl(details.posterPath, "w500"),
                                 airDate = episode.airDate?.trim()?.takeIf(String::isNotBlank),
                                 runtimeMinutes = episode.runtime,
+                                voteAverage = episode.voteAverage,
                             )
                         }
                         .toMap()
@@ -1274,6 +1263,7 @@ internal data class TmdbEpisodeEnrichment(
     val seasonPoster: String? = null,
     val airDate: String?,
     val runtimeMinutes: Int?,
+    val voteAverage: Double? = null,
 )
 
 private fun normalizeMetaType(type: String): String =
@@ -1707,6 +1697,7 @@ private data class TmdbEpisodeResponse(
     @SerialName("air_date") val airDate: String? = null,
     val runtime: Int? = null,
     @SerialName("episode_number") val episodeNumber: Int? = null,
+    @SerialName("vote_average") val voteAverage: Double? = null,
 )
 
 // ─── Person Detail Models ───

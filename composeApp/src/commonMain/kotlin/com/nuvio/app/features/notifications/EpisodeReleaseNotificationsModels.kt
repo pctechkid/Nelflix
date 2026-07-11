@@ -60,7 +60,7 @@ internal data class EpisodeReleaseNotificationRequest(
 
 internal const val EpisodeReleaseNotificationHour = 9
 internal const val EpisodeReleaseNotificationMinute = 0
-internal const val EpisodeReleaseNotificationDelayHours = 13L
+internal const val EpisodeReleaseNotificationDelayHours = 9L
 internal const val EpisodeReleaseNotificationScheduleGraceMs = 15L * 60L * 1000L
 internal const val DefaultEpisodeReleaseTimezoneId = "UTC"
 internal const val MinReasonableSavedAtEpochMs = 946684800000L

@@ -2,6 +2,7 @@ package com.nuvio.app
 
 import android.content.Intent
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -62,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         ThemeSettingsStorage.initialize(applicationContext)
         super.onCreate(savedInstanceState)
         window.setBackgroundDrawableResource(R.color.nuvio_background)
+        preferHighRefreshDisplayMode()
         AddonStorage.initialize(applicationContext)
         AuthStorage.initialize(applicationContext)
         LibraryStorage.initialize(applicationContext)
@@ -126,6 +128,25 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         PlayerPictureInPictureManager.onPictureInPictureModeChanged(this, isInPictureInPictureMode)
+    }
+
+    private fun preferHighRefreshDisplayMode() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val display = windowManager.defaultDisplay ?: return
+        val currentMode = display.mode ?: return
+        val bestMode = display.supportedModes
+            .filter { mode ->
+                mode.physicalWidth == currentMode.physicalWidth &&
+                    mode.physicalHeight == currentMode.physicalHeight
+            }
+            .maxByOrNull { it.refreshRate }
+            ?: return
+        if (bestMode.refreshRate <= currentMode.refreshRate + 1f) return
+
+        val params = window.attributes
+        params.preferredDisplayModeId = bestMode.modeId
+        params.preferredRefreshRate = bestMode.refreshRate
+        window.attributes = params
     }
 
     override fun onDestroy() {

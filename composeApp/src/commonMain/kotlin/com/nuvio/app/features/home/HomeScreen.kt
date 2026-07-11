@@ -62,6 +62,7 @@ import com.nuvio.app.features.watching.domain.isReleasedBy
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.home.components.HomeCollectionRowSection
+import com.nuvio.app.features.notifications.EpisodeReleaseNotificationDelayHours
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -205,6 +206,8 @@ fun HomeScreen(
 
     var nextUpItemsBySeries by remember(activeProfileId) { mutableStateOf<Map<String, Pair<Long, ContinueWatchingItem>>>(emptyMap()) }
 
+    val todayIsoDateForContinueWatching = CurrentDateProvider.todayIsoDate()
+    val currentLocalIsoDateTimeForContinueWatching = CurrentDateProvider.currentLocalIsoDateTime()
     val cachedSnapshots = remember(activeProfileId) { ContinueWatchingEnrichmentCache.getSnapshots() }
     val cachedNextUpItems = remember(
         cachedSnapshots.first,
@@ -213,6 +216,8 @@ fun HomeScreen(
         isTraktProgressActive,
         continueWatchingPreferences.showUnairedNextUp,
         watchedUiState.isLoaded,
+        todayIsoDateForContinueWatching,
+        currentLocalIsoDateTimeForContinueWatching,
     ) {
         cachedSnapshots.first.mapNotNull { cached ->
             if (
@@ -225,7 +230,14 @@ fun HomeScreen(
             if (nextUpDismissKey(cached.contentId, cached.seedSeason, cached.seedEpisode) in continueWatchingPreferences.dismissedNextUpKeys) {
                 return@mapNotNull null
             }
-            if (!cached.hasAired && !continueWatchingPreferences.showUnairedNextUp) {
+            val cachedIsAvailable = cached.released?.let { released ->
+                isNextUpAvailableByReleaseTime(
+                    releasedDate = released,
+                    todayIsoDate = todayIsoDateForContinueWatching,
+                    currentLocalIsoDateTime = currentLocalIsoDateTimeForContinueWatching,
+                )
+            } ?: cached.hasAired
+            if (!cachedIsAvailable && !continueWatchingPreferences.showUnairedNextUp) {
                 return@mapNotNull null
             }
             val item = cached.toContinueWatchingItem() ?: return@mapNotNull null
@@ -271,7 +283,8 @@ fun HomeScreen(
             cachedInProgressByVideoId = cachedInProgressItems,
             nextUpItemsBySeries = effectivNextUpItems,
             sortMode = continueWatchingPreferences.sortMode,
-            todayIsoDate = CurrentDateProvider.todayIsoDate(),
+            todayIsoDate = todayIsoDateForContinueWatching,
+            currentLocalIsoDateTime = currentLocalIsoDateTimeForContinueWatching,
         )
     }
     val availableManifests = remember(addonsUiState.addons) {
@@ -347,6 +360,7 @@ fun HomeScreen(
         if (metaProviderKey.isEmpty()) return@LaunchedEffect
 
         val todayIsoDate = CurrentDateProvider.todayIsoDate()
+        val currentLocalIsoDateTime = CurrentDateProvider.currentLocalIsoDateTime()
         val semaphore = Semaphore(4)
         val results = completedSeriesCandidates.map { completedEntry ->
             async {
@@ -361,6 +375,15 @@ fun HomeScreen(
                         todayIsoDate = todayIsoDate,
                         showUnairedNextUp = continueWatchingPreferences.showUnairedNextUp,
                     ) ?: return@withPermit null
+                    if (!continueWatchingPreferences.showUnairedNextUp &&
+                        !isNextUpAvailableByReleaseTime(
+                            releasedDate = nextEpisode.released,
+                            todayIsoDate = todayIsoDate,
+                            currentLocalIsoDateTime = currentLocalIsoDateTime,
+                        )
+                    ) {
+                        return@withPermit null
+                    }
                     val item = completedEntry.toContinueWatchingSeed(meta)
                         .toUpNextContinueWatchingItem(nextEpisode)
                     if (nextUpDismissKey(item.parentMetaId, item.nextUpSeedSeasonNumber, item.nextUpSeedEpisodeNumber) in continueWatchingPreferences.dismissedNextUpKeys) {
@@ -389,7 +412,11 @@ fun HomeScreen(
                 pauseDescription = item.pauseDescription,
                 released = item.released,
                 hasAired = item.released?.let { released ->
-                    isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = released)
+                    isNextUpAvailableByReleaseTime(
+                        releasedDate = released,
+                        todayIsoDate = todayIsoDate,
+                        currentLocalIsoDateTime = currentLocalIsoDateTime,
+                    )
                 } ?: true,
                 lastWatched = pair.first,
                 sortTimestamp = pair.first,
@@ -448,6 +475,16 @@ fun HomeScreen(
     }
     val enabledHomeItems = remember(homeSettingsUiState.items) {
         homeSettingsUiState.items.filter { it.enabled }
+    }
+    val firstAddonCatalogGroupLastKey = remember(enabledHomeItems, sectionsMap) {
+        val renderableAddonItems = enabledHomeItems.filter { item ->
+            !item.isCollection && sectionsMap[item.key]?.items?.isNotEmpty() == true
+        }
+        val firstAddonName = renderableAddonItems.firstOrNull()?.addonName
+        renderableAddonItems
+            .takeWhile { item -> item.addonName == firstAddonName }
+            .lastOrNull()
+            ?.key
     }
     val hasRenderableCollectionRows = remember(enabledHomeItems, collectionsMap) {
         enabledHomeItems.any { item ->
@@ -641,12 +678,13 @@ fun HomeScreen(
                                     )
                                 }
                                 if (!featuredProductionsInserted &&
+                                    settingsItem.key == firstAddonCatalogGroupLastKey &&
                                     onFeaturedProductionClick != null &&
                                     onFeaturedProductionsViewAllClick != null
                                 ) {
                                     item(key = "featured-productions-home-rail") {
                                         HomeFeaturedProductionsSection(
-                                            entries = featuredProductionEntities.take(10),
+                                            entries = featuredProductionEntities.take(HOME_FEATURED_PRODUCTIONS_LIMIT),
                                             modifier = Modifier.padding(bottom = 12.dp),
                                             sectionPadding = homeSectionPadding,
                                             onEntityClick = onFeaturedProductionClick,
@@ -665,6 +703,7 @@ fun HomeScreen(
 }
 
 private const val HOME_CATALOG_PREVIEW_LIMIT = 18
+private const val HOME_FEATURED_PRODUCTIONS_LIMIT = 20
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
 
 internal fun filterEntriesForTraktContinueWatchingWindow(
@@ -705,6 +744,7 @@ internal fun buildHomeContinueWatchingItems(
     nextUpItemsBySeries: Map<String, Pair<Long, ContinueWatchingItem>>,
     sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
     todayIsoDate: String = "",
+    currentLocalIsoDateTime: String = "",
 ): List<ContinueWatchingItem> {
     val inProgressSeriesIds = visibleEntries
         .asSequence()
@@ -751,13 +791,18 @@ internal fun buildHomeContinueWatchingItems(
 
     return when (sortMode) {
         ContinueWatchingSortMode.DEFAULT -> deduplicated.map(HomeContinueWatchingCandidate::item)
-        ContinueWatchingSortMode.STREAMING_STYLE -> applyStreamingStyleSort(deduplicated, todayIsoDate)
+        ContinueWatchingSortMode.STREAMING_STYLE -> applyStreamingStyleSort(
+            candidates = deduplicated,
+            todayIsoDate = todayIsoDate,
+            currentLocalIsoDateTime = currentLocalIsoDateTime,
+        )
     }
 }
 
 private fun applyStreamingStyleSort(
     candidates: List<HomeContinueWatchingCandidate>,
     todayIsoDate: String,
+    currentLocalIsoDateTime: String,
 ): List<ContinueWatchingItem> {
     val (released, unreleased) = candidates.partition { candidate ->
         val item = candidate.item
@@ -768,7 +813,11 @@ private fun applyStreamingStyleSort(
             if (itemReleased.isNullOrBlank() || todayIsoDate.isBlank()) {
                 true // no date info → treat as released
             } else {
-                isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = itemReleased)
+                isNextUpAvailableByReleaseTime(
+                    releasedDate = itemReleased,
+                    todayIsoDate = todayIsoDate,
+                    currentLocalIsoDateTime = currentLocalIsoDateTime,
+                )
             }
         }
     }
@@ -792,6 +841,107 @@ private fun applyStreamingStyleSort(
 
     return sortedReleased + sortedUnreleased
 }
+
+private fun isNextUpAvailableByReleaseTime(
+    releasedDate: String?,
+    todayIsoDate: String,
+    currentLocalIsoDateTime: String,
+): Boolean {
+    val rawRelease = releasedDate?.trim().takeUnless { it.isNullOrBlank() } ?: return true
+    val hasExactTime = rawRelease.contains('T') || rawRelease.contains(' ')
+    if (!hasExactTime) {
+        return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
+    }
+
+    val releaseLocalDateTime = normalizedLocalDateTimeForCompare(rawRelease)
+        ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
+    val availableLocalDateTime = addHoursToLocalDateTime(
+        localDateTime = releaseLocalDateTime,
+        hours = EpisodeReleaseNotificationDelayHours.toInt(),
+    ) ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
+    val nowLocalDateTime = normalizedLocalDateTimeForCompare(currentLocalIsoDateTime)
+        ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
+
+    return nowLocalDateTime >= availableLocalDateTime
+}
+
+private fun normalizedLocalDateTimeForCompare(value: String): String? {
+    val normalized = value.trim().replace(' ', 'T')
+    val withoutZone = stripZoneSuffix(normalized)
+    val dateTime = when {
+        withoutZone.length >= 19 -> withoutZone.take(19)
+        withoutZone.length == 16 -> "$withoutZone:00"
+        else -> return null
+    }
+    return dateTime.takeIf(::isValidComparableLocalDateTime)
+}
+
+private fun stripZoneSuffix(value: String): String {
+    val withoutZulu = if (value.endsWith("Z", ignoreCase = true)) {
+        value.dropLast(1)
+    } else {
+        value
+    }
+    val plusIndex = withoutZulu.indexOf('+', startIndex = 10)
+    val minusIndex = withoutZulu.indexOf('-', startIndex = 10)
+    val zoneIndex = listOf(plusIndex, minusIndex)
+        .filter { it >= 0 }
+        .minOrNull()
+        ?: return withoutZulu
+    return withoutZulu.substring(0, zoneIndex)
+}
+
+private fun isValidComparableLocalDateTime(value: String): Boolean {
+    if (value.length != 19) return false
+    if (value[4] != '-' || value[7] != '-' || value[10] != 'T' || value[13] != ':' || value[16] != ':') return false
+    val year = value.substring(0, 4).toIntOrNull() ?: return false
+    val month = value.substring(5, 7).toIntOrNull()?.takeIf { it in 1..12 } ?: return false
+    val day = value.substring(8, 10).toIntOrNull() ?: return false
+    val hour = value.substring(11, 13).toIntOrNull()?.takeIf { it in 0..23 } ?: return false
+    val minute = value.substring(14, 16).toIntOrNull()?.takeIf { it in 0..59 } ?: return false
+    val second = value.substring(17, 19).toIntOrNull()?.takeIf { it in 0..59 } ?: return false
+    return day in 1..daysInMonthForNextUp(year, month) && hour >= 0 && minute >= 0 && second >= 0
+}
+
+private fun addHoursToLocalDateTime(
+    localDateTime: String,
+    hours: Int,
+): String? {
+    if (!isValidComparableLocalDateTime(localDateTime)) return null
+
+    var year = localDateTime.substring(0, 4).toIntOrNull() ?: return null
+    var month = localDateTime.substring(5, 7).toIntOrNull() ?: return null
+    var day = localDateTime.substring(8, 10).toIntOrNull() ?: return null
+    var hour = localDateTime.substring(11, 13).toIntOrNull() ?: return null
+    val rest = localDateTime.substring(13)
+
+    hour += hours
+    while (hour >= 24) {
+        hour -= 24
+        day += 1
+        val maxDay = daysInMonthForNextUp(year, month)
+        if (day > maxDay) {
+            day = 1
+            month += 1
+            if (month > 12) {
+                month = 1
+                year += 1
+            }
+        }
+    }
+
+    return "${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}T${hour.toString().padStart(2, '0')}$rest"
+}
+
+private fun daysInMonthForNextUp(year: Int, month: Int): Int =
+    when (month) {
+        2 -> if (isLeapYearForNextUp(year)) 29 else 28
+        4, 6, 9, 11 -> 30
+        else -> 31
+    }
+
+private fun isLeapYearForNextUp(year: Int): Boolean =
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 
 private data class CompletedSeriesCandidate(
     val content: WatchingContentRef,
