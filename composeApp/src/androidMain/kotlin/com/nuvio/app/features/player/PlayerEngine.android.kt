@@ -101,6 +101,7 @@ actual fun PlatformPlayerSurface(
             },
             onError = { latestOnError.value(it) },
             currentExternalAudioUrl = { playerView?.currentExternalAudioUrl() },
+            onTrackListChanged = { playerView?.reapplyCurrentResizeMode() },
         )
         MPVLib.addObserver(observer)
         onDispose {
@@ -135,7 +136,12 @@ actual fun PlatformPlayerSurface(
     }
 
     LaunchedEffect(playerSourceKey) {
-        onControllerReady(MpvPlayerEngineController(context))
+        onControllerReady(
+            MpvPlayerEngineController(
+                context = context,
+                onSubtitleConfigurationChanged = { playerView?.reapplyCurrentResizeMode() },
+            ),
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -267,6 +273,10 @@ class NuvioMpvView(
         MpvCalls.execute {
             applyResizeModeNow(resizeMode)
         }
+    }
+
+    internal fun reapplyCurrentResizeMode() {
+        applyResizeMode(currentResizeMode)
     }
 
     private fun applyResizeModeNow(resizeMode: PlayerResizeMode) {
@@ -403,6 +413,7 @@ private class NuvioMpvObserver(
     private val requestSnapshot: () -> Unit,
     private val onError: (String?) -> Unit,
     private val currentExternalAudioUrl: () -> String?,
+    private val onTrackListChanged: () -> Unit,
 ) : MPVLib.EventObserver {
     private val lastSnapshotRequestMs = AtomicLong(0L)
 
@@ -427,6 +438,7 @@ private class NuvioMpvObserver(
     }
 
     override fun eventProperty(property: String, value: MPVNode) {
+        if (property == "track-list") onTrackListChanged()
         requestSnapshotThrottled()
     }
 
@@ -439,6 +451,7 @@ private class NuvioMpvObserver(
                         MPVLib.command("audio-add", audioUrl.toPlayablePath(context), "select")
                     }
                 }
+                onTrackListChanged()
                 onError(null)
                 requestSnapshotThrottled(force = true)
             }
@@ -460,6 +473,7 @@ private class NuvioMpvObserver(
 
 private class MpvPlayerEngineController(
     private val context: Context,
+    private val onSubtitleConfigurationChanged: () -> Unit,
 ) : PlayerEngineController {
     override fun play() {
         MpvCalls.execute { MPVLib.setPropertyBoolean("pause", false) }
@@ -535,11 +549,13 @@ private class MpvPlayerEngineController(
         MpvCalls.execute {
             if (index < 0) {
                 MPVLib.setPropertyString("sid", "no")
+                onSubtitleConfigurationChanged()
                 return@execute
             }
             val track = mpvTracks().filter { it.isSubtitle }.getOrNull(index) ?: return@execute
             MPVLib.setPropertyInt("sid", track.id)
             applyRegularSubtitleOverride()
+            onSubtitleConfigurationChanged()
         }
     }
 
@@ -551,11 +567,15 @@ private class MpvPlayerEngineController(
         MpvCalls.execute {
             MPVLib.command("sub-add", url.toPlayablePath(context), "select")
             applyRegularSubtitleOverride()
+            onSubtitleConfigurationChanged()
         }
     }
 
     override fun clearExternalSubtitle() {
-        MpvCalls.execute { MPVLib.command("sub-remove") }
+        MpvCalls.execute {
+            MPVLib.command("sub-remove")
+            onSubtitleConfigurationChanged()
+        }
     }
 
     override fun clearExternalSubtitleAndSelect(trackIndex: Int) {
@@ -568,6 +588,7 @@ private class MpvPlayerEngineController(
                 MPVLib.setPropertyInt("sid", track.id)
                 applyRegularSubtitleOverride()
             }
+            onSubtitleConfigurationChanged()
         }
     }
 
@@ -591,12 +612,14 @@ private class MpvPlayerEngineController(
             MPVLib.setPropertyString("sub-border-style", if (style.outlineEnabled) "outline-and-shadow" else "none")
             MPVLib.setPropertyInt("sub-pos", (1000 - style.bottomOffset).coerceIn(0, 1000) / 10)
             applyRegularSubtitleOverride()
+            onSubtitleConfigurationChanged()
         }
     }
 
     override fun toggleSilenceSkip() {
         MpvCalls.execute { MPVLib.command("script-message", "toggle") }
     }
+
 }
 
 private fun applyRegularSubtitleOverride() {

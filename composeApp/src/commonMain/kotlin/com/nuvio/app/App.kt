@@ -580,6 +580,7 @@ private fun MainAppContent(
         var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
         var selectedPosterActionTarget by remember { mutableStateOf<PosterActionTarget?>(null) }
         var selectedContinueWatchingForActions by remember { mutableStateOf<ContinueWatchingItem?>(null) }
+        var resolvingContinueWatchingPlayback by remember { mutableStateOf(false) }
         var showLibraryListPicker by remember { mutableStateOf(false) }
         var pickerItem by remember { mutableStateOf<LibraryItem?>(null) }
         var pickerTitle by remember { mutableStateOf("") }
@@ -1036,46 +1037,52 @@ private fun MainAppContent(
                 val savedProgress = WatchProgressRepository.progressForVideo(videoId)
                 val savedSourceUrl = savedProgress?.lastSourceUrl?.takeIf { it.isNotBlank() }
                 if (savedSourceUrl != null) {
+                    if (resolvingContinueWatchingPlayback) return
+                    resolvingContinueWatchingPlayback = true
                     coroutineScope.launch {
-                        val resolvedSaved = resolveReusablePlaybackSource(
-                            sourceUrl = savedSourceUrl,
-                            requestHeaders = emptyMap(),
-                            streamName = savedProgress.lastStreamTitle ?: title,
-                            addonName = savedProgress.providerName.orEmpty(),
-                            addonId = savedProgress.providerAddonId.orEmpty(),
-                            bingeGroup = null,
-                            seasonNumber = seasonNumber,
-                            episodeNumber = episodeNumber,
-                        ) ?: return@launch
-                        val playerLaunch = PlayerLaunch(
-                            title = title,
-                            sourceUrl = resolvedSaved.url,
-                            reusableSourceUrl = resolvedSaved.reusableUrl,
-                            fallbackRawSourceUrl = resolvedSaved.fallbackRawUrl,
-                            sourceHeaders = resolvedSaved.requestHeaders,
-                            fallbackRawSourceHeaders = resolvedSaved.fallbackRawHeaders,
-                            sourceResponseHeaders = emptyMap(),
-                            logo = logo,
-                            poster = poster,
-                            background = background,
-                            seasonNumber = seasonNumber,
-                            episodeNumber = episodeNumber,
-                            episodeTitle = episodeTitle,
-                            episodeThumbnail = episodeThumbnail,
-                            streamTitle = savedProgress.lastStreamTitle ?: title,
-                            streamSubtitle = savedProgress.lastStreamSubtitle,
-                            pauseDescription = pauseDescription,
-                            providerName = savedProgress.providerName.orEmpty(),
-                            providerAddonId = savedProgress.providerAddonId,
-                            contentType = type,
-                            videoId = videoId,
-                            parentMetaId = parentMetaId,
-                            parentMetaType = parentMetaType,
-                            initialPositionMs = targetResumePositionMs,
-                            initialProgressFraction = targetResumeProgressFraction,
-                        )
-                        val launchId = PlayerLaunchStore.put(playerLaunch)
-                        navController.navigate(PlayerRoute(launchId = launchId))
+                        try {
+                            val resolvedSaved = resolveReusablePlaybackSource(
+                                sourceUrl = savedSourceUrl,
+                                requestHeaders = emptyMap(),
+                                streamName = savedProgress.lastStreamTitle ?: title,
+                                addonName = savedProgress.providerName.orEmpty(),
+                                addonId = savedProgress.providerAddonId.orEmpty(),
+                                bingeGroup = null,
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                            ) ?: return@launch
+                            val playerLaunch = PlayerLaunch(
+                                title = title,
+                                sourceUrl = resolvedSaved.url,
+                                reusableSourceUrl = resolvedSaved.reusableUrl,
+                                fallbackRawSourceUrl = resolvedSaved.fallbackRawUrl,
+                                sourceHeaders = resolvedSaved.requestHeaders,
+                                fallbackRawSourceHeaders = resolvedSaved.fallbackRawHeaders,
+                                sourceResponseHeaders = emptyMap(),
+                                logo = logo,
+                                poster = poster,
+                                background = background,
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                                episodeTitle = episodeTitle,
+                                episodeThumbnail = episodeThumbnail,
+                                streamTitle = savedProgress.lastStreamTitle ?: title,
+                                streamSubtitle = savedProgress.lastStreamSubtitle,
+                                pauseDescription = pauseDescription,
+                                providerName = savedProgress.providerName.orEmpty(),
+                                providerAddonId = savedProgress.providerAddonId,
+                                contentType = type,
+                                videoId = videoId,
+                                parentMetaId = parentMetaId,
+                                parentMetaType = parentMetaType,
+                                initialPositionMs = targetResumePositionMs,
+                                initialProgressFraction = targetResumeProgressFraction,
+                            )
+                            val launchId = PlayerLaunchStore.put(playerLaunch)
+                            navController.navigate(PlayerRoute(launchId = launchId))
+                        } finally {
+                            resolvingContinueWatchingPlayback = false
+                        }
                     }
                     return
                 }
@@ -1093,49 +1100,55 @@ private fun MainAppContent(
                     val maxAgeMs = settings.streamReuseLastLinkCacheHours * 60L * 60L * 1000L
                     val cached = StreamLinkCacheRepository.getValid(cacheKey, maxAgeMs)
                     if (cached != null) {
+                        if (resolvingContinueWatchingPlayback) return
+                        resolvingContinueWatchingPlayback = true
                         coroutineScope.launch {
-                            val cachedHeaders = sanitizePlaybackHeaders(cached.requestHeaders)
-                            val reusableUrl = cached.rawUrl ?: cached.url
-                            val resolvedCached = resolveReusablePlaybackSource(
-                                sourceUrl = reusableUrl,
-                                requestHeaders = cachedHeaders,
-                                streamName = cached.streamName,
-                                addonName = cached.addonName,
-                                addonId = cached.addonId,
-                                bingeGroup = cached.bingeGroup,
-                                seasonNumber = seasonNumber,
-                                episodeNumber = episodeNumber,
-                            ) ?: return@launch
-                            val playerLaunch = PlayerLaunch(
-                                title = title,
-                                sourceUrl = resolvedCached.url,
-                                reusableSourceUrl = resolvedCached.reusableUrl,
-                                fallbackRawSourceUrl = resolvedCached.fallbackRawUrl,
-                                sourceHeaders = resolvedCached.requestHeaders,
-                                fallbackRawSourceHeaders = resolvedCached.fallbackRawHeaders,
-                                sourceResponseHeaders = sanitizePlaybackResponseHeaders(cached.responseHeaders),
-                                logo = logo,
-                                poster = poster,
-                                background = background,
-                                seasonNumber = seasonNumber,
-                                episodeNumber = episodeNumber,
-                                episodeTitle = episodeTitle,
-                                episodeThumbnail = episodeThumbnail,
-                                streamTitle = cached.streamName,
-                                streamSubtitle = null,
-                                bingeGroup = cached.bingeGroup,
-                                pauseDescription = pauseDescription,
-                                providerName = cached.addonName,
-                                providerAddonId = cached.addonId,
-                                contentType = type,
-                                videoId = videoId,
-                                parentMetaId = parentMetaId,
-                                parentMetaType = parentMetaType,
-                                initialPositionMs = targetResumePositionMs,
-                                initialProgressFraction = targetResumeProgressFraction,
-                            )
-                            val launchId = PlayerLaunchStore.put(playerLaunch)
-                            navController.navigate(PlayerRoute(launchId = launchId))
+                            try {
+                                val cachedHeaders = sanitizePlaybackHeaders(cached.requestHeaders)
+                                val reusableUrl = cached.rawUrl ?: cached.url
+                                val resolvedCached = resolveReusablePlaybackSource(
+                                    sourceUrl = reusableUrl,
+                                    requestHeaders = cachedHeaders,
+                                    streamName = cached.streamName,
+                                    addonName = cached.addonName,
+                                    addonId = cached.addonId,
+                                    bingeGroup = cached.bingeGroup,
+                                    seasonNumber = seasonNumber,
+                                    episodeNumber = episodeNumber,
+                                ) ?: return@launch
+                                val playerLaunch = PlayerLaunch(
+                                    title = title,
+                                    sourceUrl = resolvedCached.url,
+                                    reusableSourceUrl = resolvedCached.reusableUrl,
+                                    fallbackRawSourceUrl = resolvedCached.fallbackRawUrl,
+                                    sourceHeaders = resolvedCached.requestHeaders,
+                                    fallbackRawSourceHeaders = resolvedCached.fallbackRawHeaders,
+                                    sourceResponseHeaders = sanitizePlaybackResponseHeaders(cached.responseHeaders),
+                                    logo = logo,
+                                    poster = poster,
+                                    background = background,
+                                    seasonNumber = seasonNumber,
+                                    episodeNumber = episodeNumber,
+                                    episodeTitle = episodeTitle,
+                                    episodeThumbnail = episodeThumbnail,
+                                    streamTitle = cached.streamName,
+                                    streamSubtitle = null,
+                                    bingeGroup = cached.bingeGroup,
+                                    pauseDescription = pauseDescription,
+                                    providerName = cached.addonName,
+                                    providerAddonId = cached.addonId,
+                                    contentType = type,
+                                    videoId = videoId,
+                                    parentMetaId = parentMetaId,
+                                    parentMetaType = parentMetaType,
+                                    initialPositionMs = targetResumePositionMs,
+                                    initialProgressFraction = targetResumeProgressFraction,
+                                )
+                                val launchId = PlayerLaunchStore.put(playerLaunch)
+                                navController.navigate(PlayerRoute(launchId = launchId))
+                            } finally {
+                                resolvingContinueWatchingPlayback = false
+                            }
                         }
                         return
                     }
@@ -2583,6 +2596,24 @@ private fun MainAppContent(
                     // Brief loading screen while home refreshes for the new profile
                     kotlinx.coroutines.delay(1200)
                     profileSwitchLoading = false
+                }
+            }
+
+            androidx.compose.animation.AnimatedVisibility(
+                visible = resolvingContinueWatchingPlayback,
+                enter = fadeIn(),
+                exit = fadeOut(androidx.compose.animation.core.tween(180)),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(18f),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.82f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = Color.White)
                 }
             }
 

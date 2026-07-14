@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -25,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -74,12 +72,11 @@ fun PlayerChaptersModal(
             ) {
                 Box(
                     modifier = Modifier
-                        .widthIn(max = 460.dp)
-                        .fillMaxWidth(0.9f)
-                        .heightIn(max = 620.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(colorScheme.surface)
-                        .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.8f), RoundedCornerShape(24.dp))
+                        .widthIn(max = 400.dp)
+                        .fillMaxWidth(0.88f)
+                        .heightIn(max = 580.dp)
+                        .clip(RoundedCornerShape(PlayerPanelCornerRadius))
+                        .background(PlayerPanelBackground)
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
@@ -90,21 +87,14 @@ fun PlayerChaptersModal(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(20.dp),
+                                .padding(horizontal = 18.dp, vertical = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Flag,
-                                contentDescription = null,
-                                tint = colorScheme.primary,
-                                modifier = Modifier.size(20.dp),
-                            )
                             Text(
                                 text = "Chapters",
-                                color = colorScheme.onSurface,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
 
@@ -112,22 +102,23 @@ fun PlayerChaptersModal(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(40.dp),
+                                    .padding(32.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center,
                             ) {
                                 Text(
                                     text = "No chapters available",
-                                    color = colorScheme.onSurfaceVariant,
+                                    color = PlayerPanelSecondaryText,
+                                    fontSize = 13.sp,
                                 )
                             }
                         } else {
                             Column(
                                 modifier = Modifier
                                     .verticalScroll(rememberScrollState())
-                                    .padding(horizontal = 20.dp)
-                                    .padding(bottom = 20.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    .padding(horizontal = 14.dp)
+                                    .padding(bottom = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
                             ) {
                                 chapters.forEach { chapter ->
                                     ChapterRow(
@@ -151,33 +142,31 @@ private fun ChapterRow(
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
-    val colorScheme = MaterialTheme.colorScheme
-    val bgColor = if (isSelected) colorScheme.primaryContainer else colorScheme.surfaceVariant.copy(alpha = 0.6f)
-    val textColor = if (isSelected) colorScheme.onPrimaryContainer else colorScheme.onSurface
-    val timeColor = if (isSelected) colorScheme.onPrimaryContainer.copy(alpha = 0.72f) else colorScheme.onSurfaceVariant
-    val weight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+    val bgColor = if (isSelected) PlayerPanelSelectedBackground else PlayerPanelRowBackground
+    val timeColor = if (isSelected) Color.White.copy(alpha = 0.82f) else PlayerPanelSecondaryText
+    val weight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(PlayerPanelRowCornerRadius))
             .background(bgColor)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(vertical = 9.dp, horizontal = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = formatPlaybackTime(chapter.timeMs),
             color = timeColor,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
             text = chapter.title.ifBlank { "Chapter ${chapter.index + 1}" },
             modifier = Modifier.weight(1f),
-            color = textColor,
-            fontSize = 15.sp,
+            color = Color.White,
+            fontSize = 14.sp,
             fontWeight = weight,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -186,8 +175,8 @@ private fun ChapterRow(
             Icon(
                 imageVector = Icons.Rounded.Check,
                 contentDescription = null,
-                tint = colorScheme.primary,
-                modifier = Modifier.size(18.dp),
+                tint = Color.White,
+                modifier = Modifier.size(17.dp),
             )
         }
     }

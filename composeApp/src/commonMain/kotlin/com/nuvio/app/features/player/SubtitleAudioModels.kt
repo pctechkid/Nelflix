@@ -119,8 +119,57 @@ data class SubtitleAudioUiState(
 )
 
 @Composable
-fun localizedTrackDisplayName(label: String?, language: String?, index: Int): String {
-    if (!label.isNullOrBlank()) return label
-    if (!language.isNullOrBlank()) return languageLabelForCode(language)
-    return stringResource(Res.string.compose_player_track_number, index + 1)
+fun localizedTrackDisplayName(
+    label: String?,
+    language: String?,
+    index: Int,
+    isForced: Boolean = false,
+): String {
+    val normalizedLanguage = normalizeLanguageCode(language)
+    val languageCode = normalizedLanguage?.takeIf { normalized ->
+        AvailableLanguageOptions.any { option ->
+            normalizeLanguageCode(option.code)?.substringBefore('-') == normalized.substringBefore('-')
+        }
+    } ?: inferLanguageCodeFromTrackLabel(label)
+    val baseName = if (languageCode != null) {
+        languageLabelForCode(languageCode)
+    } else {
+        stringResource(Res.string.compose_player_track_number, index + 1)
+    }
+    val qualifier = usefulTrackQualifier(label, isForced)
+    return qualifier?.let { "$baseName ($it)" } ?: baseName
+}
+
+private fun inferLanguageCodeFromTrackLabel(label: String?): String? {
+    val normalizedLabel = label
+        ?.lowercase()
+        ?.replace('_', '-')
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+
+    return AvailableLanguageOptions
+        .asSequence()
+        .map { it.code.lowercase() }
+        .sortedByDescending { it.length }
+        .firstOrNull { code ->
+            Regex("(^|[^a-z])${Regex.escape(code)}([^a-z]|$)").containsMatchIn(normalizedLabel)
+        }
+        ?: normalizeLanguageCode(label)?.takeIf { normalized ->
+            AvailableLanguageOptions.any { option ->
+                normalizeLanguageCode(option.code)?.substringBefore('-') == normalized.substringBefore('-')
+            }
+        }
+}
+
+private fun usefulTrackQualifier(label: String?, isForced: Boolean): String? {
+    if (isForced) return "Forced"
+    val normalized = label?.lowercase().orEmpty()
+    return when {
+        Regex("\\b(sdh|hearing impaired)\\b").containsMatchIn(normalized) -> "SDH"
+        Regex("\\b(closed captions?|cc)\\b").containsMatchIn(normalized) -> "CC"
+        "audio description" in normalized || "descriptive audio" in normalized -> "Audio Description"
+        "commentary" in normalized -> "Commentary"
+        "songs" in normalized && "sign" in normalized -> "Signs & Songs"
+        else -> null
+    }
 }

@@ -122,6 +122,7 @@ private fun HomeCatalogRowSectionContent(
             showHeaderAccent = !homeCatalogSettings.hideCatalogUnderline,
             onViewAllClick = onViewAllClick,
             viewAllPillSize = NuvioViewAllPillSize.Compact,
+            viewAllIconOnly = true,
             key = { rankedEntry -> rankedEntry.item.stableKey() },
         ) { rankedEntry ->
             val item = rankedEntry.item
@@ -146,6 +147,7 @@ private fun HomeCatalogRowSectionContent(
             showHeaderAccent = !homeCatalogSettings.hideCatalogUnderline,
             onViewAllClick = onViewAllClick,
             viewAllPillSize = NuvioViewAllPillSize.Compact,
+            viewAllIconOnly = true,
             key = { item -> item.stableKey() },
         ) { item ->
             HomePosterCard(

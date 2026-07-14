@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -40,6 +42,7 @@ import com.nuvio.app.features.tmdb.TmdbMetadataService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.home_view_all
 import org.jetbrains.compose.resources.stringResource
@@ -55,27 +58,37 @@ fun HomeFeaturedProductionsSection(
     if (entries.isEmpty()) return
 
     var headers by remember { mutableStateOf<Map<String, TmdbEntityHeader>>(emptyMap()) }
+    var resolvedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     LaunchedEffect(entries) {
+        resolvedKeys = emptySet()
         headers = coroutineScope {
             entries.map { entity ->
                 async {
-                    entity.key to TmdbMetadataService.fetchEntityHeader(
-                        entityKind = entity.kind,
-                        entityId = entity.id,
-                        fallbackName = entity.name,
-                    )
+                    var header: TmdbEntityHeader? = null
+                    for (attempt in 0..2) {
+                        header = TmdbMetadataService.fetchEntityHeader(
+                            entityKind = entity.kind,
+                            entityId = entity.id,
+                            fallbackName = entity.name,
+                        )
+                        if (!header?.logo.isNullOrBlank()) break
+                        if (attempt < 2) delay(350L * (attempt + 1))
+                    }
+                    entity.key to header
                 }
             }.awaitAll()
                 .mapNotNull { (key, header) -> header?.let { key to it } }
                 .toMap()
         }
+        resolvedKeys = entries.mapTo(mutableSetOf()) { it.key }
     }
 
     if (sectionPadding != null) {
         HomeFeaturedProductionsRow(
             entries = entries,
             headers = headers,
+            resolvedKeys = resolvedKeys,
             modifier = modifier,
             sectionPadding = sectionPadding,
             onEntityClick = onEntityClick,
@@ -86,6 +99,7 @@ fun HomeFeaturedProductionsSection(
             HomeFeaturedProductionsRow(
                 entries = entries,
                 headers = headers,
+                resolvedKeys = resolvedKeys,
                 modifier = Modifier,
                 sectionPadding = homeSectionHorizontalPaddingForWidth(maxWidth.value),
                 onEntityClick = onEntityClick,
@@ -99,6 +113,7 @@ fun HomeFeaturedProductionsSection(
 private fun HomeFeaturedProductionsRow(
     entries: List<FeaturedProductionEntity>,
     headers: Map<String, TmdbEntityHeader>,
+    resolvedKeys: Set<String>,
     modifier: Modifier,
     sectionPadding: Dp,
     onEntityClick: (FeaturedProductionEntity) -> Unit,
@@ -113,6 +128,7 @@ private fun HomeFeaturedProductionsRow(
             FeaturedProductionTile(
                 entity = entity,
                 header = headers[entity.key],
+                isLoading = entity.key !in resolvedKeys,
                 onClick = { onEntityClick(entity) },
             )
         }
@@ -127,6 +143,7 @@ private fun HomeFeaturedProductionsRow(
 fun FeaturedProductionTile(
     entity: FeaturedProductionEntity,
     header: TmdbEntityHeader?,
+    isLoading: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -152,6 +169,14 @@ fun FeaturedProductionTile(
                     .height(24.dp),
                 contentScale = ContentScale.Fit,
             )
+        } else if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .width(48.dp)
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(Color(0xFFD2D2D2)),
+            )
         } else {
             Text(
                 text = displayName,
@@ -171,29 +196,17 @@ private fun FeaturedProductionViewAllTile(
 ) {
     Box(
         modifier = Modifier
-            .width(92.dp)
-            .height(52.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(44.dp)
+            .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp),
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        androidx.compose.foundation.layout.Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(Res.string.home_view_all),
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface,
-            )
-        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = stringResource(Res.string.home_view_all),
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(26.dp),
+        )
     }
 }

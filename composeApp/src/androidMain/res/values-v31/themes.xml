@@ -5,8 +5,8 @@
     </style>
 
     <style name="Theme.Nuvio.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/nuvio_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/nelflix_splash_logo</item>
+        <item name="windowSplashScreenBackground">@color/nelflix_splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/nelflix_splash_blank</item>
         <item name="postSplashScreenTheme">@style/Theme.Nuvio</item>
     </style>
 </resources>

@@ -81,7 +81,7 @@ private const val PlaybackProgressPersistIntervalMs = 60_000L
 private const val PlayerDoubleTapSeekStepMs = 10_000L
 private const val PlayerDoubleTapSeekResetDelayMs = 800L
 private const val PlayerLockedOverlayDurationMs = 2_000L
-private const val PlayerControlsExitAnimationMs = 520
+private const val PlayerScrubPreviewSeekIntervalMs = 120L
 private const val PlayerLeftGestureBoundary = 0.4f
 private const val PlayerRightGestureBoundary = 0.6f
 private const val PlayerVerticalGestureSensitivity = 1f
@@ -214,7 +214,6 @@ fun PlayerScreen(
         )
         val gestureController = rememberPlayerGestureController()
         var controlsVisible by rememberSaveable { mutableStateOf(false) }
-        var controlsExitAnimating by remember { mutableStateOf(false) }
         var playerControlsLocked by rememberSaveable { mutableStateOf(false) }
         // Active playback state (mutable to support source/episode switching)
         var activeTitle by rememberSaveable { mutableStateOf(title) }
@@ -285,6 +284,11 @@ fun PlayerScreen(
         EnterImmersivePlayerMode(keepScreenAwake = keepScreenAwake)
         var isScrubbingTimeline by remember { mutableStateOf(false) }
         var scrubbingPositionMs by remember { mutableStateOf<Long?>(null) }
+        var resumePlaybackAfterScrub by remember { mutableStateOf(false) }
+        var lastScrubPreviewSeekAtMs by remember(activeSourceUrl) { mutableStateOf(0L) }
+        var pendingScrubPreviewSeekJob by remember(activeSourceUrl) { mutableStateOf<Job?>(null) }
+        var suppressPauseMetadataForScrub by remember(activeSourceUrl) { mutableStateOf(false) }
+        var pauseMetadataScrubSuppressionJob by remember(activeSourceUrl) { mutableStateOf<Job?>(null) }
         var pausedOverlayVisible by remember { mutableStateOf(false) }
         var gestureFeedback by remember { mutableStateOf<GestureFeedbackState?>(null) }
         var liveGestureFeedback by remember { mutableStateOf<GestureFeedbackState?>(null) }
@@ -325,22 +329,13 @@ fun PlayerScreen(
         val showManualPauseMetadata = watchTogetherMetadataForcedVisible
         val metadataOverlayVisible = !playerControlsLocked &&
             !playbackSnapshot.isEnded &&
+            !suppressPauseMetadataForScrub &&
             (pausedOverlayVisible || showManualPauseMetadata) &&
             (!controlsVisible || showManualPauseMetadata)
 
         LaunchedEffect(currentGestureFeedback) {
             if (currentGestureFeedback != null) {
                 renderedGestureFeedback = currentGestureFeedback
-            }
-        }
-
-        LaunchedEffect(controlsVisible, playerControlsLocked) {
-            if (controlsVisible || playerControlsLocked) {
-                controlsExitAnimating = false
-            } else {
-                controlsExitAnimating = true
-                delay(PlayerControlsExitAnimationMs.toLong())
-                controlsExitAnimating = false
             }
         }
 
@@ -657,7 +652,12 @@ fun PlayerScreen(
         }
 
         PlatformBackHandler(enabled = true) {
-            onBackWithProgress()
+            if (playerControlsLocked) {
+                controlsVisible = false
+                lockedOverlayVisible = true
+            } else {
+                onBackWithProgress()
+            }
         }
 
         val latestWatchTogetherSession = rememberUpdatedState(watchTogetherSession)
@@ -819,14 +819,10 @@ fun PlayerScreen(
         }
 
         fun showPlaybackControls() {
-            controlsExitAnimating = false
             controlsVisible = true
         }
 
         fun hidePlaybackControls() {
-            if (controlsVisible) {
-                controlsExitAnimating = true
-            }
             controlsVisible = false
         }
 
@@ -842,6 +838,12 @@ fun PlayerScreen(
             pausedOverlayVisible = false
             isScrubbingTimeline = false
             scrubbingPositionMs = null
+            pendingScrubPreviewSeekJob?.cancel()
+            pendingScrubPreviewSeekJob = null
+            pauseMetadataScrubSuppressionJob?.cancel()
+            pauseMetadataScrubSuppressionJob = null
+            suppressPauseMetadataForScrub = false
+            resumePlaybackAfterScrub = false
             gestureMessageJob?.cancel()
             gestureFeedback = null
             liveGestureFeedback = null
@@ -1421,6 +1423,12 @@ fun PlayerScreen(
             playbackSnapshot = PlayerPlaybackSnapshot()
             isScrubbingTimeline = false
             scrubbingPositionMs = null
+            pendingScrubPreviewSeekJob?.cancel()
+            pendingScrubPreviewSeekJob = null
+            pauseMetadataScrubSuppressionJob?.cancel()
+            pauseMetadataScrubSuppressionJob = null
+            suppressPauseMetadataForScrub = false
+            resumePlaybackAfterScrub = false
             liveGestureFeedback = null
             renderedGestureFeedback = null
             lockedOverlayVisible = false
@@ -1569,9 +1577,11 @@ fun PlayerScreen(
             playbackSnapshot.isEnded,
             playbackSnapshot.durationMs,
             errorMessage,
+            suppressPauseMetadataForScrub,
         ) {
             pausedOverlayVisible = false
             if (
+                suppressPauseMetadataForScrub ||
                 playbackSnapshot.isPlaying ||
                 playbackSnapshot.isLoading ||
                 playbackSnapshot.isEnded ||
@@ -1583,6 +1593,14 @@ fun PlayerScreen(
             delay(1000)
             hidePlaybackControls()
             pausedOverlayVisible = true
+        }
+
+        LaunchedEffect(playbackSnapshot.isPlaying, isScrubbingTimeline) {
+            if (playbackSnapshot.isPlaying && !isScrubbingTimeline) {
+                pauseMetadataScrubSuppressionJob?.cancel()
+                pauseMetadataScrubSuppressionJob = null
+                suppressPauseMetadataForScrub = false
+            }
         }
 
         LaunchedEffect(playbackSnapshot.isEnded) {
@@ -1976,9 +1994,9 @@ fun PlayerScreen(
             }
 
             AnimatedVisibility(
-                visible = (controlsVisible || showParentalGuide || showStartupTitleIntro || showManualPauseMetadata) && !playerControlsLocked,
+                visible = !playerControlsLocked,
                 enter = fadeIn(animationSpec = tween(durationMillis = 260)),
-                exit = fadeOut(animationSpec = tween(durationMillis = PlayerControlsExitAnimationMs)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 300)),
                 modifier = Modifier.zIndex(if (showManualPauseMetadata) 4f else 0f),
             ) {
                 PlayerControlsShell(
@@ -1993,7 +2011,8 @@ fun PlayerScreen(
                     metrics = metrics,
                     resizeMode = resizeMode,
                     isLocked = playerControlsLocked,
-                    showPlaybackControls = (controlsVisible || controlsExitAnimating) && !showManualPauseMetadata,
+                    showPlaybackControls = controlsVisible && !showManualPauseMetadata,
+                    playbackControlsVisible = controlsVisible && !showManualPauseMetadata,
                     showHeaderMetadata = startupIntroFinished,
                     showStartupTitleIntro = showStartupTitleIntro,
                     startupTitleIntroVisible = startupTitleIntroVisible,
@@ -2039,13 +2058,51 @@ fun PlayerScreen(
                     showParentalGuide = showParentalGuide,
                     onParentalGuideAnimationComplete = { showParentalGuide = false },
                     onScrubChange = { positionMs ->
+                        val controller = playerController
+                        if (!isScrubbingTimeline) {
+                            pauseMetadataScrubSuppressionJob?.cancel()
+                            pauseMetadataScrubSuppressionJob = null
+                            suppressPauseMetadataForScrub = true
+                            pausedOverlayVisible = false
+                            resumePlaybackAfterScrub = playbackSnapshot.isPlaying
+                            if (playbackSnapshot.isPlaying) controller?.pause()
+                        }
                         isScrubbingTimeline = true
                         scrubbingPositionMs = positionMs
+                        val nowMs = WatchProgressClock.nowEpochMs()
+                        val elapsedMs = nowMs - lastScrubPreviewSeekAtMs
+                        if (elapsedMs >= PlayerScrubPreviewSeekIntervalMs) {
+                            pendingScrubPreviewSeekJob?.cancel()
+                            pendingScrubPreviewSeekJob = null
+                            controller?.seekTo(positionMs)
+                            lastScrubPreviewSeekAtMs = nowMs
+                        } else {
+                            pendingScrubPreviewSeekJob?.cancel()
+                            pendingScrubPreviewSeekJob = scope.launch {
+                                delay((PlayerScrubPreviewSeekIntervalMs - elapsedMs).coerceAtLeast(1L))
+                                if (isScrubbingTimeline) {
+                                    playerController?.seekTo(positionMs)
+                                    lastScrubPreviewSeekAtMs = WatchProgressClock.nowEpochMs()
+                                }
+                            }
+                        }
                     },
                     onScrubFinished = { positionMs ->
+                        pendingScrubPreviewSeekJob?.cancel()
+                        pendingScrubPreviewSeekJob = null
+                        val shouldResumePlayback = resumePlaybackAfterScrub
                         isScrubbingTimeline = false
                         scrubbingPositionMs = null
-                        playerController?.seekTo(positionMs)
+                        resumePlaybackAfterScrub = false
+                        lastScrubPreviewSeekAtMs = 0L
+                        playerController?.let { controller ->
+                            controller.seekTo(positionMs)
+                            if (shouldResumePlayback) controller.play()
+                        }
+                        pauseMetadataScrubSuppressionJob = scope.launch {
+                            delay(if (shouldResumePlayback) 1_500L else 350L)
+                            suppressPauseMetadataForScrub = false
+                        }
                     },
                     horizontalSafePadding = horizontalSafePadding,
                     modifier = Modifier.fillMaxSize(),
@@ -2200,8 +2257,8 @@ fun PlayerScreen(
                 },
                 onClose = { showSubtitleSyncOverlay = false },
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = horizontalSafePadding + 18.dp, bottom = overlayBottomPadding + 42.dp),
+                    .align(Alignment.BottomStart)
+                    .padding(start = sliderEdgePadding, bottom = overlayBottomPadding + 12.dp),
             )
 
             val season = activeSeasonNumber

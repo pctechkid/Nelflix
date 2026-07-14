@@ -225,6 +225,7 @@ private fun LazyListScope.librarySections(
                 null
             },
             viewAllPillSize = NuvioViewAllPillSize.Compact,
+            viewAllIconOnly = true,
             key = { item -> "${item.type}:${item.id}" },
         ) { item ->
             val preview = item.toMetaPreview()

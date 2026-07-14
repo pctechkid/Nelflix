@@ -2,14 +2,12 @@ package com.nuvio.app.features.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -96,12 +94,11 @@ fun SubtitleModal(
             ) {
                 Box(
                     modifier = Modifier
-                        .widthIn(max = 420.dp)
-                        .fillMaxWidth(0.9f)
-                        .heightIn(max = maxH * 0.95f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(colorScheme.surface)
-                        .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.8f), RoundedCornerShape(24.dp))
+                        .widthIn(max = 400.dp)
+                        .fillMaxWidth(0.88f)
+                        .heightIn(max = maxH * 0.92f)
+                        .clip(RoundedCornerShape(PlayerPanelCornerRadius))
+                        .background(PlayerPanelBackground)
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
@@ -112,18 +109,23 @@ fun SubtitleModal(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(20.dp),
+                                .padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
                                 text = stringResource(Res.string.compose_player_subtitles),
-                                color = colorScheme.onSurface,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold,
                             )
                             TextButton(onClick = onSubtitleSyncClick) {
-                                Text("Sync")
+                                Text(
+                                    text = "Sync",
+                                    color = PlayerPanelSelectedBackground,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                             }
                         }
 
@@ -135,8 +137,8 @@ fun SubtitleModal(
                         Column(
                             modifier = Modifier
                                 .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 20.dp)
-                                .padding(bottom = 20.dp),
+                                .padding(horizontal = 14.dp)
+                                .padding(bottom = 14.dp),
                         ) {
                             when (activeTab) {
                                 SubtitleTab.BuiltIn -> BuiltInSubtitleList(
@@ -170,28 +172,24 @@ private fun SubtitleTabBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 70.dp)
-            .padding(bottom = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(15.dp),
+            .padding(horizontal = 14.dp)
+            .padding(bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         SubtitleTab.entries.forEach { tab ->
             val isSelected = tab == activeTab
             val bgColor by animateColorAsState(
-                targetValue = if (isSelected) colorScheme.primaryContainer else colorScheme.surfaceVariant.copy(alpha = 0.92f),
-                animationSpec = tween(250),
-            )
-            val radius by animateDpAsState(
-                targetValue = if (isSelected) 10.dp else 40.dp,
+                targetValue = if (isSelected) PlayerPanelSelectedBackground else PlayerPanelRowBackground,
                 animationSpec = tween(250),
             )
 
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(radius))
+                    .clip(RoundedCornerShape(PlayerPanelRowCornerRadius))
                     .background(bgColor)
                     .clickable { onTabSelected(tab) }
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 7.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -199,9 +197,9 @@ private fun SubtitleTabBar(
                         SubtitleTab.BuiltIn -> stringResource(Res.string.compose_player_built_in)
                         SubtitleTab.Addons -> stringResource(Res.string.addon_title)
                     },
-                    color = if (isSelected) colorScheme.onPrimaryContainer else colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) Color.White else PlayerPanelSecondaryText,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                 )
             }
         }
@@ -217,34 +215,34 @@ private fun BuiltInSubtitleList(
     val colorScheme = MaterialTheme.colorScheme
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         val isNoneSelected = selectedIndex == -1
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(PlayerPanelRowCornerRadius))
                 .background(
-                    if (isNoneSelected) colorScheme.primaryContainer
-                    else colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    if (isNoneSelected) PlayerPanelSelectedBackground
+                    else PlayerPanelRowBackground
                 )
                 .clickable { onTrackSelected(-1) }
-                .padding(vertical = 10.dp, horizontal = 12.dp),
+                .padding(vertical = 9.dp, horizontal = 11.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = stringResource(Res.string.compose_player_none),
-                color = if (isNoneSelected) colorScheme.onPrimaryContainer else colorScheme.onSurface,
-                fontSize = 15.sp,
+                color = Color.White,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
             )
             if (isNoneSelected) {
                 Icon(
                     imageVector = Icons.Rounded.Check,
                     contentDescription = null,
-                    tint = colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
+                    tint = Color.White,
+                    modifier = Modifier.size(17.dp),
                 )
             }
         }
@@ -254,25 +252,30 @@ private fun BuiltInSubtitleList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (isSelected) colorScheme.primaryContainer else colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    .clip(RoundedCornerShape(PlayerPanelRowCornerRadius))
+                    .background(if (isSelected) PlayerPanelSelectedBackground else PlayerPanelRowBackground)
                     .clickable { onTrackSelected(track.index) }
-                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                    .padding(vertical = 9.dp, horizontal = 11.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = localizedTrackDisplayName(track.label, track.language, track.index),
-                    color = if (isSelected) colorScheme.onPrimaryContainer else colorScheme.onSurface,
-                    fontSize = 15.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    text = localizedTrackDisplayName(
+                        label = track.label,
+                        language = track.language,
+                        index = track.index,
+                        isForced = track.isForced,
+                    ),
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                 )
                 if (isSelected) {
                     Icon(
                         imageVector = Icons.Rounded.Check,
                         contentDescription = null,
-                        tint = colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
+                        tint = Color.White,
+                        modifier = Modifier.size(17.dp),
                     )
                 }
             }
@@ -294,7 +297,7 @@ private fun AddonSubtitleList(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(40.dp),
+                .padding(32.dp),
             contentAlignment = Alignment.Center,
         ) {
             CircularProgressIndicator(
@@ -310,9 +313,10 @@ private fun AddonSubtitleList(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(PlayerPanelRowCornerRadius))
+                .background(PlayerPanelRowBackground)
                 .clickable(onClick = onFetch)
-                .padding(40.dp),
+                .padding(28.dp),
             contentAlignment = Alignment.Center,
         ) {
             Column(
@@ -324,12 +328,13 @@ private fun AddonSubtitleList(
                 Icon(
                     imageVector = Icons.Rounded.CloudDownload,
                     contentDescription = null,
-                    tint = colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(32.dp),
+                    tint = PlayerPanelSecondaryText,
+                    modifier = Modifier.size(28.dp),
                 )
                 Text(
                     text = stringResource(Res.string.compose_player_fetch_subtitles),
-                    color = colorScheme.onSurfaceVariant,
+                    color = PlayerPanelSecondaryText,
+                    fontSize = 13.sp,
                     modifier = Modifier.padding(top = 10.dp),
                 )
             }
@@ -338,45 +343,36 @@ private fun AddonSubtitleList(
     }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         addons.forEach { sub ->
             val isSelected = sub.id == selectedId
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (isSelected) colorScheme.primaryContainer else colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    .clip(RoundedCornerShape(PlayerPanelRowCornerRadius))
+                    .background(if (isSelected) PlayerPanelSelectedBackground else PlayerPanelRowBackground)
                     .clickable { onSubtitleSelected(sub) }
-                    .padding(vertical = 5.dp, horizontal = 8.dp),
+                    .padding(vertical = 7.dp, horizontal = 9.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(
+                Text(
+                    text = languageLabelForCode(sub.language),
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 5.dp),
-                ) {
-                    Text(
-                        text = sub.display,
-                        color = if (isSelected) colorScheme.onPrimaryContainer else colorScheme.onSurface,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = languageLabelForCode(sub.language),
-                        color = if (isSelected) colorScheme.onPrimaryContainer.copy(alpha = 0.72f) else colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(bottom = 3.dp),
-                    )
-                }
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                )
                 if (isSelected) {
                     Icon(
                         imageVector = Icons.Rounded.Check,
                         contentDescription = null,
-                        tint = colorScheme.primary,
+                        tint = Color.White,
                         modifier = Modifier
-                            .size(18.dp)
+                            .size(17.dp)
                             .padding(end = 2.dp),
                     )
                 }

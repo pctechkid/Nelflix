@@ -69,7 +69,7 @@ internal fun SubtitleSyncOverlay(
     ) {
         Column(
             modifier = Modifier
-                .widthIn(min = 276.dp, max = 360.dp)
+                .widthIn(min = 240.dp, max = 300.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.Black.copy(alpha = 0.62f))
                 .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(12.dp))

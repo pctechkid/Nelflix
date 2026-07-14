@@ -426,11 +426,13 @@ object TmdbMetadataService {
         val cacheKey = "${entityKind.routeValue}:$entityId:$language:header"
         entityHeaderCache[cacheKey]?.let { return it }
 
+        var resolvedFromRemote = false
         val header = try {
             when (entityKind) {
                 TmdbEntityKind.COMPANY -> {
                     val body = fetch<TmdbCompanyDetailsResponse>(endpoint = "company/$entityId")
                     body?.let {
+                        resolvedFromRemote = true
                         TmdbEntityHeader(
                             id = it.id,
                             kind = entityKind,
@@ -447,6 +449,7 @@ object TmdbMetadataService {
                 TmdbEntityKind.NETWORK -> {
                     val body = fetch<TmdbNetworkDetailsResponse>(endpoint = "network/$entityId")
                     body?.let {
+                        resolvedFromRemote = true
                         TmdbEntityHeader(
                             id = it.id,
                             kind = entityKind,
@@ -476,7 +479,8 @@ object TmdbMetadataService {
             )
         }
 
-        if (header != null) {
+        // Do not make a transient request failure permanent for the current app session.
+        if (header != null && resolvedFromRemote) {
             entityHeaderCache[cacheKey] = header
         }
         return header

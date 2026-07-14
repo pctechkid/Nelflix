@@ -9,6 +9,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.nuvio.app.core.auth.AuthStorage
@@ -55,6 +60,7 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
+        val shouldShowBrandSplash = savedInstanceState == null
         enableEdgeToEdge(
             navigationBarStyle = SystemBarStyle.dark(
                 scrim = 0xFF020404.toInt(),
@@ -107,7 +113,15 @@ class MainActivity : AppCompatActivity() {
         handleIncomingAppIntent(intent)
 
         setContent {
-            App()
+            val showBrandSplash = remember { mutableStateOf(shouldShowBrandSplash) }
+            Box(modifier = Modifier.fillMaxSize()) {
+                App()
+                if (showBrandSplash.value) {
+                    NelflixStartupSplash(
+                        onFinished = { showBrandSplash.value = false },
+                    )
+                }
+            }
         }
     }
 

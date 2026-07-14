@@ -184,6 +184,19 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinxSerialization)
+    alias(libs.plugins.baselineProfile)
+}
+
+val enableComposeCompilerReports = providers
+    .gradleProperty("nelflix.enableComposeCompilerReports")
+    .orNull
+    ?.equals("true", ignoreCase = true) == true
+
+composeCompiler {
+    if (enableComposeCompilerReports) {
+        reportsDestination = layout.buildDirectory.dir("compose_compiler/reports")
+        metricsDestination = layout.buildDirectory.dir("compose_compiler/metrics")
+    }
 }
 
 val supabaseProps = Properties().apply {
@@ -294,6 +307,7 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.documentfile)
             implementation(libs.androidx.core.splashscreen)
+            implementation(libs.androidx.profileinstaller)
             implementation(libs.androidx.work.runtime)
             implementation(libs.coil.gif)
             implementation("androidx.recyclerview:recyclerview:1.4.0")
@@ -352,6 +366,7 @@ afterEvaluate {
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     debugImplementation(libs.compose.uiTooling)
+    baselineProfile(project(":benchmark"))
 }
 
 configurations.all {
@@ -442,10 +457,19 @@ android {
                 debugSymbolLevel = "FULL"
             }
         }
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+}
+
+baselineProfile {
+    automaticGenerationDuringBuild = false
 }

@@ -449,6 +449,8 @@ private fun languageLabelResForCode(code: String?): StringResource? {
     val normalized = normalizeLanguageCode(code) ?: return null
     return AvailableLanguageOptions.firstOrNull {
         normalizeLanguageCode(it.code) == normalized
+    }?.labelRes ?: AvailableLanguageOptions.firstOrNull {
+        normalizeLanguageCode(it.code) == normalized.substringBefore('-')
     }?.labelRes
 }
 

@@ -1,13 +1,15 @@
 package com.nuvio.app.features.player
 
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
@@ -32,33 +35,44 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Groups
-import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Replay10
-import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.FilterNone
+import androidx.compose.material.icons.outlined.Forward10
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Replay10
+import androidx.compose.material.icons.outlined.SkipNext
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -68,11 +82,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.AppIconResource
-import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.appIconPainter
 import com.nuvio.app.core.ui.nuvioTypeScale
 import nuvio.composeapp.generated.resources.*
@@ -92,6 +106,7 @@ internal fun PlayerControlsShell(
     resizeMode: PlayerResizeMode,
     isLocked: Boolean,
     showPlaybackControls: Boolean = true,
+    playbackControlsVisible: Boolean = showPlaybackControls,
     showHeaderMetadata: Boolean = true,
     showStartupTitleIntro: Boolean = false,
     startupTitleIntroVisible: Boolean = showStartupTitleIntro,
@@ -122,50 +137,63 @@ internal fun PlayerControlsShell(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        if (showPlaybackControls && !metadataInfoOnly) {
+        val controlsBackdropAlpha by animateFloatAsState(
+            targetValue = if (showPlaybackControls && !metadataInfoOnly) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (showPlaybackControls) 220 else 420,
+                easing = FastOutSlowInEasing,
+            ),
+            label = "playerControlsBackdropAlpha",
+        )
+        if (controlsBackdropAlpha > 0.001f) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .align(Alignment.Center)
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.72f),
-                                Color.Black.copy(alpha = 0.38f),
-                                Color.Transparent,
+                    .graphicsLayer { alpha = controlsBackdropAlpha },
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .align(Alignment.Center)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.24f),
+                                    Color.Black.copy(alpha = 0.1f),
+                                    Color.Transparent,
+                                ),
                             ),
                         ),
-                    ),
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(190.dp)
-                    .align(Alignment.TopCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.7f),
-                                Color.Transparent,
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(190.dp)
+                        .align(Alignment.TopCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.58f),
+                                    Color.Transparent,
+                                ),
                             ),
                         ),
-                    ),
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp)
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.7f),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.64f),
+                                ),
                             ),
                         ),
-                    ),
-            )
+                )
+            }
         }
 
         val introBackdropAlpha by animateFloatAsState(
@@ -209,7 +237,7 @@ internal fun PlayerControlsShell(
                 episodeTitle = episodeTitle,
                 metrics = metrics,
                 isLocked = isLocked,
-                showActions = showPlaybackControls,
+                actionsVisible = playbackControlsVisible,
                 showHeaderMetadata = showHeaderMetadata,
                 showStartupTitleIntro = showStartupTitleIntro,
                 startupTitleIntroVisible = startupTitleIntroVisible,
@@ -235,25 +263,24 @@ internal fun PlayerControlsShell(
                     ),
             )
 
-            if (showPlaybackControls) {
-                CenterControls(
-                    snapshot = playbackSnapshot,
-                    metrics = metrics,
-                    onSeekBack = onSeekBack,
-                    onSeekForward = onSeekForward,
-                    onTogglePlayback = onTogglePlayback,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(bottom = metrics.centerLift),
-                )
-            }
-
-            if (showPlaybackControls) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = playbackControlsVisible,
+                enter = slideInVertically(playerControlsEnterAnimationSpec()) { it },
+                exit = slideOutVertically(playerControlsExitAnimationSpec()) { it },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = metrics.horizontalPadding)
+                    .padding(bottom = metrics.sliderBottomOffset / 2),
+            ) {
                 ProgressControls(
                     playbackSnapshot = playbackSnapshot,
                     displayedPositionMs = displayedPositionMs,
                     metrics = metrics,
                     resizeMode = resizeMode,
+                    onTogglePlayback = onTogglePlayback,
+                    onSeekBack = onSeekBack,
+                    onSeekForward = onSeekForward,
                     onScrubChange = onScrubChange,
                     onScrubFinished = onScrubFinished,
                     onResizeModeClick = onResizeModeClick,
@@ -263,11 +290,8 @@ internal fun PlayerControlsShell(
                     onAudioClick = onAudioClick,
                     onChaptersClick = onChaptersClick,
                     onSourcesClick = onSourcesClick,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = metrics.horizontalPadding)
-                        .padding(bottom = metrics.sliderBottomOffset),
+                    onInfoClick = onWatchTogetherInfoClick,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -283,7 +307,7 @@ private fun PlayerHeader(
     episodeTitle: String?,
     metrics: PlayerLayoutMetrics,
     isLocked: Boolean,
-    showActions: Boolean,
+    actionsVisible: Boolean,
     showHeaderMetadata: Boolean,
     showStartupTitleIntro: Boolean,
     startupTitleIntroVisible: Boolean,
@@ -300,12 +324,10 @@ private fun PlayerHeader(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val typeScale = MaterialTheme.nuvioTypeScale
-    val metadataAlpha by animateFloatAsState(
-        targetValue = if (showHeaderMetadata && !showParentalGuide && showActions && !metadataInfoOnly) 1f else 0f,
-        animationSpec = tween(durationMillis = if (showHeaderMetadata && !showParentalGuide && showActions && !metadataInfoOnly) 260 else 160),
-        label = "playerHeaderMetadataAlpha",
-    )
+    val normalHeaderVisible = showHeaderMetadata &&
+        !showParentalGuide &&
+        actionsVisible &&
+        !metadataInfoOnly
     Column(modifier = modifier) {
         val episodeLine = if (seasonNumber != null && episodeNumber != null && !episodeTitle.isNullOrBlank()) {
             "S${seasonNumber}E${episodeNumber}: $episodeTitle"
@@ -316,44 +338,51 @@ private fun PlayerHeader(
         LaunchedEffect(logo) {
             logoLoadFailed = false
         }
-        Row(
+        Box(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
         ) {
             Box(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .fillMaxWidth(0.75f)
+                    .align(Alignment.TopStart),
             ) {
-                Column(
-                    modifier = Modifier
-                        .graphicsLayer { alpha = metadataAlpha }
-                        .padding(end = 24.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = normalHeaderVisible,
+                    enter = slideInVertically(playerControlsEnterAnimationSpec()) { -it },
+                    exit = slideOutVertically(playerControlsExitAnimationSpec()) { -it },
                 ) {
-                    if (!logo.isNullOrBlank() && !logoLoadFailed) {
-                        AsyncImage(
-                            model = logo,
-                            contentDescription = title,
-                            modifier = Modifier
-                                .height(if (seasonNumber != null && episodeNumber != null) 64.dp else 76.dp)
-                                .widthIn(max = 360.dp),
-                            contentScale = ContentScale.Fit,
-                            onError = { logoLoadFailed = true },
-                        )
-                    } else {
-                        NetflixHeaderTitle(
-                            title = title,
-                            episodeLine = episodeLine,
-                            fontSize = metrics.episodeInfoSize * 1.08f,
-                            episodeFontSize = metrics.episodeInfoSize,
-                            onTitleLineCountChanged = {},
-                        )
-                    }
-                    if (episodeLine != null && !logo.isNullOrBlank() && !logoLoadFailed) {
-                        AnimatedHeaderLine(
-                            text = episodeLine,
-                            fontSize = metrics.episodeInfoSize,
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(end = 16.dp, bottom = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (!logo.isNullOrBlank() && !logoLoadFailed) {
+                            AsyncImage(
+                                model = logo,
+                                contentDescription = title,
+                                modifier = Modifier
+                                    .height(if (seasonNumber != null && episodeNumber != null) 64.dp else 76.dp)
+                                    .fillMaxWidth(),
+                                contentScale = ContentScale.Fit,
+                                alignment = Alignment.CenterStart,
+                                onError = { logoLoadFailed = true },
+                            )
+                        } else {
+                            NetflixHeaderTitle(
+                                title = title,
+                                episodeLine = episodeLine,
+                                fontSize = metrics.episodeInfoSize * 1.08f,
+                                episodeFontSize = metrics.episodeInfoSize,
+                                animateContent = false,
+                            )
+                        }
+                        if (episodeLine != null && !logo.isNullOrBlank() && !logoLoadFailed) {
+                            PlayerHeaderEpisodeLine(
+                                text = episodeLine,
+                                fontSize = metrics.episodeInfoSize,
+                            )
+                        }
                     }
                 }
                 ParentalGuideOverlay(
@@ -369,7 +398,8 @@ private fun PlayerHeader(
                 if (showStartupTitleIntro && !metadataInfoOnly) {
                     Column(
                         modifier = Modifier
-                            .padding(end = 24.dp, bottom = 8.dp),
+                            .fillMaxWidth()
+                            .padding(end = 16.dp, bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         NetflixHeaderTitle(
@@ -378,38 +408,33 @@ private fun PlayerHeader(
                             fontSize = metrics.episodeInfoSize * 1.08f,
                             episodeFontSize = metrics.episodeInfoSize,
                             visible = startupTitleIntroVisible,
-                            onTitleLineCountChanged = {},
                         )
                     }
                 }
             }
 
-            if (showActions || metadataInfoOnly) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = actionsVisible || metadataInfoOnly,
+                enter = slideInVertically(playerControlsEnterAnimationSpec()) { -it },
+                exit = slideOutVertically(playerControlsExitAnimationSpec()) { -it },
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (!metadataInfoOnly && onWatchTogetherClick != null) {
                         PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Groups,
+                            icon = Icons.Outlined.Groups,
                             contentDescription = "Watch Together",
                             buttonSize = metrics.headerIconSize + 18.dp,
                             iconSize = metrics.headerIconSize + 4.dp,
                             onClick = onWatchTogetherClick,
                         )
                     }
-                    if (onWatchTogetherInfoClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Info,
-                            contentDescription = "Playback info",
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onWatchTogetherInfoClick,
-                        )
-                    }
                     if (!metadataInfoOnly && onSubmitIntroClick != null) {
                         PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Flag,
+                            icon = Icons.Outlined.Flag,
                             contentDescription = "Submit Intro",
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
@@ -418,7 +443,7 @@ private fun PlayerHeader(
                     }
                     if (!metadataInfoOnly) {
                         PlayerHeaderIconButton(
-                            icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
+                            icon = if (isLocked) Icons.Outlined.LockOpen else Icons.Outlined.Lock,
                             contentDescription = if (isLocked) {
                                 stringResource(Res.string.compose_player_unlock_controls)
                             } else {
@@ -428,13 +453,12 @@ private fun PlayerHeader(
                             iconSize = metrics.headerIconSize,
                             onClick = onLockToggle,
                         )
-                        NuvioBackButton(
-                            onClick = onBack,
-                            containerColor = Color.Black.copy(alpha = 0.35f),
-                            contentColor = Color.White,
+                        PlayerHeaderIconButton(
+                            icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = stringResource(Res.string.compose_player_close),
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
-                            contentDescription = stringResource(Res.string.compose_player_close),
+                            onClick = onBack,
                         )
                     }
                 }
@@ -444,27 +468,11 @@ private fun PlayerHeader(
 }
 
 @Composable
-private fun AnimatedHeaderLine(
+private fun PlayerHeaderEpisodeLine(
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
 ) {
-    var visible by remember(text) { mutableStateOf(false) }
-    val alpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 720, delayMillis = 160, easing = FastOutSlowInEasing),
-        label = "playerHeaderLineAlpha",
-    )
-    val offset by animateFloatAsState(
-        targetValue = if (visible) 0f else -10f,
-        animationSpec = tween(durationMillis = 720, delayMillis = 160, easing = FastOutSlowInEasing),
-        label = "playerHeaderLineOffset",
-    )
-
-    LaunchedEffect(text) {
-        visible = true
-    }
-
     Text(
         text = text,
         style = MaterialTheme.nuvioTypeScale.bodyMd.copy(
@@ -472,12 +480,9 @@ private fun AnimatedHeaderLine(
             lineHeight = fontSize * 1.3f,
         ),
         color = Color.White.copy(alpha = 0.9f),
-        maxLines = 2,
+        maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = modifier.graphicsLayer {
-            this.alpha = alpha
-            translationX = offset
-        },
+        modifier = modifier,
     )
 }
 
@@ -488,34 +493,36 @@ private fun NetflixHeaderTitle(
     fontSize: androidx.compose.ui.unit.TextUnit,
     episodeFontSize: androidx.compose.ui.unit.TextUnit,
     visible: Boolean = true,
-    onTitleLineCountChanged: (Int) -> Unit,
+    animateContent: Boolean = true,
 ) {
     var accentVisible by remember(title, episodeLine) { mutableStateOf(false) }
     val accentScaleY by animateFloatAsState(
-        targetValue = if (accentVisible && visible) 1f else 0f,
-        animationSpec = tween(durationMillis = if (visible) 760 else 1700, easing = FastOutSlowInEasing),
+        targetValue = if (!animateContent || (accentVisible && visible)) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (!animateContent) 0 else if (visible) 760 else 1700,
+            easing = FastOutSlowInEasing,
+        ),
         label = "playerTitleAccentScale",
     )
     val textAlpha by animateFloatAsState(
-        targetValue = if (accentVisible && visible) 1f else 0f,
+        targetValue = if (!animateContent || (accentVisible && visible)) 1f else 0f,
         animationSpec = tween(
-            durationMillis = if (visible) 720 else 1500,
-            delayMillis = if (visible) 110 else 0,
+            durationMillis = if (!animateContent) 0 else if (visible) 720 else 1500,
+            delayMillis = if (animateContent && visible) 110 else 0,
             easing = FastOutSlowInEasing,
         ),
         label = "playerTitleTextAlpha",
     )
     val textOffset by animateFloatAsState(
-        targetValue = if (accentVisible && visible) 0f else -18f,
+        targetValue = if (!animateContent || (accentVisible && visible)) 0f else -18f,
         animationSpec = tween(
-            durationMillis = if (visible) 720 else 1500,
-            delayMillis = if (visible) 110 else 0,
+            durationMillis = if (!animateContent) 0 else if (visible) 720 else 1500,
+            delayMillis = if (animateContent && visible) 110 else 0,
             easing = FastOutSlowInEasing,
         ),
         label = "playerTitleTextOffset",
     )
-    var titleLineCount by remember(title) { mutableIntStateOf(1) }
-    val episodeInsideAccent = !episodeLine.isNullOrBlank() && titleLineCount <= 1
+    val episodeInsideAccent = !episodeLine.isNullOrBlank()
     LaunchedEffect(title, episodeLine) {
         accentVisible = true
     }
@@ -544,6 +551,7 @@ private fun NetflixHeaderTitle(
                     .background(NetflixProgressRed),
             )
             Column(
+                modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(if (episodeInsideAccent) 0.dp else 2.dp),
             ) {
                 Text(
@@ -554,15 +562,11 @@ private fun NetflixHeaderTitle(
                         fontWeight = FontWeight.Bold,
                     ),
                     color = Color.White,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .padding(start = 8.dp, top = 4.dp, bottom = if (episodeInsideAccent) 0.dp else 4.dp)
-                        .widthIn(max = 320.dp),
-                    onTextLayout = {
-                        titleLineCount = it.lineCount
-                        onTitleLineCountChanged(it.lineCount)
-                    },
+                        .fillMaxWidth(),
                 )
                 if (!episodeLine.isNullOrBlank() && episodeInsideAccent) {
                     Text(
@@ -573,30 +577,14 @@ private fun NetflixHeaderTitle(
                             fontWeight = FontWeight.Medium,
                         ),
                         color = Color.White.copy(alpha = 0.9f),
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .padding(start = 8.dp, bottom = 3.dp)
-                            .widthIn(max = 320.dp),
+                            .fillMaxWidth(),
                     )
                 }
             }
-        }
-        if (!episodeLine.isNullOrBlank() && !episodeInsideAccent) {
-            Text(
-                text = episodeLine,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = episodeFontSize,
-                    lineHeight = episodeFontSize * 1.25f,
-                    fontWeight = FontWeight.Medium,
-                ),
-                color = Color.White.copy(alpha = 0.9f),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .padding(start = 13.dp)
-                    .widthIn(max = 320.dp),
-            )
         }
     }
 }
@@ -613,7 +601,6 @@ private fun PlayerHeaderIconButton(
         modifier = Modifier
             .size(buttonSize)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.35f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -729,6 +716,9 @@ private fun ProgressControls(
     displayedPositionMs: Long,
     metrics: PlayerLayoutMetrics,
     resizeMode: PlayerResizeMode,
+    onTogglePlayback: () -> Unit,
+    onSeekBack: () -> Unit,
+    onSeekForward: () -> Unit,
     onScrubChange: (Long) -> Unit,
     onScrubFinished: (Long) -> Unit,
     onResizeModeClick: () -> Unit,
@@ -738,96 +728,166 @@ private fun ProgressControls(
     onAudioClick: () -> Unit,
     onChaptersClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
+    onInfoClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
     val bufferedFraction = (playbackSnapshot.bufferedPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     val playedFraction = (displayedPositionMs.coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-    val aspectRatioPainter = appIconPainter(AppIconResource.PlayerAspectRatio)
-    val subtitlesPainter = appIconPainter(AppIconResource.PlayerSubtitles)
-    val audioPainter = appIconPainter(AppIconResource.PlayerAudioFilled)
+    val durationText = formatPlaybackTime(durationMs)
+    val timeLabelWidth = if (durationText.length > 5) 64.dp else 44.dp
+    val actionButtonSize = metrics.headerIconSize + 20.dp
+    val actionIconSize = metrics.headerIconSize + 4.dp
 
     Column(modifier = modifier) {
-        NetflixSeekBar(
-            modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .align(Alignment.CenterHorizontally),
-            durationMs = durationMs,
-            playedFraction = playedFraction,
-            bufferedFraction = bufferedFraction,
-            touchHeight = metrics.sliderTouchHeight,
-            onScrubChange = onScrubChange,
-            onScrubFinished = onScrubFinished,
-        )
         Row(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
                 .align(Alignment.CenterHorizontally)
-                .padding(horizontal = 14.dp)
-                .padding(top = 4.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TimePill(text = formatPlaybackTime(displayedPositionMs), fontSize = metrics.timeSize)
-            TimePill(text = formatPlaybackTime(durationMs), fontSize = metrics.timeSize)
+            PlaybackTimeLabel(
+                text = formatPlaybackTime(displayedPositionMs),
+                fontSize = metrics.timeSize,
+                modifier = Modifier.width(timeLabelWidth),
+                textAlign = TextAlign.Start,
+            )
+            NetflixSeekBar(
+                modifier = Modifier.weight(1f),
+                durationMs = durationMs,
+                playedFraction = playedFraction,
+                bufferedFraction = bufferedFraction,
+                touchHeight = metrics.sliderTouchHeight,
+                onScrubChange = onScrubChange,
+                onScrubFinished = onScrubFinished,
+            )
+            PlaybackTimeLabel(
+                text = durationText,
+                fontSize = metrics.timeSize,
+                modifier = Modifier.width(timeLabelWidth),
+                textAlign = TextAlign.End,
+            )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .align(Alignment.CenterHorizontally)
+                .padding(top = 14.dp),
         ) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(24.dp),
+            Row(
+                modifier = Modifier.align(Alignment.CenterStart),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    PlayerActionPillButton(
-                        label = stringResource(resizeMode.labelRes),
-                        painter = aspectRatioPainter,
-                        onClick = onResizeModeClick,
+                    PlayerActionBarButton(
+                        label = if (playbackSnapshot.isPlaying) {
+                            stringResource(Res.string.compose_action_pause)
+                        } else {
+                            stringResource(Res.string.detail_btn_play)
+                        },
+                        icon = if (playbackSnapshot.isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
+                        onClick = onTogglePlayback,
                     )
-                    PlayerActionPillButton(
+                    PlayerActionBarButton(
+                        label = stringResource(Res.string.compose_player_seek_back_10),
+                        icon = Icons.Outlined.Replay10,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
+                        onClick = onSeekBack,
+                    )
+                    PlayerActionBarButton(
+                        label = stringResource(Res.string.compose_player_seek_forward_10),
+                        icon = Icons.Outlined.Forward10,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
+                        onClick = onSeekForward,
+                    )
+                    PlayerActionBarButton(
+                        label = "Skip",
+                        icon = Icons.Outlined.SkipNext,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
+                        onClick = onSilenceSkipClick,
+                    )
+                    PlayerActionBarButton(
                         label = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
-                        icon = Icons.Rounded.Speed,
+                        icon = Icons.Outlined.Speed,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
                         onClick = onSpeedClick,
                     )
-                    PlayerActionPillButton(
-                        label = stringResource(Res.string.compose_player_subs),
-                        painter = subtitlesPainter,
-                        onClick = onSubtitleClick,
-                    )
-                    PlayerActionPillButton(
+            }
+            Row(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                    if (onInfoClick != null) {
+                        PlayerActionBarButton(
+                            label = "Playback info",
+                            icon = Icons.Outlined.Info,
+                            buttonSize = actionButtonSize,
+                            iconSize = actionIconSize,
+                            onClick = onInfoClick,
+                        )
+                    }
+                    PlayerActionBarButton(
                         label = stringResource(Res.string.compose_player_audio),
-                        painter = audioPainter,
+                        icon = Icons.Outlined.VolumeUp,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
                         onClick = onAudioClick,
                     )
                     if (onChaptersClick != null) {
-                        PlayerActionPillButton(
+                        PlayerActionBarButton(
                             label = "Chapters",
-                            icon = Icons.Rounded.Flag,
+                            icon = Icons.Outlined.FilterNone,
+                            buttonSize = actionButtonSize,
+                            iconSize = actionIconSize,
                             onClick = onChaptersClick,
                         )
                     }
                     if (onSourcesClick != null) {
-                        PlayerActionPillButton(
+                        PlayerActionBarButton(
                             label = stringResource(Res.string.compose_player_sources),
                             icon = Icons.Rounded.SwapHoriz,
+                            buttonSize = actionButtonSize,
+                            iconSize = actionIconSize,
                             onClick = onSourcesClick,
                         )
                     }
-                    PlayerActionPillButton(
-                        label = "Skip",
-                        icon = Icons.Rounded.Forward10,
-                        onClick = onSilenceSkipClick,
+                    PlayerActionBarButton(
+                        label = stringResource(Res.string.compose_player_subs),
+                        icon = Icons.Outlined.Subtitles,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
+                        onClick = onSubtitleClick,
                     )
-                }
+                    PlayerActionBarButton(
+                        label = stringResource(resizeMode.labelRes),
+                        icon = Icons.Rounded.AspectRatio,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
+                        onClick = onResizeModeClick,
+                    )
             }
         }
     }
 }
+
+private fun <T> playerControlsEnterAnimationSpec(): FiniteAnimationSpec<T> = tween(
+    durationMillis = 320,
+    easing = LinearOutSlowInEasing,
+)
+
+private fun <T> playerControlsExitAnimationSpec(): FiniteAnimationSpec<T> = tween(
+    durationMillis = 300,
+    easing = FastOutSlowInEasing,
+)
 
 @Composable
 private fun NetflixSeekBar(
@@ -840,63 +900,134 @@ private fun NetflixSeekBar(
     onScrubFinished: (Long) -> Unit,
 ) {
     val density = LocalDensity.current
+    var activeScrubFraction by remember(durationMs) { mutableStateOf<Float?>(null) }
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .height(touchHeight),
         contentAlignment = Alignment.CenterStart,
     ) {
+        val trackWidth = maxWidth
         val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
-        var lastPositionMs = (durationMs * playedFraction).toLong().coerceIn(0L, durationMs)
-        fun positionForX(x: Float): Long =
-            ((x.coerceIn(0f, widthPx) / widthPx) * durationMs).toLong().coerceIn(0L, durationMs)
+        val markerWidth = 4.dp
+        val markerHeight = 23.dp
+        val segmentGap = 8.dp
+        val trackHeight = 14.dp
+        val protectedHalfFraction = with(density) {
+            ((markerWidth.toPx() / 2f) + segmentGap.toPx()) / widthPx
+        }
+        val effectivePlayedFraction = activeScrubFraction ?: playedFraction.coerceIn(0f, 1f)
+        val playedSegmentFraction = (effectivePlayedFraction - protectedHalfFraction).coerceIn(0f, 1f)
+        val bufferedTrackFraction = bufferedFraction.coerceAtLeast(effectivePlayedFraction)
+        val bufferedStartFraction = (effectivePlayedFraction + protectedHalfFraction).coerceIn(0f, 1f)
+        val bufferedVisibleFraction = (bufferedTrackFraction - bufferedStartFraction).coerceAtLeast(0f)
+        val remainingVisibleFraction = (1f - bufferedStartFraction).coerceAtLeast(0f)
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(touchHeight)
-                .pointerInput(durationMs, widthPx) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown()
-                        lastPositionMs = positionForX(down.position.x)
-                        onScrubChange(lastPositionMs)
-                        down.consume()
-
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) {
-                                break
-                            }
-                            lastPositionMs = positionForX(change.position.x)
-                            onScrubChange(lastPositionMs)
-                            change.consume()
-                        }
-                        onScrubFinished(lastPositionMs)
-                    }
-                },
+                .height(touchHeight),
             contentAlignment = Alignment.CenterStart,
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .width(trackWidth * playedSegmentFraction)
+                    .height(trackHeight)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 999.dp,
+                            bottomStart = 999.dp,
+                            topEnd = 0.dp,
+                            bottomEnd = 0.dp,
+                        ),
+                    )
                     .background(Color.White.copy(alpha = 0.18f)),
             )
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(bufferedFraction)
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.48f)),
+                    .offset(x = trackWidth * bufferedStartFraction)
+                    .width(trackWidth * remainingVisibleFraction)
+                    .height(trackHeight)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 0.dp,
+                            bottomStart = 0.dp,
+                            topEnd = 999.dp,
+                            bottomEnd = 999.dp,
+                        ),
+                    )
+                    .background(Color.White.copy(alpha = 0.18f)),
             )
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(playedFraction)
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .offset(x = trackWidth * bufferedStartFraction)
+                    .width(trackWidth * bufferedVisibleFraction)
+                    .height(trackHeight)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 0.dp,
+                            bottomStart = 0.dp,
+                            topEnd = 999.dp,
+                            bottomEnd = 999.dp,
+                        ),
+                    )
+                    .background(Color.White.copy(alpha = 0.5f)),
+            )
+            Box(
+                modifier = Modifier
+                    .width(trackWidth * playedSegmentFraction)
+                    .height(trackHeight)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 999.dp,
+                            bottomStart = 999.dp,
+                            topEnd = 0.dp,
+                            bottomEnd = 0.dp,
+                        ),
+                    )
                     .background(NetflixProgressRed),
+            )
+            Box(
+                modifier = Modifier
+                    .offset(x = (trackWidth * effectivePlayedFraction) - (markerWidth / 2))
+                    .width(markerWidth)
+                    .height(markerHeight),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(markerWidth)
+                        .height(markerHeight)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(NetflixProgressRed),
+                )
+            }
+            Slider(
+                value = effectivePlayedFraction,
+                onValueChange = { fraction ->
+                    val clampedFraction = fraction.coerceIn(0f, 1f)
+                    activeScrubFraction = clampedFraction
+                    onScrubChange(
+                        (durationMs * clampedFraction).toLong().coerceIn(0L, durationMs),
+                    )
+                },
+                onValueChangeFinished = {
+                    val finalFraction = activeScrubFraction ?: effectivePlayedFraction
+                    onScrubFinished(
+                        (durationMs * finalFraction).toLong().coerceIn(0L, durationMs),
+                    )
+                    activeScrubFraction = null
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(touchHeight),
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.Transparent,
+                    activeTrackColor = Color.Transparent,
+                    inactiveTrackColor = Color.Transparent,
+                    disabledThumbColor = Color.Transparent,
+                    disabledActiveTrackColor = Color.Transparent,
+                    disabledInactiveTrackColor = Color.Transparent,
+                ),
             )
         }
     }
@@ -1027,42 +1158,58 @@ private fun TimePill(
 }
 
 @Composable
-private fun PlayerActionPillButton(
+private fun PlaybackTimeLabel(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier,
+    textAlign: TextAlign = TextAlign.Start,
+) {
+    Text(
+        text = text,
+        modifier = modifier,
+        style = MaterialTheme.nuvioTypeScale.labelSm.copy(
+            fontSize = fontSize,
+            lineHeight = fontSize * 1.2f,
+            fontWeight = FontWeight.Medium,
+        ),
+        color = Color.White,
+        maxLines = 1,
+        softWrap = false,
+        textAlign = textAlign,
+    )
+}
+
+@Composable
+private fun PlayerActionBarButton(
     label: String,
     onClick: () -> Unit,
+    buttonSize: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
     icon: ImageVector? = null,
     painter: Painter? = null,
 ) {
-    Row(
+    Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(22.dp))
+            .size(buttonSize)
+            .clip(CircleShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(6.dp),
+        contentAlignment = Alignment.Center,
     ) {
         when {
             painter != null -> Icon(
                 painter = painter,
                 contentDescription = label,
                 tint = Color.White,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(iconSize),
             )
 
             icon != null -> Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = Color.White,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(iconSize),
             )
         }
-        Text(
-            text = label,
-            style = MaterialTheme.nuvioTypeScale.labelSm,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            softWrap = false,
-        )
     }
 }

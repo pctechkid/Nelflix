@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -33,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.home_view_all
@@ -61,6 +64,7 @@ fun <T> NuvioShelfSection(
     showHeaderAccent: Boolean = true,
     onViewAllClick: (() -> Unit)? = null,
     viewAllPillSize: NuvioViewAllPillSize = NuvioViewAllPillSize.Default,
+    viewAllIconOnly: Boolean = false,
     key: ((T) -> Any)? = null,
     itemContent: @Composable (T) -> Unit,
 ) {
@@ -75,6 +79,7 @@ fun <T> NuvioShelfSection(
                 showAccent = showHeaderAccent,
                 onViewAllClick = onViewAllClick,
                 viewAllPillSize = viewAllPillSize,
+                viewAllIconOnly = viewAllIconOnly,
             )
         }
         LazyRow(
@@ -107,6 +112,7 @@ fun NuvioPosterCard(
     showTitleBelow: Boolean = true,
     bottomLeftLogoUrl: String? = null,
     bottomLeftText: String? = null,
+    compactLabels: Boolean = false,
     isWatched: Boolean = false,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
@@ -122,7 +128,7 @@ fun NuvioPosterCard(
 
     Column(
         modifier = modifier.width(cardWidth),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compactLabels) 4.dp else 6.dp),
     ) {
         Box(
             modifier = Modifier
@@ -190,8 +196,21 @@ fun NuvioPosterCard(
         if (shouldShowTitleBelow) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = if (compactLabels) {
+                    MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 12.5.sp,
+                        lineHeight = 15.sp,
+                        fontWeight = FontWeight.Normal,
+                        letterSpacing = 0.sp,
+                    )
+                } else {
+                    MaterialTheme.typography.bodyMedium
+                },
+                color = if (compactLabels) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -219,6 +238,7 @@ private fun NuvioShelfSectionHeader(
     showAccent: Boolean = true,
     onViewAllClick: (() -> Unit)? = null,
     viewAllPillSize: NuvioViewAllPillSize = NuvioViewAllPillSize.Default,
+    viewAllIconOnly: Boolean = false,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -253,6 +273,7 @@ private fun NuvioShelfSectionHeader(
             NuvioViewAllPill(
                 onClick = onViewAllClick,
                 size = viewAllPillSize,
+                iconOnly = viewAllIconOnly,
             )
         }
     }
@@ -264,9 +285,33 @@ private val NetflixAccentRed = androidx.compose.ui.graphics.Color(0xFFE50914)
 private fun NuvioViewAllPill(
     onClick: (() -> Unit)?,
     size: NuvioViewAllPillSize,
+    iconOnly: Boolean,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isAmoled = colorScheme.background == androidx.compose.ui.graphics.Color.Black && colorScheme.surface == androidx.compose.ui.graphics.Color(0xFF050505)
+    val containerColor = if (isAmoled) androidx.compose.ui.graphics.Color(0xFF0D0D0D) else colorScheme.surface
+
+    if (iconOnly) {
+        val buttonSize = if (size == NuvioViewAllPillSize.Compact) 34.dp else 42.dp
+        val iconSize = if (size == NuvioViewAllPillSize.Compact) 22.dp else 26.dp
+        Box(
+            modifier = Modifier
+                .size(buttonSize)
+                .clip(CircleShape)
+                .background(containerColor)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = stringResource(Res.string.home_view_all),
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(iconSize),
+            )
+        }
+        return
+    }
+
     val horizontalPadding = if (size == NuvioViewAllPillSize.Compact) 12.dp else 18.dp
     val verticalPadding = if (size == NuvioViewAllPillSize.Compact) 9.dp else 14.dp
     val textStyle = if (size == NuvioViewAllPillSize.Compact) {
@@ -279,7 +324,7 @@ private fun NuvioViewAllPill(
     Row(
         modifier = Modifier
             .background(
-                color = if (isAmoled) androidx.compose.ui.graphics.Color(0xFF0D0D0D) else colorScheme.surface,
+                color = containerColor,
                 shape = RoundedCornerShape(20.dp),
             )
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
