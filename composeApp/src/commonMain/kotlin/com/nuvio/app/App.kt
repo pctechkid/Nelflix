@@ -28,8 +28,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
@@ -39,12 +37,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -187,6 +182,7 @@ import com.nuvio.app.features.updater.AppUpdaterHost
 import com.nuvio.app.features.updater.rememberAppUpdaterController
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watchtogether.WatchTogetherRepository
+import com.nuvio.app.features.watchtogether.WatchTogetherDialog
 import com.nuvio.app.features.watchtogether.WatchTogetherRoomState
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
@@ -198,6 +194,8 @@ import com.nuvio.app.features.watching.application.WatchingState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import nuvio.composeapp.generated.resources.*
@@ -581,6 +579,7 @@ private fun MainAppContent(
         var selectedPosterActionTarget by remember { mutableStateOf<PosterActionTarget?>(null) }
         var selectedContinueWatchingForActions by remember { mutableStateOf<ContinueWatchingItem?>(null) }
         var resolvingContinueWatchingPlayback by remember { mutableStateOf(false) }
+        var pendingDirectAutoPlayLaunch by remember { mutableStateOf<StreamLaunch?>(null) }
         var showLibraryListPicker by remember { mutableStateOf(false) }
         var pickerItem by remember { mutableStateOf<LibraryItem?>(null) }
         var pickerTitle by remember { mutableStateOf("") }
@@ -995,6 +994,14 @@ private fun MainAppContent(
         ) {
             val targetResumePositionMs = if (startFromBeginning) 1L else (resumePositionMs ?: 0L)
             val targetResumeProgressFraction = if (startFromBeginning) null else resumeProgressFraction
+            var loadedPlayerSettings = false
+            fun currentPlayerSettings(): com.nuvio.app.features.player.PlayerSettingsUiState {
+                if (!loadedPlayerSettings) {
+                    PlayerSettingsRepository.ensureLoaded()
+                    loadedPlayerSettings = true
+                }
+                return PlayerSettingsRepository.uiState.value
+            }
 
             if (!manualSelection) {
                 val downloadedItem = DownloadsRepository.findPlayableDownload(
@@ -1087,8 +1094,7 @@ private fun MainAppContent(
                     return
                 }
 
-                PlayerSettingsRepository.ensureLoaded()
-                val settings = PlayerSettingsRepository.uiState.value
+                val settings = currentPlayerSettings()
                 if (settings.streamReuseLastLinkEnabled) {
                     val cacheKey = StreamLinkCacheRepository.contentKey(
                         type = type,
@@ -1155,30 +1161,217 @@ private fun MainAppContent(
                 }
             }
 
-            val streamLaunchId = StreamLaunchStore.put(
-                StreamLaunch(
-                    type = type,
-                    videoId = videoId,
-                    parentMetaId = parentMetaId,
-                    parentMetaType = parentMetaType,
-                    title = title,
-                    logo = logo,
-                    poster = poster,
-                    background = background,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                    episodeTitle = episodeTitle,
-                    episodeThumbnail = episodeThumbnail,
-                    pauseDescription = pauseDescription,
-                    resumePositionMs = if (startFromBeginning) 1L else resumePositionMs,
-                    resumeProgressFraction = targetResumeProgressFraction,
-                    manualSelection = manualSelection,
-                    startFromBeginning = startFromBeginning,
-                ),
+            val streamLaunch = StreamLaunch(
+                type = type,
+                videoId = videoId,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                title = title,
+                logo = logo,
+                poster = poster,
+                background = background,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                episodeThumbnail = episodeThumbnail,
+                pauseDescription = pauseDescription,
+                resumePositionMs = if (startFromBeginning) 1L else resumePositionMs,
+                resumeProgressFraction = targetResumeProgressFraction,
+                manualSelection = manualSelection,
+                startFromBeginning = startFromBeginning,
             )
+            if (
+                !manualSelection &&
+                StreamAutoPlayPolicy.isEffectivelyEnabled(currentPlayerSettings())
+            ) {
+                if (pendingDirectAutoPlayLaunch != null) return
+                pendingDirectAutoPlayLaunch = streamLaunch
+                return
+            }
+
+            val streamLaunchId = StreamLaunchStore.put(streamLaunch)
             navController.navigate(
                 StreamRoute(launchId = streamLaunchId),
             )
+        }
+
+        fun navigateToManualStreams(launch: StreamLaunch) {
+            val streamLaunchId = StreamLaunchStore.put(launch)
+            navController.navigate(StreamRoute(launchId = streamLaunchId))
+        }
+
+        suspend fun resolveEffectiveStreamVideoId(launch: StreamLaunch): String {
+            val shouldResolveEpisodeVideoId =
+                launch.parentMetaId != null &&
+                    launch.seasonNumber != null &&
+                    launch.episodeNumber != null
+            if (!shouldResolveEpisodeVideoId) return launch.videoId
+
+            val metaType = launch.parentMetaType ?: launch.type
+            val metaId = launch.parentMetaId ?: return launch.videoId
+            return runCatching {
+                MetaDetailsRepository.fetch(metaType, metaId)
+            }.getOrNull()
+                ?.videos
+                ?.firstOrNull { video ->
+                    video.season == launch.seasonNumber &&
+                        video.episode == launch.episodeNumber
+                }
+                ?.id
+                ?.takeIf { it.isNotBlank() }
+                ?: launch.videoId
+        }
+
+        LaunchedEffect(pendingDirectAutoPlayLaunch) {
+            val launch = pendingDirectAutoPlayLaunch ?: return@LaunchedEffect
+            val effectiveVideoId = resolveEffectiveStreamVideoId(launch)
+            val expectedRequestToken = StreamsRepository.requestToken(
+                type = launch.type,
+                videoId = effectiveVideoId,
+                season = launch.seasonNumber,
+                episode = launch.episodeNumber,
+                manualSelection = false,
+            )
+
+            try {
+                AddonRepository.initialize()
+                val authenticatedState = authState as? AuthState.Authenticated
+                if (authenticatedState != null && !authenticatedState.isAnonymous) {
+                    val activeProfileId = profileState.activeProfile?.profileIndex
+                        ?: ProfileRepository.activeProfileId
+                    AddonRepository.pullFromServer(activeProfileId)
+                    AddonRepository.awaitManifestsLoaded()
+                }
+
+                StreamsRepository.load(
+                    type = launch.type,
+                    videoId = effectiveVideoId,
+                    season = launch.seasonNumber,
+                    episode = launch.episodeNumber,
+                    manualSelection = false,
+                )
+
+                val resolvedAutoPlayState = StreamsRepository.uiState
+                    .filter { state ->
+                        state.requestToken == expectedRequestToken &&
+                            (
+                                state.autoPlayStream != null ||
+                                    (!state.isAnyLoading && !state.isDirectAutoPlayFlow && !state.showDirectAutoPlayOverlay)
+                            )
+                    }
+                    .first()
+                val selectedStream = resolvedAutoPlayState.autoPlayStream
+                if (selectedStream == null) {
+                    pendingDirectAutoPlayLaunch = null
+                    navigateToManualStreams(launch)
+                    return@LaunchedEffect
+                }
+
+                val stream = when (
+                    val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
+                        stream = selectedStream,
+                        season = launch.seasonNumber,
+                        episode = launch.episodeNumber,
+                    )
+                ) {
+                    is DirectDebridPlayableResult.Success -> resolved.stream
+                    else -> {
+                        resolved.toastMessage()?.let { NuvioToastController.show(it) }
+                        StreamsRepository.consumeAutoPlay()
+                        if (resolved == DirectDebridPlayableResult.Stale) {
+                            StreamsRepository.reload(
+                                type = launch.type,
+                                videoId = effectiveVideoId,
+                                season = launch.seasonNumber,
+                                episode = launch.episodeNumber,
+                                manualSelection = false,
+                            )
+                        }
+                        pendingDirectAutoPlayLaunch = null
+                        navigateToManualStreams(launch)
+                        return@LaunchedEffect
+                    }
+                }
+
+                val sourceUrl = stream.directPlaybackUrl
+                if (sourceUrl.isNullOrBlank()) {
+                    StreamsRepository.consumeAutoPlay()
+                    pendingDirectAutoPlayLaunch = null
+                    navigateToManualStreams(launch)
+                    return@LaunchedEffect
+                }
+
+                val reusableSourceUrl = selectedStream.reusableTorboxSourceUrl() ?: sourceUrl
+                val isReusableTorboxP2P = reusableSourceUrl.isReusableTorboxP2PSource()
+                val initialRequestHeaders = sanitizePlaybackHeaders(stream.behaviorHints.proxyHeaders?.request)
+                val resolved = StreamUrlResolver.resolve(
+                    url = sourceUrl,
+                    requestHeaders = initialRequestHeaders,
+                )
+                val resolvedSourceUrl = resolved.url
+                val resolvedRequestHeaders = sanitizePlaybackHeaders(resolved.requestHeaders)
+                val responseHeaders = sanitizePlaybackResponseHeaders(stream.behaviorHints.proxyHeaders?.response)
+                if (playerSettingsUiState.streamReuseLastLinkEnabled) {
+                    val cacheKey = StreamLinkCacheRepository.contentKey(
+                        type = launch.type,
+                        videoId = effectiveVideoId,
+                        parentMetaId = launch.parentMetaId,
+                        season = launch.seasonNumber,
+                        episode = launch.episodeNumber,
+                    )
+                    StreamLinkCacheRepository.save(
+                        contentKey = cacheKey,
+                        url = resolvedSourceUrl,
+                        rawUrl = reusableSourceUrl,
+                        streamName = stream.streamLabel,
+                        addonName = stream.addonName,
+                        addonId = stream.addonId,
+                        requestHeaders = resolvedRequestHeaders,
+                        responseHeaders = responseHeaders,
+                        filename = stream.behaviorHints.filename,
+                        videoSize = stream.behaviorHints.videoSize,
+                        bingeGroup = stream.behaviorHints.bingeGroup,
+                    )
+                }
+                val playerLaunch = PlayerLaunch(
+                    title = launch.title,
+                    sourceUrl = resolvedSourceUrl,
+                    reusableSourceUrl = reusableSourceUrl,
+                    sourceHeaders = resolvedRequestHeaders,
+                    sourceResponseHeaders = responseHeaders,
+                    logo = launch.logo,
+                    poster = launch.poster,
+                    background = launch.background,
+                    seasonNumber = launch.seasonNumber,
+                    episodeNumber = launch.episodeNumber,
+                    episodeTitle = launch.episodeTitle,
+                    episodeThumbnail = launch.episodeThumbnail,
+                    streamTitle = stream.streamLabel,
+                    streamSubtitle = stream.streamSubtitle,
+                    bingeGroup = stream.behaviorHints.bingeGroup,
+                    pauseDescription = launch.pauseDescription,
+                    providerName = stream.addonName,
+                    providerAddonId = stream.addonId,
+                    contentType = launch.type,
+                    videoId = effectiveVideoId,
+                    parentMetaId = launch.parentMetaId ?: effectiveVideoId,
+                    parentMetaType = launch.parentMetaType ?: launch.type,
+                    initialPositionMs = launch.resumePositionMs ?: 0L,
+                    initialProgressFraction = launch.resumeProgressFraction,
+                    fallbackRawSourceUrl = sourceUrl.takeUnless { isReusableTorboxP2P },
+                    fallbackRawSourceHeaders = if (isReusableTorboxP2P) emptyMap() else initialRequestHeaders,
+                )
+                StreamsRepository.consumeAutoPlay()
+                StreamsRepository.cancelLoading()
+                pendingDirectAutoPlayLaunch = null
+                val launchId = PlayerLaunchStore.put(playerLaunch)
+                navController.navigate(PlayerRoute(launchId = launchId))
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                StreamsRepository.consumeAutoPlay()
+                pendingDirectAutoPlayLaunch = null
+                navigateToManualStreams(launch)
+            }
         }
 
         val onPlay: (String, String, String, String, String, String?, String?, String?, Int?, Int?, String?, String?, String?, Long?) -> Unit =
@@ -2474,94 +2667,28 @@ private fun MainAppContent(
             )
 
             if (showWatchTogetherJoinDialog) {
-                val watchTogetherRed = Color(0xFFE50914)
-                AlertDialog(
-                    onDismissRequest = {
+                WatchTogetherDialog(
+                    session = null,
+                    joinCode = watchTogetherJoinCode,
+                    isBusy = watchTogetherJoinBusy,
+                    errorMessage = watchTogetherJoinError,
+                    canUseWatchTogether = WatchTogetherRepository.canUseWatchTogether(),
+                    joinOnly = true,
+                    onJoinCodeChange = { value ->
+                        watchTogetherJoinCode = value
+                            .uppercase()
+                            .filter { it.isLetter() }
+                            .take(6)
+                        watchTogetherJoinError = null
+                    },
+                    onCreateRoom = {},
+                    onJoinRoom = ::joinWatchTogetherFromDiscover,
+                    onLeaveRoom = {},
+                    onShareCode = {},
+                    onDismiss = {
                         if (!watchTogetherJoinBusy) {
                             showWatchTogetherJoinDialog = false
                             watchTogetherJoinError = null
-                        }
-                    },
-                    containerColor = Color(0xFF111111),
-                    titleContentColor = Color.White,
-                    textContentColor = Color(0xFFD6D6D6),
-                    shape = RoundedCornerShape(18.dp),
-                    title = {
-                        Text("Watch Together")
-                    },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            val message = when {
-                                !WatchTogetherRepository.canUseWatchTogether() ->
-                                    "Sign in with an account to use Watch Together."
-                                watchTogetherJoinError != null -> watchTogetherJoinError
-                                else -> "Enter a room code to open the stream and sync playback."
-                            }
-                            if (!message.isNullOrBlank()) {
-                                Text(
-                                    text = message,
-                                    color = if (watchTogetherJoinError != null) {
-                                        Color(0xFFFF8A8A)
-                                    } else {
-                                        Color(0xFFD6D6D6)
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-                            OutlinedTextField(
-                                value = watchTogetherJoinCode,
-                                onValueChange = { value ->
-                                    watchTogetherJoinCode = value
-                                        .filter { it.isLetterOrDigit() }
-                                        .uppercase()
-                                        .take(8)
-                                    watchTogetherJoinError = null
-                                },
-                                enabled = !watchTogetherJoinBusy,
-                                singleLine = true,
-                                label = { Text("Room code") },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White,
-                                    disabledTextColor = Color(0xFF777777),
-                                    focusedContainerColor = Color(0xFF050505),
-                                    unfocusedContainerColor = Color(0xFF050505),
-                                    disabledContainerColor = Color(0xFF050505),
-                                    focusedBorderColor = watchTogetherRed,
-                                    unfocusedBorderColor = Color(0xFF595959),
-                                    disabledBorderColor = Color(0xFF333333),
-                                    focusedLabelColor = Color.White,
-                                    unfocusedLabelColor = Color(0xFFBDBDBD),
-                                    cursorColor = watchTogetherRed,
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        Button(
-                            enabled = WatchTogetherRepository.canUseWatchTogether() &&
-                                !watchTogetherJoinBusy &&
-                                watchTogetherJoinCode.length >= 4,
-                            onClick = ::joinWatchTogetherFromDiscover,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = watchTogetherRed,
-                                contentColor = Color.White,
-                            ),
-                        ) {
-                            Text(if (watchTogetherJoinBusy) "Joining..." else "Join")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(
-                            enabled = !watchTogetherJoinBusy,
-                            onClick = {
-                                showWatchTogetherJoinDialog = false
-                                watchTogetherJoinError = null
-                            },
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
-                        ) {
-                            Text("Close")
                         }
                     },
                 )
@@ -2573,6 +2700,8 @@ private fun MainAppContent(
                 isVisible = showExitConfirmation,
                 confirmText = stringResource(Res.string.action_yes),
                 dismissText = stringResource(Res.string.action_no),
+                confirmContainerColor = Color(0xFFE50914),
+                confirmContentColor = Color.White,
                 onConfirm = {
                     showExitConfirmation = false
                     platformExitApp()
@@ -2600,7 +2729,7 @@ private fun MainAppContent(
             }
 
             androidx.compose.animation.AnimatedVisibility(
-                visible = resolvingContinueWatchingPlayback,
+                visible = resolvingContinueWatchingPlayback || pendingDirectAutoPlayLaunch != null,
                 enter = fadeIn(),
                 exit = fadeOut(androidx.compose.animation.core.tween(180)),
                 modifier = Modifier

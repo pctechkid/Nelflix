@@ -1094,7 +1094,8 @@ returns table (
   server_now_ms bigint,
   room_closed boolean,
   member_names text[],
-  member_count integer
+  member_count integer,
+  members jsonb
 )
 language sql
 security definer
@@ -1132,6 +1133,31 @@ as $$
       from public.watch_together_members m
       where m.room_id = r.id
         and m.last_seen_at > now() - interval '2 minutes'
+    ),
+    coalesce(
+      (
+        select jsonb_agg(
+          jsonb_build_object(
+            'name', coalesce(nullif(trim(m.display_name), ''), nullif(trim(p.name), ''), 'Member'),
+            'profile_id', m.profile_id,
+            'avatar_color_hex', coalesce(p.avatar_color_hex, '#1E88E5'),
+            'avatar_id', p.avatar_id,
+            'avatar_url', p.avatar_url,
+            'avatar_storage_path', ac.storage_path
+          )
+          order by m.joined_at
+        )
+        from public.watch_together_members m
+        left join public.profiles p
+          on p.user_id = m.user_id
+         and p.profile_index = m.profile_id
+        left join public.avatar_catalog ac
+          on ac.id = p.avatar_id
+         and ac.is_active = true
+        where m.room_id = r.id
+          and m.last_seen_at > now() - interval '2 minutes'
+      ),
+      '[]'::jsonb
     )
   from public.watch_together_rooms r
   where r.id = p_room_id
@@ -1163,7 +1189,8 @@ returns table (
   server_now_ms bigint,
   room_closed boolean,
   member_names text[],
-  member_count integer
+  member_count integer,
+  members jsonb
 )
 language plpgsql
 security definer
@@ -1178,7 +1205,9 @@ begin
   end if;
 
   loop
-    new_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
+    select string_agg(substr('ABCDEFGHJKLMNPQRSTUVWXYZ', 1 + floor(random() * 24)::integer, 1), '')
+    into new_code
+    from generate_series(1, 6);
     exit when not exists (
       select 1
       from public.watch_together_rooms r
@@ -1234,7 +1263,8 @@ returns table (
   server_now_ms bigint,
   room_closed boolean,
   member_names text[],
-  member_count integer
+  member_count integer,
+  members jsonb
 )
 language plpgsql
 security definer
@@ -1286,7 +1316,8 @@ returns table (
   server_now_ms bigint,
   room_closed boolean,
   member_names text[],
-  member_count integer
+  member_count integer,
+  members jsonb
 )
 language plpgsql
 security definer
@@ -1320,7 +1351,8 @@ returns table (
   server_now_ms bigint,
   room_closed boolean,
   member_names text[],
-  member_count integer
+  member_count integer,
+  members jsonb
 )
 language plpgsql
 security definer

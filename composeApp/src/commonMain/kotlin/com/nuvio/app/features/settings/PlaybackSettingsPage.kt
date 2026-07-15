@@ -321,6 +321,7 @@ private fun PlaybackSettingsSection(
     var showAutoPlayAddonSelectionDialog by remember { mutableStateOf(false) }
     var showAutoPlayPluginSelectionDialog by remember { mutableStateOf(false) }
     var showAutoPlayRegexDialog by remember { mutableStateOf(false) }
+    var showAutoPlayMaxFileSizeDialog by remember { mutableStateOf(false) }
     var showMpvConfDialog by remember { mutableStateOf(false) }
     var showMpvInputConfDialog by remember { mutableStateOf(false) }
     var showMpvDemuxerCacheDialog by remember { mutableStateOf(false) }
@@ -371,6 +372,112 @@ private fun PlaybackSettingsSection(
                         description = formatPlaybackSpeedLabel(holdToSpeedValue),
                         isTablet = isTablet,
                         onClick = { showHoldToSpeedValueDialog = true },
+                    )
+                }
+            }
+        }
+
+        SettingsSection(
+            title = stringResource(Res.string.settings_playback_section_stream_auto_play),
+            isTablet = isTablet,
+        ) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_stream_selection_mode),
+                    description = stringResource(autoPlayPlayerSettings.streamAutoPlayMode.labelRes),
+                    isTablet = isTablet,
+                    onClick = { showAutoPlayModeDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_source_scope),
+                    description = stringResource(autoPlayPlayerSettings.streamAutoPlaySource.labelRes(pluginsEnabled)),
+                    isTablet = isTablet,
+                    onClick = { showAutoPlaySourceDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_allowed_addons),
+                    description = if (autoPlayPlayerSettings.streamAutoPlaySelectedAddons.isEmpty()) {
+                        stringResource(Res.string.settings_playback_all_addons)
+                    } else {
+                        stringResource(
+                            Res.string.settings_playback_selected_count,
+                            autoPlayPlayerSettings.streamAutoPlaySelectedAddons.size,
+                        )
+                    },
+                    isTablet = isTablet,
+                    onClick = { showAutoPlayAddonSelectionDialog = true },
+                )
+                if (pluginsEnabled) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_allowed_plugins),
+                        description = if (autoPlayPlayerSettings.streamAutoPlaySelectedPlugins.isEmpty()) {
+                            stringResource(Res.string.settings_playback_all_plugins)
+                        } else {
+                            stringResource(
+                                Res.string.settings_playback_selected_count,
+                                autoPlayPlayerSettings.streamAutoPlaySelectedPlugins.size,
+                            )
+                        },
+                        isTablet = isTablet,
+                        onClick = { showAutoPlayPluginSelectionDialog = true },
+                    )
+                }
+                if (autoPlayPlayerSettings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_regex_pattern),
+                        description = autoPlayPlayerSettings.streamAutoPlayRegex
+                            .takeIf { it.isNotBlank() }
+                            ?: stringResource(Res.string.settings_playback_regex_placeholder),
+                        isTablet = isTablet,
+                        onClick = { showAutoPlayRegexDialog = true },
+                    )
+                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_max_file_size),
+                    description = formatStreamAutoPlayMaxFileSize(
+                        autoPlayPlayerSettings.streamAutoPlayMaxFileSizeBytes,
+                    ),
+                    isTablet = isTablet,
+                    onClick = { showAutoPlayMaxFileSizeDialog = true },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_stream_timeout),
+                    description = "${autoPlayPlayerSettings.streamAutoPlayTimeoutSeconds}s - " +
+                        stringResource(Res.string.settings_playback_stream_timeout_description),
+                    isTablet = isTablet,
+                    onClick = {
+                        PlayerSettingsRepository.setStreamAutoPlayTimeoutSeconds(
+                            when (autoPlayPlayerSettings.streamAutoPlayTimeoutSeconds) {
+                                0 -> 1
+                                1 -> 3
+                                3 -> 5
+                                5 -> 10
+                                else -> 0
+                            },
+                        )
+                    },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_reuse_last_link),
+                    description = stringResource(Res.string.settings_playback_reuse_last_link_description),
+                    checked = streamReuseLastLinkEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setStreamReuseLastLinkEnabled,
+                )
+                if (streamReuseLastLinkEnabled) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_last_link_cache_duration),
+                        description = formatReuseCacheDuration(streamReuseLastLinkCacheHours),
+                        isTablet = isTablet,
+                        onClick = { showReuseCacheDurationDialog = true },
                     )
                 }
             }
@@ -684,9 +791,11 @@ private fun PlaybackSettingsSection(
 
     if (showAutoPlayAddonSelectionDialog) {
         val addonNames = addonUiState.addons
-            .mapNotNull { it.manifest }
-            .filter { manifest -> manifest.resources.any { resource -> resource.name == "stream" } }
-            .map { it.name }
+            .mapNotNull { addon ->
+                val manifest = addon.manifest ?: return@mapNotNull null
+                if (manifest.resources.none { resource -> resource.name == "stream" }) return@mapNotNull null
+                addon.displayTitle.takeIf { it.isNotBlank() } ?: manifest.name
+            }
             .distinct()
             .sorted()
         StreamAutoPlayProviderSelectionDialog(
@@ -729,6 +838,17 @@ private fun PlaybackSettingsSection(
                 showAutoPlayRegexDialog = false
             },
             onDismiss = { showAutoPlayRegexDialog = false },
+        )
+    }
+
+    if (showAutoPlayMaxFileSizeDialog) {
+        StreamAutoPlayMaxFileSizeDialog(
+            selectedBytes = autoPlayPlayerSettings.streamAutoPlayMaxFileSizeBytes,
+            onSave = {
+                PlayerSettingsRepository.setStreamAutoPlayMaxFileSizeBytes(it)
+                showAutoPlayMaxFileSizeDialog = false
+            },
+            onDismiss = { showAutoPlayMaxFileSizeDialog = false },
         )
     }
 }
@@ -1934,6 +2054,196 @@ private fun StreamAutoPlayRegexDialog(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
+private fun StreamAutoPlayMaxFileSizeDialog(
+    selectedBytes: Long?,
+    onSave: (Long?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val presetOptions = listOf(
+        AutoPlayMaxFileSizeOption(null, stringResource(Res.string.settings_playback_max_file_size_any)),
+        AutoPlayMaxFileSizeOption(autoPlaySizeBytes(2), stringResource(Res.string.settings_playback_max_file_size_under_2gb)),
+        AutoPlayMaxFileSizeOption(autoPlaySizeBytes(5), stringResource(Res.string.settings_playback_max_file_size_under_5gb)),
+        AutoPlayMaxFileSizeOption(autoPlaySizeBytes(10), stringResource(Res.string.settings_playback_max_file_size_under_10gb)),
+        AutoPlayMaxFileSizeOption(autoPlaySizeBytes(15), stringResource(Res.string.settings_playback_max_file_size_under_15gb)),
+        AutoPlayMaxFileSizeOption(autoPlaySizeBytes(25), stringResource(Res.string.settings_playback_max_file_size_under_25gb)),
+    )
+    val presetValues = presetOptions.map { it.bytes }.toSet()
+    val startsAsCustom = selectedBytes != null && selectedBytes !in presetValues
+    var pendingBytes by remember(selectedBytes) { mutableStateOf(selectedBytes) }
+    var customSelected by remember(selectedBytes) { mutableStateOf(startsAsCustom) }
+    var customText by remember(selectedBytes) {
+        mutableStateOf(selectedBytes?.takeIf { startsAsCustom }?.let(::formatAutoPlaySizeGb).orEmpty())
+    }
+    var customError by remember { mutableStateOf<String?>(null) }
+    val invalidCustomSize = stringResource(Res.string.settings_playback_max_file_size_custom_error)
+
+    BasicAlertDialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .heightIn(max = 560.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.settings_playback_max_file_size),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = stringResource(Res.string.settings_playback_max_file_size_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    presetOptions.forEach { option ->
+                        AutoPlayMaxFileSizeOptionRow(
+                            label = option.label,
+                            selected = !customSelected && pendingBytes == option.bytes,
+                            onClick = {
+                                customSelected = false
+                                pendingBytes = option.bytes
+                                customError = null
+                            },
+                        )
+                    }
+                    AutoPlayMaxFileSizeOptionRow(
+                        label = stringResource(Res.string.settings_playback_max_file_size_custom),
+                        selected = customSelected,
+                        onClick = {
+                            customSelected = true
+                            if (customText.isBlank() && pendingBytes != null) {
+                                customText = formatAutoPlaySizeGb(pendingBytes ?: 0L)
+                            }
+                            customError = null
+                        },
+                    )
+                }
+
+                if (customSelected) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        border = BorderStroke(
+                            1.dp,
+                            if (customError != null) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        ),
+                    ) {
+                        BasicTextField(
+                            value = customText,
+                            onValueChange = { value ->
+                                customText = value.filter { it.isDigit() || it == '.' || it == ',' }
+                                customError = null
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            decorationBox = { innerTextField ->
+                                if (customText.isBlank()) {
+                                    Text(
+                                        text = stringResource(Res.string.settings_playback_max_file_size_custom_hint),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    )
+                                }
+                                innerTextField()
+                            },
+                        )
+                    }
+                    if (customError != null) {
+                        Text(
+                            text = customError ?: "",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(Res.string.action_cancel))
+                    }
+                    TextButton(
+                        onClick = {
+                            if (customSelected) {
+                                val value = customText.replace(',', '.').toDoubleOrNull()
+                                if (value == null || value <= 0.0) {
+                                    customError = invalidCustomSize
+                                    return@TextButton
+                                }
+                                onSave((value * AutoPlayGigabyteBytes).toLong())
+                            } else {
+                                onSave(pendingBytes)
+                            }
+                        },
+                    ) {
+                        Text(stringResource(Res.string.action_save))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoPlayMaxFileSizeOptionRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (selected) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AnimeSkipClientIdDialog(
     initialValue: String,
     onSave: (String) -> Unit,
@@ -2109,6 +2419,37 @@ private fun formatCustomSpeedValue(speed: Float): String {
         roundedTenths.toInt().toString()
     } else {
         roundedTenths.toString()
+    }
+}
+
+@Composable
+private fun formatStreamAutoPlayMaxFileSize(bytes: Long?): String =
+    if (bytes == null) {
+        stringResource(Res.string.settings_playback_max_file_size_any)
+    } else {
+        stringResource(
+            Res.string.settings_playback_max_file_size_under_custom,
+            formatAutoPlaySizeGb(bytes),
+        )
+    }
+
+private data class AutoPlayMaxFileSizeOption(
+    val bytes: Long?,
+    val label: String,
+)
+
+private const val AutoPlayGigabyteBytes = 1_000_000_000L
+
+private fun autoPlaySizeBytes(gigabytes: Int): Long =
+    gigabytes * AutoPlayGigabyteBytes
+
+private fun formatAutoPlaySizeGb(bytes: Long): String {
+    if (bytes <= 0L) return ""
+    val tenths = (bytes * 10L + AutoPlayGigabyteBytes / 2L) / AutoPlayGigabyteBytes
+    return if (tenths % 10L == 0L) {
+        (tenths / 10L).toString()
+    } else {
+        "${tenths / 10L}.${tenths % 10L}"
     }
 }
 

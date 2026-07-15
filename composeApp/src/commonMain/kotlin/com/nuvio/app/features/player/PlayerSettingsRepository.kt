@@ -43,6 +43,7 @@ data class PlayerSettingsUiState(
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
     val streamAutoPlaySelectedPlugins: Set<String> = emptySet(),
     val streamAutoPlayRegex: String = "",
+    val streamAutoPlayMaxFileSizeBytes: Long? = null,
     val streamAutoPlayTimeoutSeconds: Int = 3,
     val skipIntroEnabled: Boolean = true,
     val animeSkipEnabled: Boolean = true,
@@ -91,6 +92,7 @@ object PlayerSettingsRepository {
     private var streamAutoPlaySelectedAddons: Set<String> = emptySet()
     private var streamAutoPlaySelectedPlugins: Set<String> = emptySet()
     private var streamAutoPlayRegex = ""
+    private var streamAutoPlayMaxFileSizeBytes: Long? = null
     private var streamAutoPlayTimeoutSeconds = 3
     private var skipIntroEnabled = true
     private var animeSkipEnabled = true
@@ -144,6 +146,7 @@ object PlayerSettingsRepository {
         streamAutoPlaySelectedAddons = emptySet()
         streamAutoPlaySelectedPlugins = emptySet()
         streamAutoPlayRegex = ""
+        streamAutoPlayMaxFileSizeBytes = null
         streamAutoPlayTimeoutSeconds = 3
         skipIntroEnabled = true
         animeSkipEnabled = true
@@ -193,10 +196,10 @@ object PlayerSettingsRepository {
             bottomOffset = PlayerSettingsStorage.loadSubtitleBottomOffset()
                 ?: SubtitleStyleState.DEFAULT.bottomOffset,
         )
-        streamReuseLastLinkEnabled = DefaultStreamReuseLastLinkEnabled
-        streamReuseLastLinkCacheHours = DefaultStreamReuseLastLinkCacheHours
-        PlayerSettingsStorage.saveStreamReuseLastLinkEnabled(DefaultStreamReuseLastLinkEnabled)
-        PlayerSettingsStorage.saveStreamReuseLastLinkCacheHours(DefaultStreamReuseLastLinkCacheHours)
+        streamReuseLastLinkEnabled = PlayerSettingsStorage.loadStreamReuseLastLinkEnabled()
+            ?: DefaultStreamReuseLastLinkEnabled
+        streamReuseLastLinkCacheHours = PlayerSettingsStorage.loadStreamReuseLastLinkCacheHours()
+            ?: DefaultStreamReuseLastLinkCacheHours
         decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
         mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
         tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
@@ -219,8 +222,9 @@ object PlayerSettingsRepository {
             ?.coerceIn(128, 4096)
             ?: DefaultMpvDemuxerMaxBytesMiB
         PlayerSettingsStorage.saveMpvDemuxerMaxBytesMiB(mpvDemuxerMaxBytesMiB)
-        streamAutoPlayMode = StreamAutoPlayMode.MANUAL
-        PlayerSettingsStorage.saveStreamAutoPlayMode(StreamAutoPlayMode.MANUAL.name)
+        streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
+            ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
+            ?: StreamAutoPlayMode.MANUAL
         streamAutoPlaySource = PlayerSettingsStorage.loadStreamAutoPlaySource()
             ?.let { runCatching { StreamAutoPlaySource.valueOf(it) }.getOrNull() }
             ?: StreamAutoPlaySource.ALL_SOURCES
@@ -238,6 +242,8 @@ object PlayerSettingsRepository {
             }
         }
         streamAutoPlayRegex = PlayerSettingsStorage.loadStreamAutoPlayRegex() ?: ""
+        streamAutoPlayMaxFileSizeBytes = PlayerSettingsStorage.loadStreamAutoPlayMaxFileSizeBytes()
+            ?.takeIf { it > 0L }
         streamAutoPlayTimeoutSeconds = PlayerSettingsStorage.loadStreamAutoPlayTimeoutSeconds() ?: 3
         skipIntroEnabled = true
         animeSkipEnabled = true
@@ -374,18 +380,19 @@ object PlayerSettingsRepository {
 
     fun setStreamReuseLastLinkEnabled(enabled: Boolean) {
         ensureLoaded()
-        if (streamReuseLastLinkEnabled == DefaultStreamReuseLastLinkEnabled) return
-        streamReuseLastLinkEnabled = DefaultStreamReuseLastLinkEnabled
+        if (streamReuseLastLinkEnabled == enabled) return
+        streamReuseLastLinkEnabled = enabled
         publish()
-        PlayerSettingsStorage.saveStreamReuseLastLinkEnabled(DefaultStreamReuseLastLinkEnabled)
+        PlayerSettingsStorage.saveStreamReuseLastLinkEnabled(enabled)
     }
 
     fun setStreamReuseLastLinkCacheHours(hours: Int) {
         ensureLoaded()
-        if (streamReuseLastLinkCacheHours == DefaultStreamReuseLastLinkCacheHours) return
-        streamReuseLastLinkCacheHours = DefaultStreamReuseLastLinkCacheHours
+        val normalized = hours.coerceAtLeast(1)
+        if (streamReuseLastLinkCacheHours == normalized) return
+        streamReuseLastLinkCacheHours = normalized
         publish()
-        PlayerSettingsStorage.saveStreamReuseLastLinkCacheHours(DefaultStreamReuseLastLinkCacheHours)
+        PlayerSettingsStorage.saveStreamReuseLastLinkCacheHours(normalized)
     }
 
     fun setDecoderPriority(priority: Int) {
@@ -465,10 +472,10 @@ object PlayerSettingsRepository {
 
     fun setStreamAutoPlayMode(mode: StreamAutoPlayMode) {
         ensureLoaded()
-        if (streamAutoPlayMode == StreamAutoPlayMode.MANUAL) return
-        streamAutoPlayMode = StreamAutoPlayMode.MANUAL
+        if (streamAutoPlayMode == mode) return
+        streamAutoPlayMode = mode
         publish()
-        PlayerSettingsStorage.saveStreamAutoPlayMode(StreamAutoPlayMode.MANUAL.name)
+        PlayerSettingsStorage.saveStreamAutoPlayMode(mode.name)
     }
 
     fun setStreamAutoPlaySource(source: StreamAutoPlaySource) {
@@ -503,6 +510,15 @@ object PlayerSettingsRepository {
         streamAutoPlayRegex = regex
         publish()
         PlayerSettingsStorage.saveStreamAutoPlayRegex(regex)
+    }
+
+    fun setStreamAutoPlayMaxFileSizeBytes(bytes: Long?) {
+        ensureLoaded()
+        val normalized = bytes?.takeIf { it > 0L }
+        if (streamAutoPlayMaxFileSizeBytes == normalized) return
+        streamAutoPlayMaxFileSizeBytes = normalized
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayMaxFileSizeBytes(normalized)
     }
 
     fun setStreamAutoPlayTimeoutSeconds(seconds: Int) {
@@ -639,6 +655,7 @@ object PlayerSettingsRepository {
             streamAutoPlaySelectedAddons = streamAutoPlaySelectedAddons,
             streamAutoPlaySelectedPlugins = streamAutoPlaySelectedPlugins,
             streamAutoPlayRegex = streamAutoPlayRegex,
+            streamAutoPlayMaxFileSizeBytes = streamAutoPlayMaxFileSizeBytes,
             streamAutoPlayTimeoutSeconds = streamAutoPlayTimeoutSeconds,
             skipIntroEnabled = skipIntroEnabled,
             animeSkipEnabled = animeSkipEnabled,

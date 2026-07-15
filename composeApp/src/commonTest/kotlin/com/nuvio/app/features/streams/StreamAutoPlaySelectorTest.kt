@@ -167,14 +167,68 @@ class StreamAutoPlaySelectorTest {
         assertEquals(directDebrid, selected)
     }
 
+    @Test
+    fun `regex mode skips matching stream above max file size`() {
+        val tooLarge = stream(
+            addonName = "AddonA",
+            url = "https://example.com/large.m3u8",
+            name = "Movie 2160p 4K",
+            videoSize = 25_000_000_000L,
+        )
+        val allowed = stream(
+            addonName = "AddonA",
+            url = "https://example.com/allowed.m3u8",
+            name = "Movie 1080p",
+            description = "Full HD - 4.5 GB",
+        )
+
+        val selected = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(tooLarge, allowed),
+            mode = StreamAutoPlayMode.REGEX_MATCH,
+            regexPattern = "(2160p|4k|1080p)",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("AddonA"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet(),
+            maxFileSizeBytes = 5_000_000_000L,
+        )
+
+        assertEquals(allowed, selected)
+    }
+
+    @Test
+    fun `max file size allows streams with unknown size`() {
+        val unknownSize = stream(
+            addonName = "AddonA",
+            url = "https://example.com/unknown.m3u8",
+            name = "Movie 1080p",
+        )
+
+        val selected = StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = listOf(unknownSize),
+            mode = StreamAutoPlayMode.REGEX_MATCH,
+            regexPattern = "1080p",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("AddonA"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet(),
+            maxFileSizeBytes = 2_000_000_000L,
+        )
+
+        assertEquals(unknownSize, selected)
+    }
+
     private fun stream(
         addonName: String,
         url: String? = null,
         name: String? = null,
+        description: String? = null,
         bingeGroup: String? = null,
+        videoSize: Long? = null,
         directDebrid: Boolean = false,
     ): StreamItem = StreamItem(
         name = name,
+        description = description,
         url = url,
         addonName = addonName,
         addonId = addonName,
@@ -190,6 +244,7 @@ class StreamAutoPlaySelectorTest {
         },
         behaviorHints = StreamBehaviorHints(
             bingeGroup = bingeGroup,
+            videoSize = videoSize,
         ),
     )
 }

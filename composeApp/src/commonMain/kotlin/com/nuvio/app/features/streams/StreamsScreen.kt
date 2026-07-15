@@ -148,10 +148,28 @@ fun StreamsScreen(
     val noDirectStreamLinkText = stringResource(Res.string.streams_no_direct_link)
     var streamActionsTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
     var preferredFilterApplied by remember(videoId) { mutableStateOf(false) }
-    var autoplayLogoLoadFailed by remember(logo) { mutableStateOf(false) }
-    LaunchedEffect(logo) {
-        autoplayLogoLoadFailed = false
+    val expectedRequestToken = remember(type, videoId, seasonNumber, episodeNumber, manualSelection) {
+        StreamsRepository.requestToken(
+            type = type,
+            videoId = videoId,
+            season = seasonNumber,
+            episode = episodeNumber,
+            manualSelection = manualSelection,
+        )
     }
+    val routeUsesDirectAutoPlay = !manualSelection &&
+        playerSettings.streamAutoPlayMode != StreamAutoPlayMode.MANUAL &&
+        !(
+            playerSettings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH &&
+                !StreamAutoPlayPolicy.isRegexSelectionConfigured(playerSettings.streamAutoPlayRegex)
+        )
+    val showDirectAutoPlayLoading = routeUsesDirectAutoPlay &&
+        (
+            uiState.requestToken != expectedRequestToken ||
+            uiState.showDirectAutoPlayOverlay ||
+                uiState.isAnyLoading ||
+                uiState.autoPlayStream != null
+        )
     val storedProgress = if (startFromBeginning) {
         null
     } else {
@@ -310,55 +328,22 @@ fun StreamsScreen(
         }
 
         AnimatedVisibility(
-            visible = uiState.showDirectAutoPlayOverlay,
-            enter = fadeIn(animationSpec = tween(250)),
+            visible = showDirectAutoPlayLoading,
+            enter = fadeIn(animationSpec = tween(120)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier.fillMaxSize(),
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.85f)),
+                    .background(Color.Black.copy(alpha = 0.92f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    if (!logo.isNullOrBlank() && !autoplayLogoLoadFailed) {
-                        AsyncImage(
-                            model = logo,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .height(48.dp),
-                            contentScale = ContentScale.Fit,
-                            onError = { autoplayLogoLoadFailed = true },
-                        )
-                    } else {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = (-0.4).sp,
-                            ),
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 24.dp),
-                        )
-                    }
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(32.dp),
-                        color = Color.White,
-                        strokeWidth = 2.5.dp,
-                    )
-                    Text(
-                        text = stringResource(Res.string.streams_finding_source),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.8f),
-                    )
-                }
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    color = Color.White,
+                    strokeWidth = 3.dp,
+                )
             }
         }
 
@@ -826,6 +811,11 @@ internal fun StreamList(
             }
 
             else -> {
+                if (uiState.autoPlayNoMatch && hasAnyStreams) {
+                    item(key = "auto_play_no_match") {
+                        AutoPlayNoMatchBlock()
+                    }
+                }
                 filteredGroups.forEachIndexed { groupIndex, group ->
                     streamSection(
                         sectionKey = streamSectionRenderKey(groupIndex = groupIndex, group = group),
@@ -847,6 +837,35 @@ internal fun StreamList(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AutoPlayNoMatchBlock(
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = stringResource(Res.string.streams_auto_play_no_match_title),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = stringResource(Res.string.streams_auto_play_no_match_message),
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

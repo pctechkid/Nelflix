@@ -138,16 +138,31 @@ object StreamsRepository {
         }
 
         val installedAddons = AddonRepository.uiState.value.addons
-        val debridTargets = DirectDebridStreamSource.configuredTargets()
+        val selectedAutoPlayAddons = playerSettings.streamAutoPlaySelectedAddons
+        val selectedAutoPlayPlugins = playerSettings.streamAutoPlaySelectedPlugins
+        val autoPlaySource = playerSettings.streamAutoPlaySource
+        val allDebridTargets = DirectDebridStreamSource.configuredTargets()
+        val debridTargets = if (isAutoPlayEnabled && autoPlaySource != StreamAutoPlaySource.ALL_SOURCES) {
+            emptyList()
+        } else {
+            allDebridTargets
+        }
         val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled) {
             PluginRepository.getEnabledScrapersForType(type)
         } else {
             emptyList()
         }
-        val pluginProviderGroups = pluginScrapers.toPluginProviderGroups(
+        val allPluginProviderGroups = pluginScrapers.toPluginProviderGroups(
             repositories = pluginUiState.repositories,
             groupByRepository = pluginUiState.groupStreamsByRepository,
         )
+        val pluginProviderGroups = when {
+            !isAutoPlayEnabled -> allPluginProviderGroups
+            autoPlaySource == StreamAutoPlaySource.INSTALLED_ADDONS_ONLY -> emptyList()
+            selectedAutoPlayPlugins.isNotEmpty() ->
+                allPluginProviderGroups.filter { it.addonName in selectedAutoPlayPlugins }
+            else -> allPluginProviderGroups
+        }
 
         if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty() && debridTargets.isEmpty()) {
             _uiState.value = StreamsUiState(
@@ -158,7 +173,7 @@ object StreamsRepository {
             return
         }
 
-        val streamAddons = installedAddons
+        val allStreamAddons = installedAddons
             .mapNotNull { addon ->
                 val manifest = addon.manifest ?: return@mapNotNull null
                 val supportsRequestedStream = manifest.resources.any { resource ->
@@ -175,6 +190,13 @@ object StreamsRepository {
                     manifest = manifest,
                 )
             }
+        val streamAddons = when {
+            !isAutoPlayEnabled -> allStreamAddons
+            autoPlaySource == StreamAutoPlaySource.ENABLED_PLUGINS_ONLY -> emptyList()
+            selectedAutoPlayAddons.isNotEmpty() ->
+                allStreamAddons.filter { it.addonName in selectedAutoPlayAddons }
+            else -> allStreamAddons
+        }
 
         log.d { "Found ${streamAddons.size} addons for stream type=$type id=$videoId" }
 
@@ -218,6 +240,7 @@ object StreamsRepository {
             emptyStateReason = null,
             isDirectAutoPlayFlow = isDirectAutoPlayFlow,
             showDirectAutoPlayOverlay = isDirectAutoPlayFlow,
+            autoPlayNoMatch = false,
         )
 
         activeJob = scope.launch {
@@ -232,7 +255,10 @@ object StreamsRepository {
                 debridTargets.size
 
             val installedAddonNames = installedAddons
-                .map { it.displayTitle }
+                .mapNotNull { addon ->
+                    val manifestName = addon.manifest?.name
+                    addon.displayTitle.takeIf { it.isNotBlank() } ?: manifestName
+                }
                 .toSet()
             var autoSelectTriggered = false
             var timeoutElapsed = false
@@ -242,37 +268,43 @@ object StreamsRepository {
                     log.d { "Ignoring late stream load completion after channel close" }
                 }
             }
+            fun trySelectAutoPlay(markNoMatchOnFailure: Boolean = false): Boolean {
+                if (!isAutoPlayEnabled || autoSelectTriggered || !timeoutElapsed) return false
+
+                val allStreams = _uiState.value.groups.flatMap { it.streams }
+                if (allStreams.isEmpty()) return false
+
+                val selected = StreamAutoPlaySelector.selectAutoPlayStream(
+                    streams = allStreams,
+                    mode = autoPlayMode,
+                    regexPattern = playerSettings.streamAutoPlayRegex,
+                    source = playerSettings.streamAutoPlaySource,
+                    installedAddonNames = installedAddonNames,
+                    selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
+                    selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
+                    maxFileSizeBytes = playerSettings.streamAutoPlayMaxFileSizeBytes,
+                )
+
+                if (selected == null && !markNoMatchOnFailure) return false
+
+                autoSelectTriggered = true
+                _uiState.update {
+                    it.copy(
+                        autoPlayStream = selected,
+                        isDirectAutoPlayFlow = if (selected == null) false else it.isDirectAutoPlayFlow,
+                        showDirectAutoPlayOverlay = if (selected == null) false else it.showDirectAutoPlayOverlay,
+                        autoPlayNoMatch = selected == null,
+                    )
+                }
+                return selected != null
+            }
 
             val timeoutJob = if (isAutoPlayEnabled) {
                 val timeoutMs = playerSettings.streamAutoPlayTimeoutSeconds * 1_000L
                 if (timeoutMs > 0L && playerSettings.streamAutoPlayTimeoutSeconds < 11) {
                     launch {
                         delay(timeoutMs)
-                        timeoutElapsed = true
-                        if (!autoSelectTriggered) {
-                            val allStreams = _uiState.value.groups.flatMap { it.streams }
-                            if (allStreams.isNotEmpty()) {
-                                autoSelectTriggered = true
-                                val selected = StreamAutoPlaySelector.selectAutoPlayStream(
-                                    streams = allStreams,
-                                    mode = autoPlayMode,
-                                    regexPattern = playerSettings.streamAutoPlayRegex,
-                                    source = playerSettings.streamAutoPlaySource,
-                                    installedAddonNames = installedAddonNames,
-                                    selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                                    selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                                )
-                                _uiState.update { it.copy(autoPlayStream = selected) }
-                                if (selected == null) {
-                                    _uiState.update {
-                                        it.copy(
-                                            isDirectAutoPlayFlow = false,
-                                            showDirectAutoPlayOverlay = false,
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        publishCompletion(StreamLoadCompletion.AutoPlayTimeout)
                     }
                 } else if (timeoutMs <= 0L) {
                     timeoutElapsed = true
@@ -393,9 +425,16 @@ object StreamsRepository {
                 }
             }
 
-            repeat(totalTasks) {
+            var completedTasks = 0
+            while (completedTasks < totalTasks) {
                 when (val completion = completions.receive()) {
+                    StreamLoadCompletion.AutoPlayTimeout -> {
+                        timeoutElapsed = true
+                        trySelectAutoPlay()
+                    }
+
                     is StreamLoadCompletion.Addon -> {
+                        completedTasks += 1
                         val result = completion.group
                         _uiState.update { current ->
                             val updated = current.groups.map { group ->
@@ -408,9 +447,11 @@ object StreamsRepository {
                                 emptyStateReason = updated.toEmptyStateReason(anyLoading),
                             )
                         }
+                        trySelectAutoPlay()
                     }
 
                     is StreamLoadCompletion.PluginScraper -> {
+                        completedTasks += 1
                         val remaining = (pluginRemainingByAddonId[completion.addonId] ?: 1) - 1
                         pluginRemainingByAddonId[completion.addonId] = remaining.coerceAtLeast(0)
                         if (!completion.error.isNullOrBlank() && pluginFirstErrorByAddonId[completion.addonId].isNullOrBlank()) {
@@ -447,9 +488,11 @@ object StreamsRepository {
                                 emptyStateReason = updated.toEmptyStateReason(anyLoading),
                             )
                         }
+                        trySelectAutoPlay()
                     }
 
                     is StreamLoadCompletion.Debrid -> {
+                        completedTasks += 1
                         val result = completion.group
                         _uiState.update { current ->
                             val updated = current.groups.map { group ->
@@ -484,6 +527,7 @@ object StreamsRepository {
                                 }
                             }
                         }
+                        trySelectAutoPlay()
                     }
                 }
             }
@@ -499,6 +543,7 @@ object StreamsRepository {
                     installedAddonNames = installedAddonNames,
                     selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
                     selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
+                    maxFileSizeBytes = playerSettings.streamAutoPlayMaxFileSizeBytes,
                 )
                 _uiState.update { it.copy(autoPlayStream = selected) }
             }
@@ -507,6 +552,7 @@ object StreamsRepository {
                     it.copy(
                         isDirectAutoPlayFlow = false,
                         showDirectAutoPlayOverlay = false,
+                        autoPlayNoMatch = it.groups.any { group -> group.streams.isNotEmpty() },
                     )
                 }
             }
@@ -524,6 +570,7 @@ object StreamsRepository {
                 autoPlayStream = null,
                 isDirectAutoPlayFlow = false,
                 showDirectAutoPlayOverlay = false,
+                autoPlayNoMatch = false,
             )
         }
     }
@@ -546,6 +593,7 @@ object StreamsRepository {
                     } else {
                         updatedGroups.toEmptyStateReason(anyLoading = false)
                     },
+                    autoPlayNoMatch = false,
                 )
             }
         }
@@ -575,6 +623,7 @@ private data class PluginProviderGroup(
 )
 
 private sealed interface StreamLoadCompletion {
+    data object AutoPlayTimeout : StreamLoadCompletion
     data class Addon(val group: AddonStreamGroup) : StreamLoadCompletion
     data class Debrid(val group: AddonStreamGroup) : StreamLoadCompletion
     data class PluginScraper(

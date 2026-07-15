@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
@@ -85,9 +87,12 @@ private data class SubtitleAddonRequest(
 
 private suspend fun List<SubtitleAddonRequest>.fetchConcurrently(): List<AddonSubtitle> =
     coroutineScope {
+        val fetchLimiter = Semaphore(SUBTITLE_ADDON_FETCH_CONCURRENCY)
         map { request ->
             async {
-                request.fetchAddonSubtitles()
+                fetchLimiter.withPermit {
+                    request.fetchAddonSubtitles()
+                }
             }
         }.awaitAll()
             .flatten()
@@ -134,6 +139,7 @@ private suspend fun SubtitleAddonRequest.fetchAddonSubtitles(): List<AddonSubtit
 
 private val SubtitleRepositoryJson = Json { ignoreUnknownKeys = true }
 
+private const val SUBTITLE_ADDON_FETCH_CONCURRENCY = 4
 private const val SUBTITLE_ADDON_FETCH_TIMEOUT_MS = 12_000L
 
 private fun canonicalSubtitleType(type: String): String =

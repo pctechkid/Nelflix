@@ -84,6 +84,7 @@ object DirectDebridStreamPreparer {
             installedAddonNames = installedAddonNames,
             selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
             selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
+            maxFileSizeBytes = playerSettings.streamAutoPlayMaxFileSizeBytes,
         )
         if (autoPlaySelection?.isDirectDebridStream == true) {
             candidates.firstOrNull { it.preparationKey() == autoPlaySelection.preparationKey() }

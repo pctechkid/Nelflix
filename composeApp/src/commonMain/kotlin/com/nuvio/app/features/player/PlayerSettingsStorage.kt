@@ -65,6 +65,8 @@ internal expect object PlayerSettingsStorage {
     fun saveStreamAutoPlaySelectedPlugins(plugins: Set<String>)
     fun loadStreamAutoPlayRegex(): String?
     fun saveStreamAutoPlayRegex(regex: String)
+    fun loadStreamAutoPlayMaxFileSizeBytes(): Long?
+    fun saveStreamAutoPlayMaxFileSizeBytes(bytes: Long?)
     fun loadStreamAutoPlayTimeoutSeconds(): Int?
     fun saveStreamAutoPlayTimeoutSeconds(seconds: Int)
     fun loadSkipIntroEnabled(): Boolean?

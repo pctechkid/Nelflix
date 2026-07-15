@@ -741,6 +741,18 @@
     <string name="settings_playback_last_link_cache_duration">Last Link Cache Duration</string>
     <string name="settings_playback_map_dv7_to_hevc">DV7 - HEVC Fallback</string>
     <string name="settings_playback_map_dv7_to_hevc_description">Map Dolby Vision Profile 7 to standard HEVC for devices without DV hardware support</string>
+    <string name="settings_playback_max_file_size">Max File Size</string>
+    <string name="settings_playback_max_file_size_any">Any size</string>
+    <string name="settings_playback_max_file_size_custom">Custom</string>
+    <string name="settings_playback_max_file_size_custom_error">Enter a valid size in GB.</string>
+    <string name="settings_playback_max_file_size_custom_hint">Size in GB</string>
+    <string name="settings_playback_max_file_size_description">Auto-play skips streams above this size. Streams without size info are still allowed.</string>
+    <string name="settings_playback_max_file_size_under_2gb">Under 2 GB</string>
+    <string name="settings_playback_max_file_size_under_5gb">Under 5 GB</string>
+    <string name="settings_playback_max_file_size_under_10gb">Under 10 GB</string>
+    <string name="settings_playback_max_file_size_under_15gb">Under 15 GB</string>
+    <string name="settings_playback_max_file_size_under_25gb">Under 25 GB</string>
+    <string name="settings_playback_max_file_size_under_custom">Under %1$s GB</string>
     <string name="settings_playback_minutes_before_end">Threshold Minutes</string>
     <string name="settings_playback_minutes_before_end_description">Fallback when no outro timestamp exists.</string>
     <string name="settings_playback_minutes_value">%1$s min</string>
@@ -1134,6 +1146,8 @@
     <string name="streams_empty_no_stream_addon_message">Your installed addons do not provide streams for this type of title.</string>
     <string name="streams_empty_no_stream_addon_title">No stream addon available</string>
     <string name="streams_empty_no_streams_message">None of your installed addons returned streams for this title.</string>
+    <string name="streams_auto_play_no_match_message">Choose a source manually.</string>
+    <string name="streams_auto_play_no_match_title">No auto-play match found</string>
     <string name="streams_episode_badge">S%1$d E%2$d</string>
     <string name="streams_episode_fallback_title">Episode</string>
     <string name="streams_episode_title_with_name">S%1$dE%2$d - %3$s</string>

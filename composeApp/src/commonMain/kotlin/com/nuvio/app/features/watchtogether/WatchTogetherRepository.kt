@@ -36,6 +36,7 @@ data class WatchTogetherRoomState(
     val receivedAtMs: Long,
     val memberNames: List<String>,
     val memberCount: Int,
+    val members: List<WatchTogetherMember>,
 ) {
     val expectedPositionMs: Long
         get() {
@@ -45,6 +46,19 @@ data class WatchTogetherRoomState(
             val advanced = positionMs + (elapsed * playbackSpeed.coerceAtLeast(0f)).toLong()
             return if (durationMs > 0L) advanced.coerceIn(0L, durationMs) else advanced.coerceAtLeast(0L)
         }
+}
+
+@Serializable
+data class WatchTogetherMember(
+    val name: String = "",
+    @SerialName("profile_id") val profileId: Int? = null,
+    @SerialName("avatar_color_hex") val avatarColorHex: String = "#1E88E5",
+    @SerialName("avatar_id") val avatarId: String? = null,
+    @SerialName("avatar_url") val avatarUrl: String? = null,
+    @SerialName("avatar_storage_path") val avatarStoragePath: String? = null,
+) {
+    val displayName: String
+        get() = name.trim().ifBlank { "Member" }
 }
 
 enum class WatchTogetherPlaybackState(val wireValue: String) {
@@ -213,9 +227,16 @@ private data class WatchTogetherRoomStateDto(
     @SerialName("room_closed") val roomClosed: Boolean = false,
     @SerialName("member_names") val memberNames: List<String> = emptyList(),
     @SerialName("member_count") val memberCount: Int = 1,
+    val members: List<WatchTogetherMember> = emptyList(),
 ) {
-    fun toDomain(): WatchTogetherRoomState =
-        WatchTogetherRoomState(
+    fun toDomain(): WatchTogetherRoomState {
+        val resolvedMembers = members.ifEmpty {
+            memberNames.map { name -> WatchTogetherMember(name = name) }
+        }
+        val resolvedMemberNames = memberNames.ifEmpty {
+            resolvedMembers.map { member -> member.displayName }
+        }
+        return WatchTogetherRoomState(
             roomId = roomId,
             roomCode = roomCode,
             isHost = isHost,
@@ -243,7 +264,9 @@ private data class WatchTogetherRoomStateDto(
             serverNowMs = serverNowMs,
             roomClosed = roomClosed,
             receivedAtMs = WatchProgressClock.nowEpochMs(),
-            memberNames = memberNames,
-            memberCount = memberCount,
+            memberNames = resolvedMemberNames,
+            memberCount = memberCount.coerceAtLeast(resolvedMembers.size),
+            members = resolvedMembers,
         )
+    }
 }

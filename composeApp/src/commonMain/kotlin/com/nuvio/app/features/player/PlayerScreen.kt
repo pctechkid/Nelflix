@@ -42,6 +42,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.nuvio.app.core.share.ShareSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.addons.AddonRepository
@@ -272,6 +273,7 @@ fun PlayerScreen(
         var watchTogetherBusy by remember { mutableStateOf(false) }
         var watchTogetherError by remember { mutableStateOf<String?>(null) }
         var watchTogetherMetadataForcedVisible by remember { mutableStateOf(false) }
+        var watchTogetherExternalShareInProgress by remember { mutableStateOf(false) }
         var lastWatchTogetherMemberNames by remember { mutableStateOf<List<String>>(emptyList()) }
         var lastAppliedWatchTogetherUpdateMs by remember { mutableStateOf(0L) }
         var lastWatchTogetherHardSyncAtMs by remember { mutableStateOf(0L) }
@@ -641,6 +643,19 @@ fun PlayerScreen(
             }
         }
 
+        fun shareWatchTogetherCode(roomCode: String) {
+            if (roomCode.isBlank()) return
+            watchTogetherExternalShareInProgress = true
+            ShareSheet.shareText(
+                title = "Share Watch Together code",
+                text = "Join my Nelflix Watch Together room: ${roomCode.trim().uppercase()}",
+            )
+            scope.launch {
+                delay(5 * 60 * 1000L)
+                watchTogetherExternalShareInProgress = false
+            }
+        }
+
         val onBackWithProgress = remember(onBack, playbackSession, playbackSnapshot, watchTogetherSession) {
             {
                 flushWatchProgress()
@@ -661,8 +676,9 @@ fun PlayerScreen(
         }
 
         val latestWatchTogetherSession = rememberUpdatedState(watchTogetherSession)
+        val latestWatchTogetherShareInProgress = rememberUpdatedState(watchTogetherExternalShareInProgress)
         val latestBackgroundWatchTogetherExit = rememberUpdatedState {
-            if (latestWatchTogetherSession.value != null) {
+            if (latestWatchTogetherSession.value != null && !latestWatchTogetherShareInProgress.value) {
                 flushWatchProgress()
                 leaveWatchTogetherRoom(showSelfToast = false)
             }
@@ -670,8 +686,11 @@ fun PlayerScreen(
 
         DisposableEffect(lifecycleOwner) {
             val observer = LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
-                    latestBackgroundWatchTogetherExit.value()
+                when (event) {
+                    Lifecycle.Event.ON_PAUSE,
+                    Lifecycle.Event.ON_STOP -> latestBackgroundWatchTogetherExit.value()
+                    Lifecycle.Event.ON_RESUME -> watchTogetherExternalShareInProgress = false
+                    else -> Unit
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
@@ -1082,7 +1101,7 @@ fun PlayerScreen(
             lastWatchTogetherExpectedPositionMs = targetPositionMs
             lastWatchTogetherPlaybackState = room.playbackState
             val nowMs = WatchProgressClock.nowEpochMs()
-            val roomUpdateAgeMs = (nowMs - room.serverNowMs).coerceAtLeast(0L)
+            val roomUpdateAgeMs = (nowMs - room.receivedAtMs).coerceAtLeast(0L)
             val roomUpdateIsFresh = roomUpdateAgeMs <= WatchTogetherFreshUpdateWindowMs
             val roomUpdateIsStale = roomUpdateAgeMs > WatchTogetherStaleUpdateWindowMs
             val softSpeedUpMultiplier = if (roomUpdateIsFresh) {
@@ -2300,6 +2319,7 @@ fun PlayerScreen(
                     onCreateRoom = ::createWatchTogetherRoom,
                     onJoinRoom = ::joinWatchTogetherRoom,
                     onLeaveRoom = ::leaveWatchTogetherRoom,
+                    onShareCode = ::shareWatchTogetherCode,
                     onDismiss = { showWatchTogetherDialog = false },
                 )
             }

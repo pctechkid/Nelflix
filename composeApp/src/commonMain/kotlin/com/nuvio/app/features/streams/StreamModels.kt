@@ -158,6 +158,7 @@ data class StreamsUiState(
     val autoPlayStream: StreamItem? = null,
     val isDirectAutoPlayFlow: Boolean = false,
     val showDirectAutoPlayOverlay: Boolean = false,
+    val autoPlayNoMatch: Boolean = false,
 ) {
     val filteredGroups: List<AddonStreamGroup>
         get() = if (selectedFilter == null) groups

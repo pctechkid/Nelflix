@@ -48,6 +48,7 @@ actual object PlayerSettingsStorage {
     private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
     private const val streamAutoPlaySelectedPluginsKey = "stream_auto_play_selected_plugins"
     private const val streamAutoPlayRegexKey = "stream_auto_play_regex"
+    private const val streamAutoPlayMaxFileSizeBytesKey = "stream_auto_play_max_file_size_bytes"
     private const val streamAutoPlayTimeoutSecondsKey = "stream_auto_play_timeout_seconds"
     private const val skipIntroEnabledKey = "skip_intro_enabled"
     private const val animeSkipEnabledKey = "animeskip_enabled"
@@ -93,6 +94,7 @@ actual object PlayerSettingsStorage {
         streamAutoPlaySelectedAddonsKey,
         streamAutoPlaySelectedPluginsKey,
         streamAutoPlayRegexKey,
+        streamAutoPlayMaxFileSizeBytesKey,
         streamAutoPlayTimeoutSecondsKey,
         skipIntroEnabledKey,
         animeSkipEnabledKey,
@@ -496,6 +498,22 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(regex, forKey = ProfileScopedKey.of(streamAutoPlayRegexKey))
     }
 
+    actual fun loadStreamAutoPlayMaxFileSizeBytes(): Long? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(streamAutoPlayMaxFileSizeBytesKey)
+        return defaults.stringForKey(key)?.toLongOrNull()?.takeIf { it > 0L }
+    }
+
+    actual fun saveStreamAutoPlayMaxFileSizeBytes(bytes: Long?) {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(streamAutoPlayMaxFileSizeBytesKey)
+        if (bytes != null && bytes > 0L) {
+            defaults.setObject(bytes.toString(), forKey = key)
+        } else {
+            defaults.removeObjectForKey(key)
+        }
+    }
+
     actual fun loadStreamAutoPlayTimeoutSeconds(): Int? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(streamAutoPlayTimeoutSecondsKey)
@@ -678,6 +696,7 @@ actual object PlayerSettingsStorage {
         loadStreamAutoPlaySelectedAddons()?.let { put(streamAutoPlaySelectedAddonsKey, encodeSyncStringSet(it)) }
         loadStreamAutoPlaySelectedPlugins()?.let { put(streamAutoPlaySelectedPluginsKey, encodeSyncStringSet(it)) }
         loadStreamAutoPlayRegex()?.let { put(streamAutoPlayRegexKey, encodeSyncString(it)) }
+        loadStreamAutoPlayMaxFileSizeBytes()?.let { put(streamAutoPlayMaxFileSizeBytesKey, encodeSyncString(it.toString())) }
         loadStreamAutoPlayTimeoutSeconds()?.let { put(streamAutoPlayTimeoutSecondsKey, encodeSyncInt(it)) }
         loadSkipIntroEnabled()?.let { put(skipIntroEnabledKey, encodeSyncBoolean(it)) }
         loadAnimeSkipEnabled()?.let { put(animeSkipEnabledKey, encodeSyncBoolean(it)) }
@@ -727,6 +746,9 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncStringSet(streamAutoPlaySelectedAddonsKey)?.let(::saveStreamAutoPlaySelectedAddons)
         payload.decodeSyncStringSet(streamAutoPlaySelectedPluginsKey)?.let(::saveStreamAutoPlaySelectedPlugins)
         payload.decodeSyncString(streamAutoPlayRegexKey)?.let(::saveStreamAutoPlayRegex)
+        payload.decodeSyncString(streamAutoPlayMaxFileSizeBytesKey)
+            ?.toLongOrNull()
+            ?.let(::saveStreamAutoPlayMaxFileSizeBytes)
         payload.decodeSyncInt(streamAutoPlayTimeoutSecondsKey)?.let(::saveStreamAutoPlayTimeoutSeconds)
         payload.decodeSyncBoolean(skipIntroEnabledKey)?.let(::saveSkipIntroEnabled)
         payload.decodeSyncBoolean(animeSkipEnabledKey)?.let(::saveAnimeSkipEnabled)

@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -34,7 +36,8 @@ object HomeRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val aiometadataVisualsJson = Json { ignoreUnknownKeys = true }
     private val aiometadataVisualsCacheMutex = Mutex()
-    private val aiometadataVisualsCache = mutableMapOf<String, AiometadataVisuals?>()
+    private val aiometadataVisualsFetchSemaphore = Semaphore(AIOMETADATA_VISUAL_FETCH_CONCURRENCY)
+    private val aiometadataVisualsCache = LinkedHashMap<String, AiometadataVisuals?>()
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -278,37 +281,32 @@ object HomeRepository {
         if (id.isBlank()) return this
 
         val cacheKey = "$normalizedType:$id"
-        val cached = aiometadataVisualsCacheMutex.withLock {
-            if (aiometadataVisualsCache.containsKey(cacheKey)) aiometadataVisualsCache[cacheKey] else null
-        }
-        if (cached != null) {
-            return copy(
-                banner = cached.background ?: banner,
-                logo = cached.logo ?: logo,
-                releaseInfo = cached.releaseInfo ?: releaseInfo,
-                rawReleaseDate = cached.released ?: rawReleaseDate,
-                genres = cached.genres.ifEmpty { genres },
-            )
-        }
-        if (aiometadataVisualsCacheMutex.withLock { aiometadataVisualsCache.containsKey(cacheKey) }) {
-            return this
+        readAiometadataVisualsCache(cacheKey)?.let { cached ->
+            return applyAiometadataVisuals(cached.visuals)
         }
 
-        val visuals = withTimeoutOrNull(AIOMETADATA_VISUAL_FETCH_TIMEOUT_MS) {
-            fetchAiometadataVisuals(type = normalizedType, id = id)
-        }?.takeIf {
-            it.logo != null ||
-                it.background != null ||
-                it.releaseInfo != null ||
-                it.released != null ||
-                it.genres.isNotEmpty()
+        val visuals = aiometadataVisualsFetchSemaphore.withPermit {
+            readAiometadataVisualsCache(cacheKey)?.let { cached ->
+                return@withPermit cached.visuals
+            }
+            val fetched = withTimeoutOrNull(AIOMETADATA_VISUAL_FETCH_TIMEOUT_MS) {
+                fetchAiometadataVisuals(type = normalizedType, id = id)
+            }?.takeIf {
+                it.logo != null ||
+                    it.background != null ||
+                    it.releaseInfo != null ||
+                    it.released != null ||
+                    it.genres.isNotEmpty()
+            }
+            writeAiometadataVisualsCache(cacheKey, fetched)
+            fetched
         }
 
-        aiometadataVisualsCacheMutex.withLock {
-            aiometadataVisualsCache[cacheKey] = visuals
-        }
+        return applyAiometadataVisuals(visuals)
+    }
 
-        return if (visuals != null) {
+    private fun MetaPreview.applyAiometadataVisuals(visuals: AiometadataVisuals?): MetaPreview =
+        if (visuals != null) {
             copy(
                 banner = visuals.background ?: banner,
                 logo = visuals.logo ?: logo,
@@ -318,6 +316,27 @@ object HomeRepository {
             )
         } else {
             this
+        }
+
+    private suspend fun readAiometadataVisualsCache(cacheKey: String): AiometadataVisualsCacheHit? =
+        aiometadataVisualsCacheMutex.withLock {
+            if (!aiometadataVisualsCache.containsKey(cacheKey)) return@withLock null
+            val visuals = aiometadataVisualsCache.remove(cacheKey)
+            aiometadataVisualsCache[cacheKey] = visuals
+            AiometadataVisualsCacheHit(visuals)
+        }
+
+    private suspend fun writeAiometadataVisualsCache(
+        cacheKey: String,
+        visuals: AiometadataVisuals?,
+    ) {
+        aiometadataVisualsCacheMutex.withLock {
+            aiometadataVisualsCache.remove(cacheKey)
+            aiometadataVisualsCache[cacheKey] = visuals
+            while (aiometadataVisualsCache.size > AIOMETADATA_VISUAL_CACHE_LIMIT) {
+                val oldestKey = aiometadataVisualsCache.keys.firstOrNull() ?: break
+                aiometadataVisualsCache.remove(oldestKey)
+            }
         }
     }
 
@@ -356,6 +375,10 @@ private data class AiometadataVisuals(
     val genres: List<String>,
 )
 
+private data class AiometadataVisualsCacheHit(
+    val visuals: AiometadataVisuals?,
+)
+
 private fun JsonObject.string(name: String): String? =
     this[name]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotBlank)
 
@@ -370,6 +393,8 @@ private const val HOME_HERO_ITEM_LIMIT = 8
 private const val HOME_CATALOG_FETCH_BATCH_SIZE = 4
 private const val HOME_CATALOG_PREVIEW_FETCH_LIMIT = 18
 private const val HOME_CATALOG_PUBLISH_INTERVAL = 2
+private const val AIOMETADATA_VISUAL_FETCH_CONCURRENCY = 4
+private const val AIOMETADATA_VISUAL_CACHE_LIMIT = 512
 private const val AIOMETADATA_VISUAL_FETCH_TIMEOUT_MS = 2_500L
 private const val AIOMETADATA_MANIFEST_URL =
     "https://aiometadata.home.kg/stremio/02253c19-8905-4cee-a5db-8c894551a50a/manifest.json"
