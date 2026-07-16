@@ -341,6 +341,7 @@ private fun PlaybackSettingsSection(
     }
     val hapticFeedback = LocalHapticFeedback.current
     val sectionSpacing = if (isTablet) 18.dp else 12.dp
+    val showAutoPlayOptions = autoPlayPlayerSettings.streamAutoPlayMode != StreamAutoPlayMode.MANUAL
 
     Column(
         verticalArrangement = Arrangement.spacedBy(sectionSpacing),
@@ -388,81 +389,83 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onClick = { showAutoPlayModeDialog = true },
                 )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_source_scope),
-                    description = stringResource(autoPlayPlayerSettings.streamAutoPlaySource.labelRes(pluginsEnabled)),
-                    isTablet = isTablet,
-                    onClick = { showAutoPlaySourceDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_allowed_addons),
-                    description = if (autoPlayPlayerSettings.streamAutoPlaySelectedAddons.isEmpty()) {
-                        stringResource(Res.string.settings_playback_all_addons)
-                    } else {
-                        stringResource(
-                            Res.string.settings_playback_selected_count,
-                            autoPlayPlayerSettings.streamAutoPlaySelectedAddons.size,
-                        )
-                    },
-                    isTablet = isTablet,
-                    onClick = { showAutoPlayAddonSelectionDialog = true },
-                )
-                if (pluginsEnabled) {
+                if (showAutoPlayOptions) {
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_allowed_plugins),
-                        description = if (autoPlayPlayerSettings.streamAutoPlaySelectedPlugins.isEmpty()) {
-                            stringResource(Res.string.settings_playback_all_plugins)
+                        title = stringResource(Res.string.settings_playback_source_scope),
+                        description = stringResource(autoPlayPlayerSettings.streamAutoPlaySource.labelRes(pluginsEnabled)),
+                        isTablet = isTablet,
+                        onClick = { showAutoPlaySourceDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_allowed_addons),
+                        description = if (autoPlayPlayerSettings.streamAutoPlaySelectedAddons.isEmpty()) {
+                            stringResource(Res.string.settings_playback_all_addons)
                         } else {
                             stringResource(
                                 Res.string.settings_playback_selected_count,
-                                autoPlayPlayerSettings.streamAutoPlaySelectedPlugins.size,
+                                autoPlayPlayerSettings.streamAutoPlaySelectedAddons.size,
                             )
                         },
                         isTablet = isTablet,
-                        onClick = { showAutoPlayPluginSelectionDialog = true },
+                        onClick = { showAutoPlayAddonSelectionDialog = true },
                     )
-                }
-                if (autoPlayPlayerSettings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH) {
+                    if (pluginsEnabled) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_playback_allowed_plugins),
+                            description = if (autoPlayPlayerSettings.streamAutoPlaySelectedPlugins.isEmpty()) {
+                                stringResource(Res.string.settings_playback_all_plugins)
+                            } else {
+                                stringResource(
+                                    Res.string.settings_playback_selected_count,
+                                    autoPlayPlayerSettings.streamAutoPlaySelectedPlugins.size,
+                                )
+                            },
+                            isTablet = isTablet,
+                            onClick = { showAutoPlayPluginSelectionDialog = true },
+                        )
+                    }
+                    if (autoPlayPlayerSettings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_playback_regex_pattern),
+                            description = autoPlayPlayerSettings.streamAutoPlayRegex
+                                .takeIf { it.isNotBlank() }
+                                ?: stringResource(Res.string.settings_playback_regex_placeholder),
+                            isTablet = isTablet,
+                            onClick = { showAutoPlayRegexDialog = true },
+                        )
+                    }
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_regex_pattern),
-                        description = autoPlayPlayerSettings.streamAutoPlayRegex
-                            .takeIf { it.isNotBlank() }
-                            ?: stringResource(Res.string.settings_playback_regex_placeholder),
+                        title = stringResource(Res.string.settings_playback_max_file_size),
+                        description = formatStreamAutoPlayMaxFileSize(
+                            autoPlayPlayerSettings.streamAutoPlayMaxFileSizeBytes,
+                        ),
                         isTablet = isTablet,
-                        onClick = { showAutoPlayRegexDialog = true },
+                        onClick = { showAutoPlayMaxFileSizeDialog = true },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_stream_timeout),
+                        description = "${autoPlayPlayerSettings.streamAutoPlayTimeoutSeconds}s - " +
+                            stringResource(Res.string.settings_playback_stream_timeout_description),
+                        isTablet = isTablet,
+                        onClick = {
+                            PlayerSettingsRepository.setStreamAutoPlayTimeoutSeconds(
+                                when (autoPlayPlayerSettings.streamAutoPlayTimeoutSeconds) {
+                                    0 -> 1
+                                    1 -> 3
+                                    3 -> 5
+                                    5 -> 10
+                                    else -> 0
+                                },
+                            )
+                        },
                     )
                 }
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_max_file_size),
-                    description = formatStreamAutoPlayMaxFileSize(
-                        autoPlayPlayerSettings.streamAutoPlayMaxFileSizeBytes,
-                    ),
-                    isTablet = isTablet,
-                    onClick = { showAutoPlayMaxFileSizeDialog = true },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsNavigationRow(
-                    title = stringResource(Res.string.settings_playback_stream_timeout),
-                    description = "${autoPlayPlayerSettings.streamAutoPlayTimeoutSeconds}s - " +
-                        stringResource(Res.string.settings_playback_stream_timeout_description),
-                    isTablet = isTablet,
-                    onClick = {
-                        PlayerSettingsRepository.setStreamAutoPlayTimeoutSeconds(
-                            when (autoPlayPlayerSettings.streamAutoPlayTimeoutSeconds) {
-                                0 -> 1
-                                1 -> 3
-                                3 -> 5
-                                5 -> 10
-                                else -> 0
-                            },
-                        )
-                    },
-                )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_reuse_last_link),

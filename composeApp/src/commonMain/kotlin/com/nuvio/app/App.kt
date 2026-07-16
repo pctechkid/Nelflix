@@ -167,6 +167,7 @@ import com.nuvio.app.features.collection.CollectionSyncService
 import com.nuvio.app.features.home.HomeCatalogSettingsSyncService
 import com.nuvio.app.features.collection.FolderDetailScreen
 import com.nuvio.app.features.collection.FolderDetailRepository
+import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlayPolicy
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLaunch
@@ -398,6 +399,11 @@ fun App() {
         var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
         var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
         var isNewProfile by remember { mutableStateOf(false) }
+        var unlockedProfileIndex by remember { mutableStateOf<Int?>(null) }
+
+        fun isProfileUnlockedForSession(profile: NuvioProfile?): Boolean {
+            return profile != null && (!profile.pinEnabled || unlockedProfileIndex == profile.profileIndex)
+        }
 
         fun enterProfileGate(profiles: List<NuvioProfile>, syncOnEnter: Boolean) {
             if (profiles.isEmpty()) {
@@ -406,7 +412,8 @@ fun App() {
             }
 
             val activeProfile = profileState.activeProfile
-                ?.takeIf { active -> profiles.any { it.profileIndex == active.profileIndex } }
+                ?.let { active -> profiles.firstOrNull { it.profileIndex == active.profileIndex } }
+                ?.takeIf(::isProfileUnlockedForSession)
             if (activeProfile != null && gateScreen != AppGateScreen.ProfileSelection.name) {
                 ProfileRepository.selectProfile(activeProfile.profileIndex)
                 if (syncOnEnter && authState is AuthState.Authenticated) {
@@ -418,6 +425,10 @@ fun App() {
 
             if (profiles.size == 1) {
                 val onlyProfile = profiles.first()
+                if (onlyProfile.pinEnabled && unlockedProfileIndex != onlyProfile.profileIndex) {
+                    gateScreen = AppGateScreen.ProfileSelection.name
+                    return
+                }
                 ProfileRepository.selectProfile(onlyProfile.profileIndex)
                 if (syncOnEnter && authState is AuthState.Authenticated) {
                     SyncManager.pullAllForProfile(onlyProfile.profileIndex)
@@ -448,6 +459,7 @@ fun App() {
                     if (allowOfflineProfileAccess) {
                         enterProfileGate(cachedProfiles, syncOnEnter = false)
                     } else {
+                        unlockedProfileIndex = null
                         ProfileRepository.clearInMemory()
                         gateScreen = AppGateScreen.Auth.name
                     }
@@ -464,8 +476,22 @@ fun App() {
 
         LaunchedEffect((authState as? AuthState.Authenticated)?.userId) {
             val authenticatedState = authState as? AuthState.Authenticated ?: return@LaunchedEffect
+            unlockedProfileIndex = null
             ProfileRepository.ensureLoaded(authenticatedState.userId)
             ProfileRepository.pullProfiles()
+        }
+
+        LaunchedEffect(
+            gateScreen,
+            profileState.activeProfile?.profileIndex,
+            profileState.activeProfile?.pinEnabled,
+            unlockedProfileIndex,
+        ) {
+            if (gateScreen == AppGateScreen.Main.name &&
+                !isProfileUnlockedForSession(profileState.activeProfile)
+            ) {
+                gateScreen = AppGateScreen.ProfileSelection.name
+            }
         }
 
         AnimatedContent(
@@ -492,12 +518,13 @@ fun App() {
                 }
                 AppGateScreen.ProfileSelection.name -> {
                     PlatformBackHandler(enabled = gateScreen == AppGateScreen.ProfileSelection.name) {
-                        if (profileState.activeProfile != null) {
+                        if (isProfileUnlockedForSession(profileState.activeProfile)) {
                             gateScreen = AppGateScreen.Main.name
                         }
                     }
                     ProfileSelectionScreen(
                         onProfileSelected = { profile ->
+                            unlockedProfileIndex = profile.profileIndex
                             ProfileRepository.selectProfile(profile.profileIndex)
                             if (authState is AuthState.Authenticated) {
                                 SyncManager.pullAllForProfile(profile.profileIndex)
@@ -530,6 +557,9 @@ fun App() {
                 }
                 AppGateScreen.Main.name -> {
                     MainAppContent(
+                        onProfileUnlocked = { profile ->
+                            unlockedProfileIndex = profile.profileIndex
+                        },
                         onSwitchProfile = {
                             gateScreen = AppGateScreen.ProfileSelection.name
                         },
@@ -543,6 +573,7 @@ fun App() {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 private fun MainAppContent(
+    onProfileUnlocked: (NuvioProfile) -> Unit = {},
     onSwitchProfile: () -> Unit = {},
 ) {
         val navController = rememberNavController()
@@ -1002,6 +1033,15 @@ private fun MainAppContent(
                 }
                 return PlayerSettingsRepository.uiState.value
             }
+            val playerSettings = currentPlayerSettings()
+            val autoStreamSelectionEnabled = when (playerSettings.streamAutoPlayMode) {
+                StreamAutoPlayMode.MANUAL -> false
+                StreamAutoPlayMode.FIRST_STREAM -> true
+                StreamAutoPlayMode.REGEX_MATCH ->
+                    StreamAutoPlayPolicy.isRegexSelectionConfigured(playerSettings.streamAutoPlayRegex)
+            }
+            val effectiveManualSelection =
+                manualSelection || !autoStreamSelectionEnabled
 
             if (!manualSelection) {
                 val downloadedItem = DownloadsRepository.findPlayableDownload(
@@ -1094,8 +1134,7 @@ private fun MainAppContent(
                     return
                 }
 
-                val settings = currentPlayerSettings()
-                if (settings.streamReuseLastLinkEnabled) {
+                if (playerSettings.streamReuseLastLinkEnabled) {
                     val cacheKey = StreamLinkCacheRepository.contentKey(
                         type = type,
                         videoId = videoId,
@@ -1103,7 +1142,7 @@ private fun MainAppContent(
                         season = seasonNumber,
                         episode = episodeNumber,
                     )
-                    val maxAgeMs = settings.streamReuseLastLinkCacheHours * 60L * 60L * 1000L
+                    val maxAgeMs = playerSettings.streamReuseLastLinkCacheHours * 60L * 60L * 1000L
                     val cached = StreamLinkCacheRepository.getValid(cacheKey, maxAgeMs)
                     if (cached != null) {
                         if (resolvingContinueWatchingPlayback) return
@@ -1177,12 +1216,12 @@ private fun MainAppContent(
                 pauseDescription = pauseDescription,
                 resumePositionMs = if (startFromBeginning) 1L else resumePositionMs,
                 resumeProgressFraction = targetResumeProgressFraction,
-                manualSelection = manualSelection,
+                manualSelection = effectiveManualSelection,
                 startFromBeginning = startFromBeginning,
             )
             if (
-                !manualSelection &&
-                StreamAutoPlayPolicy.isEffectivelyEnabled(currentPlayerSettings())
+                !effectiveManualSelection &&
+                autoStreamSelectionEnabled
             ) {
                 if (pendingDirectAutoPlayLaunch != null) return
                 pendingDirectAutoPlayLaunch = streamLaunch
@@ -1196,7 +1235,7 @@ private fun MainAppContent(
         }
 
         fun navigateToManualStreams(launch: StreamLaunch) {
-            val streamLaunchId = StreamLaunchStore.put(launch)
+            val streamLaunchId = StreamLaunchStore.put(launch.copy(manualSelection = true))
             navController.navigate(StreamRoute(launchId = streamLaunchId))
         }
 
@@ -1533,6 +1572,7 @@ private fun MainAppContent(
                         val onProfileSelected: (NuvioProfile) -> Unit = { profile ->
                             profileSwitchLoading = true
                             selectedTab = AppScreenTab.Home
+                            onProfileUnlocked(profile)
                             ProfileRepository.selectProfile(profile.profileIndex)
                             com.nuvio.app.core.sync.SyncManager.pullAllForProfile(profile.profileIndex)
                         }

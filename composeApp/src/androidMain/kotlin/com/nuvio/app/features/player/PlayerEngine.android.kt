@@ -475,6 +475,8 @@ private class MpvPlayerEngineController(
     private val context: Context,
     private val onSubtitleConfigurationChanged: () -> Unit,
 ) : PlayerEngineController {
+    private val absoluteSeekGeneration = AtomicLong(0L)
+
     override fun play() {
         MpvCalls.execute { MPVLib.setPropertyBoolean("pause", false) }
     }
@@ -484,11 +486,25 @@ private class MpvPlayerEngineController(
     }
 
     override fun seekTo(positionMs: Long) {
-        MpvCalls.execute { MPVLib.command("seek", (positionMs / 1000.0).toString(), "absolute+exact") }
+        enqueueAbsoluteSeek(positionMs, exact = true)
+    }
+
+    override fun previewSeekTo(positionMs: Long) {
+        enqueueAbsoluteSeek(positionMs, exact = false)
     }
 
     override fun seekBy(offsetMs: Long) {
+        absoluteSeekGeneration.incrementAndGet()
         MpvCalls.execute { MPVLib.command("seek", (offsetMs / 1000.0).toString(), "relative+exact") }
+    }
+
+    private fun enqueueAbsoluteSeek(positionMs: Long, exact: Boolean) {
+        val generation = absoluteSeekGeneration.incrementAndGet()
+        MpvCalls.execute {
+            if (generation != absoluteSeekGeneration.get()) return@execute
+            val flags = if (exact) "absolute+exact" else "absolute"
+            MPVLib.command("seek", (positionMs / 1000.0).toString(), flags)
+        }
     }
 
     override fun retry() {

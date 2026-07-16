@@ -1,14 +1,13 @@
 package com.nuvio.app
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.runtime.Composable
@@ -23,26 +22,54 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
-private const val InitialBlackFrameMillis = 1_250L
-private const val InitialNFadeMillis = 120
-private const val WordmarkRevealMillis = 1_450
-private const val CompletedWordmarkHoldMillis = 350L
-private const val WordmarkFadeMillis = 120
-private const val FinalBlackFrameMillis = 750L
-private const val BackgroundFadeMillis = 120
+private const val INITIAL_BLACK_DELAY_MS = 100L
+private const val LOGO_REVEAL_TOTAL_MS = 1_800
+private const val FINAL_SETTLE_MS = 200
+private const val FINAL_HOLD_MS = 200L
+private const val MAX_TOTAL_SPLASH_LOGO_MS = 2_200L
 
-private const val WordmarkScale = 0.96f
+// 1f keeps the first clipped N visually near center, then settles the full wordmark to center.
+private const val CENTER_START_OFFSET_STRENGTH = 1f
+private const val FINAL_WORDMARK_WIDTH_FRACTION = 0.48f
+
 private const val ArtworkPixelSize = 432f
 private const val WordmarkLeftPixel = 70f
 private const val WordmarkWidthPixels = 292f
+private const val WordmarkTopPixel = 177f
+private const val WordmarkBottomPixel = 254f
 private const val InitialNWidthPixels = 41f
 
-private val NetflixRedColorFilter = ColorFilter.colorMatrix(
+private enum class LetterRevealDirection {
+    Horizontal,
+    Vertical,
+    Diagonal,
+}
+
+private data class LetterRevealSpec(
+    val leftPx: Float,
+    val rightPx: Float,
+    val startMs: Int,
+    val endMs: Int,
+    val direction: LetterRevealDirection,
+)
+
+private val NelflixLetterRevealSpecs = listOf(
+    LetterRevealSpec(70f, 110f, 0, 260, LetterRevealDirection.Vertical),
+    LetterRevealSpec(121f, 155f, 220, 620, LetterRevealDirection.Horizontal),
+    LetterRevealSpec(163f, 202f, 560, 940, LetterRevealDirection.Vertical),
+    LetterRevealSpec(209f, 244f, 820, 1_190, LetterRevealDirection.Horizontal),
+    LetterRevealSpec(251f, 285f, 1_100, 1_450, LetterRevealDirection.Vertical),
+    LetterRevealSpec(295f, 308f, 1_330, 1_620, LetterRevealDirection.Vertical),
+    LetterRevealSpec(317f, 361f, 1_520, LOGO_REVEAL_TOTAL_MS, LetterRevealDirection.Diagonal),
+)
+
+private val NelflixRedColorFilter = ColorFilter.colorMatrix(
     ColorMatrix(
         floatArrayOf(
             1f, 0f, 0f, 0f, 0f,
@@ -59,79 +86,121 @@ internal fun NelflixStartupSplash(
     modifier: Modifier = Modifier,
 ) {
     val revealProgress = remember { Animatable(0f) }
-    val wordmarkAlpha = remember { Animatable(0f) }
-    val backgroundAlpha = remember { Animatable(1f) }
     val latestOnFinished = rememberUpdatedState(onFinished)
 
     LaunchedEffect(Unit) {
-        delay(InitialBlackFrameMillis)
-        wordmarkAlpha.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = InitialNFadeMillis,
-                easing = LinearEasing,
-            ),
-        )
+        delay(INITIAL_BLACK_DELAY_MS)
         revealProgress.animateTo(
             targetValue = 1f,
             animationSpec = tween(
-                durationMillis = WordmarkRevealMillis,
+                durationMillis = LOGO_REVEAL_TOTAL_MS,
                 easing = LinearEasing,
             ),
         )
-        delay(CompletedWordmarkHoldMillis)
-        wordmarkAlpha.animateTo(
-            targetValue = 0f,
-            animationSpec = tween(
-                durationMillis = WordmarkFadeMillis,
-                easing = LinearEasing,
-            ),
-        )
-        delay(FinalBlackFrameMillis)
-        backgroundAlpha.animateTo(
-            targetValue = 0f,
-            animationSpec = tween(
-                durationMillis = BackgroundFadeMillis,
-                easing = LinearEasing,
-            ),
-        )
+        delay((MAX_TOTAL_SPLASH_LOGO_MS - LOGO_REVEAL_TOTAL_MS).coerceAtLeast(FINAL_SETTLE_MS + FINAL_HOLD_MS))
         latestOnFinished.value()
     }
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = backgroundAlpha.value }
             .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        val artworkSize = minOf(maxWidth * 1.025f, maxHeight, 560.dp) * WordmarkScale
-        val wordmarkWidth = artworkSize * (WordmarkWidthPixels / ArtworkPixelSize)
+        val wordmarkWidth = maxWidth * FINAL_WORDMARK_WIDTH_FRACTION
+        val artworkSize = wordmarkWidth * (ArtworkPixelSize / WordmarkWidthPixels)
         val initialNWidth = artworkSize * (InitialNWidthPixels / ArtworkPixelSize)
-        val revealWidth = initialNWidth + ((wordmarkWidth - initialNWidth) * revealProgress.value)
         val wordmarkLeftInset = artworkSize * (WordmarkLeftPixel / ArtworkPixelSize)
+        val timelineMs = revealProgress.value * LOGO_REVEAL_TOTAL_MS
+        val revealEase = FastOutSlowInEasing.transform(revealProgress.value)
+        val revealWidth = initialNWidth + ((wordmarkWidth - initialNWidth) * revealEase)
+        val horizontalOffset = ((wordmarkWidth - revealWidth) / 2f) * CENTER_START_OFFSET_STRENGTH
         val wordmarkPainter = painterResource(R.drawable.nelflix_splash_logo)
 
-        Box(
+        Canvas(
             modifier = Modifier
-                .requiredWidth(revealWidth)
+                .requiredWidth(wordmarkWidth)
                 .requiredHeight(artworkSize)
-                .offset(y = (-5).dp)
-                .graphicsLayer { alpha = wordmarkAlpha.value }
+                .graphicsLayer {
+                    translationX = horizontalOffset.toPx()
+                    // Matches AppLaunchOverlay: logo center sits above screen center because the spinner is below it.
+                    translationY = (-32).dp.toPx()
+                }
                 .clipToBounds(),
-            contentAlignment = Alignment.CenterStart,
         ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val artworkSizePx = artworkSize.toPx()
-                translate(left = -wordmarkLeftInset.toPx()) {
-                    with(wordmarkPainter) {
-                        draw(
-                            size = Size(artworkSizePx, artworkSizePx),
-                            colorFilter = NetflixRedColorFilter,
+            val artworkSizePx = artworkSize.toPx()
+            val pixelScale = artworkSizePx / ArtworkPixelSize
+            val visibleRight = revealWidth.toPx()
+            val top = WordmarkTopPixel * pixelScale
+            val bottom = WordmarkBottomPixel * pixelScale
+
+            // Each letter uses the real logo asset clipped by its own mask so the final frame is identical.
+            NelflixLetterRevealSpecs.forEach { spec ->
+                val letterProgress = spec.revealProgress(timelineMs)
+                if (letterProgress <= 0f) return@forEach
+
+                val left = ((spec.leftPx - WordmarkLeftPixel) * pixelScale).coerceAtLeast(0f)
+                val right = ((spec.rightPx + 1f - WordmarkLeftPixel) * pixelScale).coerceAtMost(visibleRight)
+                if (right <= left) return@forEach
+
+                val letterWidth = right - left
+                val letterHeight = bottom - top
+                val clip = when (spec.direction) {
+                    LetterRevealDirection.Horizontal -> LetterClip(
+                        left = left,
+                        top = top,
+                        right = left + (letterWidth * letterProgress),
+                        bottom = bottom,
+                    )
+                    LetterRevealDirection.Vertical -> LetterClip(
+                        left = left,
+                        top = top,
+                        right = right,
+                        bottom = top + (letterHeight * letterProgress),
+                    )
+                    LetterRevealDirection.Diagonal -> {
+                        val sweep = letterWidth + letterHeight
+                        val edge = sweep * letterProgress
+                        LetterClip(
+                            left = left,
+                            top = top,
+                            right = (left + edge).coerceAtMost(right),
+                            bottom = (top + edge).coerceAtMost(bottom),
                         )
+                    }
+                }
+                if (clip.right <= clip.left || clip.bottom <= clip.top) return@forEach
+
+                clipRect(
+                    left = clip.left,
+                    top = clip.top,
+                    right = clip.right,
+                    bottom = clip.bottom,
+                ) {
+                    translate(left = -wordmarkLeftInset.toPx()) {
+                        with(wordmarkPainter) {
+                            draw(
+                                size = Size(artworkSizePx, artworkSizePx),
+                                colorFilter = NelflixRedColorFilter,
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private data class LetterClip(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
+private fun LetterRevealSpec.revealProgress(timelineMs: Float): Float {
+    if (timelineMs <= startMs) return 0f
+    if (timelineMs >= endMs) return 1f
+    val raw = (timelineMs - startMs) / (endMs - startMs).toFloat()
+    return FastOutSlowInEasing.transform(raw.coerceIn(0f, 1f))
 }

@@ -1116,6 +1116,7 @@
     <string name="profile_label_number">Profile %1$d</string>
     <string name="profile_loading_avatars">Loading avatars...</string>
     <string name="profile_manage_profiles">Manage Profiles</string>
+    <string name="profile_choose_your_profile">Choose Your Profile</string>
     <string name="profile_name_placeholder">Profile name</string>
     <string name="profile_new">New profile</string>
     <string name="profile_primary_addons_off">Primary addons off</string>

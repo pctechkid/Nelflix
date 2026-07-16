@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 enum class NetworkCondition {
@@ -51,6 +53,7 @@ object NetworkStatusRepository {
     private val _uiState = MutableStateFlow(NetworkStatusUiState())
     val uiState: StateFlow<NetworkStatusUiState> = _uiState.asStateFlow()
 
+    private val probeStateMutex = Mutex()
     private var started = false
     private var probeInFlight = false
     private var pendingProbeAfterCurrent = false
@@ -76,18 +79,44 @@ object NetworkStatusRepository {
         if (!started) {
             started = true
         }
-        if (probeInFlight) {
-            if (force) pendingProbeAfterCurrent = true
-            return
-        }
 
         scope.launch {
-            do {
-                pendingProbeAfterCurrent = false
-                probeInFlight = true
-                runProbe()
-                probeInFlight = false
-            } while (pendingProbeAfterCurrent)
+            val shouldRun = probeStateMutex.withLock {
+                if (probeInFlight) {
+                    if (force) pendingProbeAfterCurrent = true
+                    false
+                } else {
+                    probeInFlight = true
+                    true
+                }
+            }
+            if (!shouldRun) return@launch
+
+            var releasedProbeSlot = false
+            try {
+                while (true) {
+                    probeStateMutex.withLock {
+                        pendingProbeAfterCurrent = false
+                    }
+                    runProbe()
+                    val shouldRepeat = probeStateMutex.withLock {
+                        if (pendingProbeAfterCurrent) {
+                            true
+                        } else {
+                            probeInFlight = false
+                            releasedProbeSlot = true
+                            false
+                        }
+                    }
+                    if (!shouldRepeat) break
+                }
+            } finally {
+                if (!releasedProbeSlot) {
+                    probeStateMutex.withLock {
+                        probeInFlight = false
+                    }
+                }
+            }
         }
     }
 

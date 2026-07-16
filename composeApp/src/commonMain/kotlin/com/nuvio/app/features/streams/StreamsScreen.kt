@@ -276,6 +276,7 @@ fun StreamsScreen(
                 episodeNumber = episodeNumber,
                 episodeTitle = episodeTitle,
                 uiState = uiState,
+                manualSelection = manualSelection,
                 resumePositionMs = effectiveResumePositionMs,
                 resumeProgressFraction = effectiveResumeProgressFraction,
                 onStreamSelected = onStreamSelected,
@@ -399,6 +400,7 @@ private fun MobileStreamsLayout(
     episodeNumber: Int?,
     episodeTitle: String?,
     uiState: StreamsUiState,
+    manualSelection: Boolean,
     resumePositionMs: Long?,
     resumeProgressFraction: Float?,
     onStreamSelected: (stream: StreamItem, resumePositionMs: Long?, resumeProgressFraction: Float?) -> Unit,
@@ -483,6 +485,7 @@ private fun MobileStreamsLayout(
                         onStreamLongPress = onStreamLongPress,
                         resumePositionMs = resumePositionMs,
                         resumeProgressFraction = resumeProgressFraction,
+                        showInitialLoadingBlock = !manualSelection,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -782,6 +785,7 @@ internal fun StreamList(
     onStreamLongPress: (StreamItem) -> Unit,
     resumePositionMs: Long?,
     resumeProgressFraction: Float?,
+    showInitialLoadingBlock: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val filteredGroups = uiState.filteredGroups
@@ -798,7 +802,7 @@ internal fun StreamList(
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         when {
-            hasGroups && anyLoading && !hasAnyStreams -> {
+            showInitialLoadingBlock && hasGroups && anyLoading && !hasAnyStreams -> {
                 item {
                     LoadingStateBlock()
                 }

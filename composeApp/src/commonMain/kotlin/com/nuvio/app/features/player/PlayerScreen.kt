@@ -82,7 +82,8 @@ private const val PlaybackProgressPersistIntervalMs = 60_000L
 private const val PlayerDoubleTapSeekStepMs = 10_000L
 private const val PlayerDoubleTapSeekResetDelayMs = 800L
 private const val PlayerLockedOverlayDurationMs = 2_000L
-private const val PlayerScrubPreviewSeekIntervalMs = 120L
+private const val PlayerScrubPreviewSeekIntervalMs = 60L
+private const val PlayerCachedScrubToleranceMs = 1_500L
 private const val PlayerLeftGestureBoundary = 0.4f
 private const val PlayerRightGestureBoundary = 0.6f
 private const val PlayerVerticalGestureSensitivity = 1f
@@ -961,6 +962,63 @@ fun PlayerScreen(
             }
         }
 
+        fun beginTimelineScrub() {
+            val controller = playerController
+            if (!isScrubbingTimeline) {
+                pauseMetadataScrubSuppressionJob?.cancel()
+                pauseMetadataScrubSuppressionJob = null
+                suppressPauseMetadataForScrub = true
+                pausedOverlayVisible = false
+                resumePlaybackAfterScrub = playbackSnapshot.isPlaying
+                if (playbackSnapshot.isPlaying) controller?.pause()
+            }
+            isScrubbingTimeline = true
+        }
+
+        fun previewTimelineScrub(positionMs: Long, forceImmediate: Boolean = false) {
+            beginTimelineScrub()
+            scrubbingPositionMs = positionMs
+            val nowMs = WatchProgressClock.nowEpochMs()
+            val elapsedMs = nowMs - lastScrubPreviewSeekAtMs
+            val bufferedPositionMs = playbackSnapshot.bufferedPositionMs
+                .coerceAtLeast(playbackSnapshot.positionMs)
+            val targetInsideBufferedRange =
+                bufferedPositionMs > 0L && positionMs <= bufferedPositionMs + PlayerCachedScrubToleranceMs
+            if (forceImmediate || targetInsideBufferedRange || elapsedMs >= PlayerScrubPreviewSeekIntervalMs) {
+                pendingScrubPreviewSeekJob?.cancel()
+                pendingScrubPreviewSeekJob = null
+                playerController?.previewSeekTo(positionMs)
+                lastScrubPreviewSeekAtMs = nowMs
+            } else {
+                pendingScrubPreviewSeekJob?.cancel()
+                pendingScrubPreviewSeekJob = scope.launch {
+                    delay((PlayerScrubPreviewSeekIntervalMs - elapsedMs).coerceAtLeast(1L))
+                    if (isScrubbingTimeline) {
+                        playerController?.previewSeekTo(positionMs)
+                        lastScrubPreviewSeekAtMs = WatchProgressClock.nowEpochMs()
+                    }
+                }
+            }
+        }
+
+        fun finishTimelineScrub(positionMs: Long) {
+            pendingScrubPreviewSeekJob?.cancel()
+            pendingScrubPreviewSeekJob = null
+            val shouldResumePlayback = resumePlaybackAfterScrub
+            isScrubbingTimeline = false
+            scrubbingPositionMs = null
+            resumePlaybackAfterScrub = false
+            lastScrubPreviewSeekAtMs = 0L
+            playerController?.let { controller ->
+                controller.seekTo(positionMs)
+                if (shouldResumePlayback) controller.play()
+            }
+            pauseMetadataScrubSuppressionJob = scope.launch {
+                delay(if (shouldResumePlayback) 1_500L else 350L)
+                suppressPauseMetadataForScrub = false
+            }
+        }
+
         fun currentWatchTogetherPayload(): WatchTogetherPlaybackPayload =
             WatchTogetherPlaybackPayload(
                 title = activeTitle,
@@ -1378,13 +1436,12 @@ fun PlayerScreen(
         val showVolumeFeedbackState = rememberUpdatedState(::showVolumeFeedback)
         val clearLiveGestureFeedbackState = rememberUpdatedState(::clearLiveGestureFeedback)
         val revealLockedOverlayState = rememberUpdatedState(::revealLockedOverlay)
+        val previewTimelineScrubState = rememberUpdatedState(::previewTimelineScrub)
+        val finishTimelineScrubState = rememberUpdatedState(::finishTimelineScrub)
         val isHoldGestureActiveState = rememberUpdatedState(
             isHoldToSpeedGestureActive || isHoldToRewindGestureActive,
         )
         val playerControlsLockedState = rememberUpdatedState(playerControlsLocked)
-        val commitHorizontalSeekState = rememberUpdatedState { targetPositionMs: Long ->
-            playerController?.seekTo(targetPositionMs)
-        }
 
         fun fetchAddonSubtitlesForActiveItem() {
             val type = activeAddonSubtitleType.takeIf { it.isNotBlank() } ?: return
@@ -1928,6 +1985,7 @@ fun PlayerScreen(
                                         horizontalSeekPreviewMs,
                                         horizontalSeekBaselineMs,
                                     )
+                                    previewTimelineScrubState.value(horizontalSeekPreviewMs, false)
                                 }
 
                                 PlayerGestureMode.Volume -> {
@@ -1943,7 +2001,7 @@ fun PlayerScreen(
                         }
 
                         if (gestureMode == PlayerGestureMode.HorizontalSeek && !isHoldGestureActiveState.value) {
-                            commitHorizontalSeekState.value(horizontalSeekPreviewMs)
+                            finishTimelineScrubState.value(horizontalSeekPreviewMs)
                             clearLiveGestureFeedbackState.value()
                         }
                     }
@@ -2077,51 +2135,10 @@ fun PlayerScreen(
                     showParentalGuide = showParentalGuide,
                     onParentalGuideAnimationComplete = { showParentalGuide = false },
                     onScrubChange = { positionMs ->
-                        val controller = playerController
-                        if (!isScrubbingTimeline) {
-                            pauseMetadataScrubSuppressionJob?.cancel()
-                            pauseMetadataScrubSuppressionJob = null
-                            suppressPauseMetadataForScrub = true
-                            pausedOverlayVisible = false
-                            resumePlaybackAfterScrub = playbackSnapshot.isPlaying
-                            if (playbackSnapshot.isPlaying) controller?.pause()
-                        }
-                        isScrubbingTimeline = true
-                        scrubbingPositionMs = positionMs
-                        val nowMs = WatchProgressClock.nowEpochMs()
-                        val elapsedMs = nowMs - lastScrubPreviewSeekAtMs
-                        if (elapsedMs >= PlayerScrubPreviewSeekIntervalMs) {
-                            pendingScrubPreviewSeekJob?.cancel()
-                            pendingScrubPreviewSeekJob = null
-                            controller?.seekTo(positionMs)
-                            lastScrubPreviewSeekAtMs = nowMs
-                        } else {
-                            pendingScrubPreviewSeekJob?.cancel()
-                            pendingScrubPreviewSeekJob = scope.launch {
-                                delay((PlayerScrubPreviewSeekIntervalMs - elapsedMs).coerceAtLeast(1L))
-                                if (isScrubbingTimeline) {
-                                    playerController?.seekTo(positionMs)
-                                    lastScrubPreviewSeekAtMs = WatchProgressClock.nowEpochMs()
-                                }
-                            }
-                        }
+                        previewTimelineScrub(positionMs)
                     },
                     onScrubFinished = { positionMs ->
-                        pendingScrubPreviewSeekJob?.cancel()
-                        pendingScrubPreviewSeekJob = null
-                        val shouldResumePlayback = resumePlaybackAfterScrub
-                        isScrubbingTimeline = false
-                        scrubbingPositionMs = null
-                        resumePlaybackAfterScrub = false
-                        lastScrubPreviewSeekAtMs = 0L
-                        playerController?.let { controller ->
-                            controller.seekTo(positionMs)
-                            if (shouldResumePlayback) controller.play()
-                        }
-                        pauseMetadataScrubSuppressionJob = scope.launch {
-                            delay(if (shouldResumePlayback) 1_500L else 350L)
-                            suppressPauseMetadataForScrub = false
-                        }
+                        finishTimelineScrub(positionMs)
                     },
                     horizontalSafePadding = horizontalSafePadding,
                     modifier = Modifier.fillMaxSize(),
