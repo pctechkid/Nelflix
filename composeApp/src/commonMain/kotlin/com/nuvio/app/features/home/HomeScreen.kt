@@ -63,6 +63,8 @@ import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.home.components.HomeCollectionRowSection
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationDelayHours
+import com.nuvio.app.features.notifications.EpisodeReleaseNotificationHour
+import com.nuvio.app.features.notifications.EpisodeReleaseNotificationMinute
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -848,12 +850,8 @@ private fun isNextUpAvailableByReleaseTime(
     currentLocalIsoDateTime: String,
 ): Boolean {
     val rawRelease = releasedDate?.trim().takeUnless { it.isNullOrBlank() } ?: return true
-    val hasExactTime = rawRelease.contains('T') || rawRelease.contains(' ')
-    if (!hasExactTime) {
-        return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
-    }
-
     val releaseLocalDateTime = normalizedLocalDateTimeForCompare(rawRelease)
+        ?: notificationBaseLocalDateTimeForDateOnly(rawRelease)
         ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
     val availableLocalDateTime = addHoursToLocalDateTime(
         localDateTime = releaseLocalDateTime,
@@ -863,6 +861,15 @@ private fun isNextUpAvailableByReleaseTime(
         ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
 
     return nowLocalDateTime >= availableLocalDateTime
+}
+
+private fun notificationBaseLocalDateTimeForDateOnly(value: String): String? {
+    val normalizedDate = value.trim().substringBefore('T').substringBefore(' ')
+    if (normalizedDate.length != 10) return null
+    val hour = EpisodeReleaseNotificationHour.toString().padStart(2, '0')
+    val minute = EpisodeReleaseNotificationMinute.toString().padStart(2, '0')
+    val candidate = "${normalizedDate}T$hour:$minute:00"
+    return candidate.takeIf(::isValidComparableLocalDateTime)
 }
 
 private fun normalizedLocalDateTimeForCompare(value: String): String? {

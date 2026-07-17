@@ -144,19 +144,24 @@ object WatchProgressRepository {
             serverEntries.forEach { entry ->
                 val videoId = entry.videoId
                 val cached = oldLocal[videoId]
+                val displayMetadata = entry.displayMetadata
                 newMap[videoId] = WatchProgressEntry(
                     contentType = entry.contentType,
                     parentMetaId = entry.contentId,
                     parentMetaType = cached?.parentMetaType ?: entry.contentType,
                     videoId = videoId,
-                    title = cached?.title?.takeIf { it.isNotBlank() } ?: entry.contentId,
-                    logo = cached?.logo,
-                    poster = cached?.poster,
-                    background = cached?.background,
+                    title = cached?.title.displayTextOrNull()
+                        ?: displayMetadata?.title.displayTextOrNull()
+                        ?: entry.contentId,
+                    logo = cached?.logo.displayTextOrNull() ?: displayMetadata?.logo.displayTextOrNull(),
+                    poster = cached?.poster.displayTextOrNull() ?: displayMetadata?.poster.displayTextOrNull(),
+                    background = cached?.background.displayTextOrNull() ?: displayMetadata?.background.displayTextOrNull(),
                     seasonNumber = entry.season,
                     episodeNumber = entry.episode,
-                    episodeTitle = cached?.episodeTitle,
-                    episodeThumbnail = cached?.episodeThumbnail,
+                    episodeTitle = cached?.episodeTitle.displayTextOrNull()
+                        ?: displayMetadata?.episodeTitle.displayTextOrNull(),
+                    episodeThumbnail = cached?.episodeThumbnail.displayTextOrNull()
+                        ?: displayMetadata?.episodeThumbnail.displayTextOrNull(),
                     lastPositionMs = entry.position,
                     durationMs = entry.duration,
                     lastUpdatedEpochMs = entry.lastWatched,
@@ -164,7 +169,8 @@ object WatchProgressRepository {
                     providerAddonId = cached?.providerAddonId,
                     lastStreamTitle = cached?.lastStreamTitle,
                     lastStreamSubtitle = cached?.lastStreamSubtitle,
-                    pauseDescription = cached?.pauseDescription,
+                    pauseDescription = cached?.pauseDescription.displayTextOrNull()
+                        ?: displayMetadata?.pauseDescription.displayTextOrNull(),
                     lastSourceUrl = cached?.lastSourceUrl,
                     isCompleted = isWatchProgressComplete(entry.position, entry.duration, false),
                 )
@@ -453,3 +459,6 @@ object WatchProgressRepository {
     }
 
 }
+
+private fun String?.displayTextOrNull(): String? =
+    this?.trim()?.takeIf { it.isNotBlank() }

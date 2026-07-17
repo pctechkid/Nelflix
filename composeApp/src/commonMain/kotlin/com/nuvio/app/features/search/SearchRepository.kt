@@ -95,7 +95,7 @@ object SearchRepository {
         _uiState.value = SearchUiState(isLoading = true)
 
         activeJob = scope.launch {
-            val resultChannel = Channel<IndexedSearchResult>(Channel.UNLIMITED)
+            val resultChannel = Channel<IndexedSearchResult>(capacity = requests.size)
             val jobs = requests.mapIndexed { index, request ->
                 launch {
                     runCatching { request.toSection() }

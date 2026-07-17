@@ -2063,7 +2063,7 @@ fun PlayerScreen(
                     seasonNumber = activeSeasonNumber,
                     episodeNumber = activeEpisodeNumber,
                     episodeTitle = activeEpisodeTitle,
-                    pauseDescription = activePauseDescription ?: activeStreamSubtitle,
+                    pauseDescription = activePauseDescription,
                     metrics = metrics,
                     horizontalSafePadding = horizontalSafePadding,
                     modifier = Modifier.fillMaxSize(),

@@ -1,7 +1,6 @@
 package com.nuvio.app.features.settings
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,15 +68,12 @@ private fun SettingsCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val colorScheme = MaterialTheme.colorScheme
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = Color(0xFF111111),
-        shape = RoundedCornerShape(if (isTablet) 22.dp else 18.dp),
-        border = BorderStroke(
-            0.5.dp,
-            colorScheme.primary.copy(alpha = 0.16f),
-        ),
+        color = Color(0xFF101010),
+        shape = RoundedCornerShape(if (isTablet) 20.dp else 18.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(content = content)
     }
@@ -102,7 +98,7 @@ internal fun SettingsGroupDivider(isTablet: Boolean) {
     HorizontalDivider(
         modifier = Modifier.padding(start = if (isTablet) 78.dp else 66.dp),
         thickness = 0.5.dp,
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.12f),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.055f),
     )
 }
 
@@ -148,21 +144,21 @@ internal fun SettingsSidebarItem(
     onClick: () -> Unit,
 ) {
     val primary = MaterialTheme.colorScheme.primary
-    val background = if (selected) primary.copy(alpha = 0.14f) else Color.Transparent
-    val iconChip = if (selected) primary.copy(alpha = 0.20f) else Color(0xFF151515)
-    val contentColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val background = if (selected) primary.copy(alpha = 0.13f) else Color.Transparent
+    val iconChip = if (selected) primary.copy(alpha = 0.24f) else Color(0xFF161616)
+    val contentColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.84f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .padding(horizontal = 12.dp, vertical = 1.dp)
             .background(background, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
-            modifier = Modifier.size(32.dp),
+            modifier = Modifier.size(30.dp),
             color = iconChip,
             shape = RoundedCornerShape(8.dp),
         ) {
@@ -175,13 +171,14 @@ internal fun SettingsSidebarItem(
                     imageVector = icon,
                     contentDescription = null,
                     tint = if (selected) primary else contentColor,
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(11.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             color = contentColor,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
         )
@@ -223,10 +220,10 @@ internal fun SettingsNavigationRow(
     onClick: () -> Unit,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
-    val iconSize = if (isTablet) 42.dp else 36.dp
-    val iconRadius = if (isTablet) 12.dp else 10.dp
-    val verticalPadding = if (isTablet) 16.dp else 14.dp
-    val horizontalPadding = if (isTablet) 20.dp else 16.dp
+    val iconSize = if (isTablet) 38.dp else 34.dp
+    val iconRadius = if (isTablet) 11.dp else 10.dp
+    val verticalPadding = if (isTablet) 14.dp else 13.dp
+    val horizontalPadding = if (isTablet) 18.dp else 16.dp
 
     Row(
         modifier = Modifier
@@ -246,7 +243,7 @@ internal fun SettingsNavigationRow(
             if (icon != null || iconPainter != null) {
                 Surface(
                     modifier = Modifier.size(iconSize),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                     shape = RoundedCornerShape(iconRadius),
                 ) {
                     Row(
@@ -258,7 +255,7 @@ internal fun SettingsNavigationRow(
                             androidx.compose.foundation.Image(
                                 painter = iconPainter,
                                 contentDescription = null,
-                                modifier = Modifier.size(if (isTablet) 28.dp else 24.dp),
+                                modifier = Modifier.size(if (isTablet) 25.dp else 23.dp),
                                 contentScale = ContentScale.Fit,
                             )
                         } else if (icon != null) {
@@ -266,11 +263,12 @@ internal fun SettingsNavigationRow(
                                 imageVector = icon,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(if (isTablet) 21.dp else 20.dp),
                             )
                         }
                     }
                 }
-                Spacer(modifier = Modifier.width(if (isTablet) 16.dp else 14.dp))
+                Spacer(modifier = Modifier.width(if (isTablet) 14.dp else 13.dp))
             }
             Column {
                 Text(
@@ -302,7 +300,7 @@ internal fun SettingsSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val verticalPadding = if (isTablet) 16.dp else 14.dp
-    val horizontalPadding = if (isTablet) 20.dp else 16.dp
+    val horizontalPadding = if (isTablet) 18.dp else 16.dp
 
     Row(
         modifier = Modifier

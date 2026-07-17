@@ -94,9 +94,13 @@ create table if not exists public.watch_progress (
   position bigint not null default 0,
   duration bigint not null default 0,
   last_watched bigint not null default 0,
+  display_metadata jsonb not null default '{}'::jsonb,
   progress_key text not null,
   unique (user_id, profile_id, progress_key)
 );
+
+alter table public.watch_progress
+  add column if not exists display_metadata jsonb not null default '{}'::jsonb;
 
 create table if not exists public.library_items (
   id uuid primary key default gen_random_uuid(),
@@ -916,20 +920,22 @@ begin
 
     insert into public.watch_progress (
       user_id, profile_id, content_id, content_type, video_id, season, episode,
-      position, duration, last_watched, progress_key
+      position, duration, last_watched, display_metadata, progress_key
     )
     values (
       auth.uid(), p_profile_id, item->>'content_id', coalesce(item->>'content_type', ''),
       coalesce(item->>'video_id', ''), nullif(item->>'season', '')::integer,
       nullif(item->>'episode', '')::integer, coalesce((item->>'position')::bigint, 0),
-      coalesce((item->>'duration')::bigint, 0), coalesce((item->>'last_watched')::bigint, 0), key
+      coalesce((item->>'duration')::bigint, 0), coalesce((item->>'last_watched')::bigint, 0),
+      coalesce(item->'display_metadata', '{}'::jsonb), key
     )
     on conflict (user_id, profile_id, progress_key) do update set
       content_type = excluded.content_type,
       video_id = excluded.video_id,
       position = excluded.position,
       duration = excluded.duration,
-      last_watched = excluded.last_watched;
+      last_watched = excluded.last_watched,
+      display_metadata = excluded.display_metadata;
   end loop;
 end;
 $$;

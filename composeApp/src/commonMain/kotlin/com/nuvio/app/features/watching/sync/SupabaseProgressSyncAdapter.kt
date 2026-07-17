@@ -31,6 +31,7 @@ object SupabaseProgressSyncAdapter : ProgressSyncAdapter {
                 position = entry.position,
                 duration = entry.duration,
                 lastWatched = entry.lastWatched,
+                displayMetadata = entry.displayMetadata,
             )
         }
         return records
@@ -50,6 +51,7 @@ object SupabaseProgressSyncAdapter : ProgressSyncAdapter {
                 position = entry.lastPositionMs,
                 duration = entry.durationMs,
                 lastWatched = entry.lastUpdatedEpochMs,
+                displayMetadata = entry.toDisplayMetadata(),
             )
         }
         val params = buildJsonObject {
@@ -89,4 +91,19 @@ private data class WatchProgressSyncEntry(
     val duration: Long = 0,
     @SerialName("last_watched") val lastWatched: Long = 0,
     @SerialName("progress_key") val progressKey: String = "",
+    @SerialName("display_metadata") val displayMetadata: ProgressDisplayMetadata? = null,
 )
+
+private fun WatchProgressEntry.toDisplayMetadata(): ProgressDisplayMetadata =
+    ProgressDisplayMetadata(
+        title = title.syncTextOrNull(),
+        logo = logo.syncTextOrNull(),
+        poster = poster.syncTextOrNull(),
+        background = background.syncTextOrNull(),
+        episodeTitle = episodeTitle.syncTextOrNull(),
+        episodeThumbnail = episodeThumbnail.syncTextOrNull(),
+        pauseDescription = pauseDescription.syncTextOrNull(),
+    )
+
+private fun String?.syncTextOrNull(): String? =
+    this?.trim()?.takeIf { it.isNotBlank() }
