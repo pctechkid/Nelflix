@@ -36,7 +36,10 @@ private const val MAX_TOTAL_SPLASH_LOGO_MS = 2_200L
 
 // 1f keeps the first clipped N visually near center, then settles the full wordmark to center.
 private const val CENTER_START_OFFSET_STRENGTH = 1f
-private const val FINAL_WORDMARK_WIDTH_FRACTION = 0.48f
+private const val APP_LAUNCH_WORDMARK_WIDTH_FRACTION = 0.48f
+private const val AppLogoWordmarkWidthPixels = 309f
+private const val AppLogoWordmarkHeightPixels = 83f
+private val AppLaunchWordmarkMaxWidth = 44.dp * (AppLogoWordmarkWidthPixels / AppLogoWordmarkHeightPixels)
 
 private const val ArtworkPixelSize = 432f
 private const val WordmarkLeftPixel = 70f
@@ -107,7 +110,10 @@ internal fun NelflixStartupSplash(
             .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        val wordmarkWidth = maxWidth * FINAL_WORDMARK_WIDTH_FRACTION
+        val wordmarkWidth = minOf(
+            maxWidth * APP_LAUNCH_WORDMARK_WIDTH_FRACTION,
+            AppLaunchWordmarkMaxWidth,
+        )
         val artworkSize = wordmarkWidth * (ArtworkPixelSize / WordmarkWidthPixels)
         val initialNWidth = artworkSize * (InitialNWidthPixels / ArtworkPixelSize)
         val wordmarkLeftInset = artworkSize * (WordmarkLeftPixel / ArtworkPixelSize)

@@ -140,7 +140,7 @@ class InAppYouTubeExtractor {
                 extractPlaybackSourceInternal(youtubeUrl)
             }
         }.onFailure {
-            log.w { "Trailer extractor failed for $youtubeUrl: ${it.message}" }
+            log.w { "Trailer extractor failed: ${it.message}" }
         }.getOrNull()
     }
 

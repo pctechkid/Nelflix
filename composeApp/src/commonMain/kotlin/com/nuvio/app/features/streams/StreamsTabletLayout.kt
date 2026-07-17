@@ -224,7 +224,7 @@ private fun TabletMovieInfoPanel(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth(0.8f),
+        modifier = modifier.fillMaxWidth(0.92f),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -291,7 +291,7 @@ private fun TabletEpisodeInfoPanel(
     )
 
     Column(
-        modifier = modifier.fillMaxWidth(0.8f),
+        modifier = modifier.fillMaxWidth(0.92f),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -337,7 +337,7 @@ private fun TabletEpisodeInfoPanel(
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.95f),
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
     }
