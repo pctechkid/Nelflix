@@ -209,7 +209,6 @@ fun HomeScreen(
     var nextUpItemsBySeries by remember(activeProfileId) { mutableStateOf<Map<String, Pair<Long, ContinueWatchingItem>>>(emptyMap()) }
 
     val todayIsoDateForContinueWatching = CurrentDateProvider.todayIsoDate()
-    val currentLocalIsoDateTimeForContinueWatching = CurrentDateProvider.currentLocalIsoDateTime()
     val cachedSnapshots = remember(activeProfileId) { ContinueWatchingEnrichmentCache.getSnapshots() }
     val cachedNextUpItems = remember(
         cachedSnapshots.first,
@@ -219,7 +218,6 @@ fun HomeScreen(
         continueWatchingPreferences.showUnairedNextUp,
         watchedUiState.isLoaded,
         todayIsoDateForContinueWatching,
-        currentLocalIsoDateTimeForContinueWatching,
     ) {
         cachedSnapshots.first.mapNotNull { cached ->
             if (
@@ -233,10 +231,9 @@ fun HomeScreen(
                 return@mapNotNull null
             }
             val cachedIsAvailable = cached.released?.let { released ->
-                isNextUpAvailableByReleaseTime(
-                    releasedDate = released,
+                isReleasedByContinueWatchingNotificationDay(
                     todayIsoDate = todayIsoDateForContinueWatching,
-                    currentLocalIsoDateTime = currentLocalIsoDateTimeForContinueWatching,
+                    releasedDate = released,
                 )
             } ?: cached.hasAired
             if (!cachedIsAvailable && !continueWatchingPreferences.showUnairedNextUp) {
@@ -286,7 +283,6 @@ fun HomeScreen(
             nextUpItemsBySeries = effectivNextUpItems,
             sortMode = continueWatchingPreferences.sortMode,
             todayIsoDate = todayIsoDateForContinueWatching,
-            currentLocalIsoDateTime = currentLocalIsoDateTimeForContinueWatching,
         )
     }
     val availableManifests = remember(addonsUiState.addons) {
@@ -362,7 +358,6 @@ fun HomeScreen(
         if (metaProviderKey.isEmpty()) return@LaunchedEffect
 
         val todayIsoDate = CurrentDateProvider.todayIsoDate()
-        val currentLocalIsoDateTime = CurrentDateProvider.currentLocalIsoDateTime()
         val semaphore = Semaphore(4)
         val results = completedSeriesCandidates.map { completedEntry ->
             async {
@@ -378,10 +373,9 @@ fun HomeScreen(
                         showUnairedNextUp = continueWatchingPreferences.showUnairedNextUp,
                     ) ?: return@withPermit null
                     if (!continueWatchingPreferences.showUnairedNextUp &&
-                        !isNextUpAvailableByReleaseTime(
-                            releasedDate = nextEpisode.released,
+                        !isReleasedByContinueWatchingNotificationDay(
                             todayIsoDate = todayIsoDate,
-                            currentLocalIsoDateTime = currentLocalIsoDateTime,
+                            releasedDate = nextEpisode.released,
                         )
                     ) {
                         return@withPermit null
@@ -414,10 +408,9 @@ fun HomeScreen(
                 pauseDescription = item.pauseDescription,
                 released = item.released,
                 hasAired = item.released?.let { released ->
-                    isNextUpAvailableByReleaseTime(
-                        releasedDate = released,
+                    isReleasedByContinueWatchingNotificationDay(
                         todayIsoDate = todayIsoDate,
-                        currentLocalIsoDateTime = currentLocalIsoDateTime,
+                        releasedDate = released,
                     )
                 } ?: true,
                 lastWatched = pair.first,
@@ -746,7 +739,6 @@ internal fun buildHomeContinueWatchingItems(
     nextUpItemsBySeries: Map<String, Pair<Long, ContinueWatchingItem>>,
     sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
     todayIsoDate: String = "",
-    currentLocalIsoDateTime: String = "",
 ): List<ContinueWatchingItem> {
     val inProgressSeriesIds = visibleEntries
         .asSequence()
@@ -796,7 +788,6 @@ internal fun buildHomeContinueWatchingItems(
         ContinueWatchingSortMode.STREAMING_STYLE -> applyStreamingStyleSort(
             candidates = deduplicated,
             todayIsoDate = todayIsoDate,
-            currentLocalIsoDateTime = currentLocalIsoDateTime,
         )
     }
 }
@@ -804,7 +795,6 @@ internal fun buildHomeContinueWatchingItems(
 private fun applyStreamingStyleSort(
     candidates: List<HomeContinueWatchingCandidate>,
     todayIsoDate: String,
-    currentLocalIsoDateTime: String,
 ): List<ContinueWatchingItem> {
     val (released, unreleased) = candidates.partition { candidate ->
         val item = candidate.item
@@ -815,10 +805,9 @@ private fun applyStreamingStyleSort(
             if (itemReleased.isNullOrBlank() || todayIsoDate.isBlank()) {
                 true // no date info → treat as released
             } else {
-                isNextUpAvailableByReleaseTime(
-                    releasedDate = itemReleased,
+                isReleasedByContinueWatchingNotificationDay(
                     todayIsoDate = todayIsoDate,
-                    currentLocalIsoDateTime = currentLocalIsoDateTime,
+                    releasedDate = itemReleased,
                 )
             }
         }
@@ -830,8 +819,8 @@ private fun applyStreamingStyleSort(
     // Unaired: soonest air date first; unknown dates go to the end
     val sortedUnreleased = unreleased
         .sortedWith { a, b ->
-            val dateA = a.item.released?.takeIf { it.isNotBlank() }
-            val dateB = b.item.released?.takeIf { it.isNotBlank() }
+            val dateA = continueWatchingNotificationReleaseDayIso(a.item.released)
+            val dateB = continueWatchingNotificationReleaseDayIso(b.item.released)
             when {
                 dateA == null && dateB == null -> 0
                 dateA == null -> 1
@@ -844,23 +833,25 @@ private fun applyStreamingStyleSort(
     return sortedReleased + sortedUnreleased
 }
 
-private fun isNextUpAvailableByReleaseTime(
-    releasedDate: String?,
+private fun isReleasedByContinueWatchingNotificationDay(
     todayIsoDate: String,
-    currentLocalIsoDateTime: String,
+    releasedDate: String?,
 ): Boolean {
-    val rawRelease = releasedDate?.trim().takeUnless { it.isNullOrBlank() } ?: return true
-    val releaseLocalDateTime = normalizedLocalDateTimeForCompare(rawRelease)
-        ?: notificationBaseLocalDateTimeForDateOnly(rawRelease)
-        ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
-    val availableLocalDateTime = addHoursToLocalDateTime(
-        localDateTime = releaseLocalDateTime,
-        hours = EpisodeReleaseNotificationDelayHours.toInt(),
-    ) ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
-    val nowLocalDateTime = normalizedLocalDateTimeForCompare(currentLocalIsoDateTime)
-        ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = rawRelease)
+    if (todayIsoDate.isBlank()) return true
+    val releaseDay = continueWatchingNotificationReleaseDayIso(releasedDate)
+        ?: return isReleasedBy(todayIsoDate = todayIsoDate, releasedDate = releasedDate)
+    return releaseDay <= todayIsoDate
+}
 
-    return nowLocalDateTime >= availableLocalDateTime
+internal fun continueWatchingNotificationReleaseDayIso(releasedDate: String?): String? {
+    val rawRelease = releasedDate?.trim().takeUnless { it.isNullOrBlank() } ?: return null
+    val notificationBase = normalizedContinueWatchingLocalDateTime(rawRelease)
+        ?: notificationBaseLocalDateTimeForDateOnly(rawRelease)
+        ?: return rawRelease.substringBefore('T').substringBefore(' ').takeIf { it.length == 10 }
+    return addHoursToContinueWatchingLocalDateTime(
+        localDateTime = notificationBase,
+        hours = EpisodeReleaseNotificationDelayHours.toInt(),
+    )?.take(10)
 }
 
 private fun notificationBaseLocalDateTimeForDateOnly(value: String): String? {
@@ -869,21 +860,22 @@ private fun notificationBaseLocalDateTimeForDateOnly(value: String): String? {
     val hour = EpisodeReleaseNotificationHour.toString().padStart(2, '0')
     val minute = EpisodeReleaseNotificationMinute.toString().padStart(2, '0')
     val candidate = "${normalizedDate}T$hour:$minute:00"
-    return candidate.takeIf(::isValidComparableLocalDateTime)
+    return candidate.takeIf(::isValidContinueWatchingLocalDateTime)
 }
 
-private fun normalizedLocalDateTimeForCompare(value: String): String? {
+private fun normalizedContinueWatchingLocalDateTime(value: String): String? {
+    if (!value.contains('T') && !value.contains(' ')) return null
     val normalized = value.trim().replace(' ', 'T')
-    val withoutZone = stripZoneSuffix(normalized)
+    val withoutZone = stripContinueWatchingZoneSuffix(normalized)
     val dateTime = when {
         withoutZone.length >= 19 -> withoutZone.take(19)
         withoutZone.length == 16 -> "$withoutZone:00"
         else -> return null
     }
-    return dateTime.takeIf(::isValidComparableLocalDateTime)
+    return dateTime.takeIf(::isValidContinueWatchingLocalDateTime)
 }
 
-private fun stripZoneSuffix(value: String): String {
+private fun stripContinueWatchingZoneSuffix(value: String): String {
     val withoutZulu = if (value.endsWith("Z", ignoreCase = true)) {
         value.dropLast(1)
     } else {
@@ -898,23 +890,23 @@ private fun stripZoneSuffix(value: String): String {
     return withoutZulu.substring(0, zoneIndex)
 }
 
-private fun isValidComparableLocalDateTime(value: String): Boolean {
+private fun isValidContinueWatchingLocalDateTime(value: String): Boolean {
     if (value.length != 19) return false
     if (value[4] != '-' || value[7] != '-' || value[10] != 'T' || value[13] != ':' || value[16] != ':') return false
     val year = value.substring(0, 4).toIntOrNull() ?: return false
     val month = value.substring(5, 7).toIntOrNull()?.takeIf { it in 1..12 } ?: return false
     val day = value.substring(8, 10).toIntOrNull() ?: return false
-    val hour = value.substring(11, 13).toIntOrNull()?.takeIf { it in 0..23 } ?: return false
-    val minute = value.substring(14, 16).toIntOrNull()?.takeIf { it in 0..59 } ?: return false
-    val second = value.substring(17, 19).toIntOrNull()?.takeIf { it in 0..59 } ?: return false
-    return day in 1..daysInMonthForNextUp(year, month) && hour >= 0 && minute >= 0 && second >= 0
+    value.substring(11, 13).toIntOrNull()?.takeIf { it in 0..23 } ?: return false
+    value.substring(14, 16).toIntOrNull()?.takeIf { it in 0..59 } ?: return false
+    value.substring(17, 19).toIntOrNull()?.takeIf { it in 0..59 } ?: return false
+    return day in 1..daysInMonthForContinueWatching(year, month)
 }
 
-private fun addHoursToLocalDateTime(
+private fun addHoursToContinueWatchingLocalDateTime(
     localDateTime: String,
     hours: Int,
 ): String? {
-    if (!isValidComparableLocalDateTime(localDateTime)) return null
+    if (!isValidContinueWatchingLocalDateTime(localDateTime)) return null
 
     var year = localDateTime.substring(0, 4).toIntOrNull() ?: return null
     var month = localDateTime.substring(5, 7).toIntOrNull() ?: return null
@@ -926,7 +918,7 @@ private fun addHoursToLocalDateTime(
     while (hour >= 24) {
         hour -= 24
         day += 1
-        val maxDay = daysInMonthForNextUp(year, month)
+        val maxDay = daysInMonthForContinueWatching(year, month)
         if (day > maxDay) {
             day = 1
             month += 1
@@ -940,14 +932,14 @@ private fun addHoursToLocalDateTime(
     return "${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}T${hour.toString().padStart(2, '0')}$rest"
 }
 
-private fun daysInMonthForNextUp(year: Int, month: Int): Int =
+private fun daysInMonthForContinueWatching(year: Int, month: Int): Int =
     when (month) {
-        2 -> if (isLeapYearForNextUp(year)) 29 else 28
+        2 -> if (isLeapYearForContinueWatching(year)) 29 else 28
         4, 6, 9, 11 -> 30
         else -> 31
     }
 
-private fun isLeapYearForNextUp(year: Int): Boolean =
+private fun isLeapYearForContinueWatching(year: Int): Boolean =
     year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 
 private data class CompletedSeriesCandidate(

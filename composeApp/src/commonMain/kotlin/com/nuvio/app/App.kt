@@ -192,6 +192,8 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.nextUpDismissKey
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -1569,6 +1571,7 @@ private fun MainAppContent(
                         val useNativeBottomTabs =
                             liquidGlassNativeTabBarSupported && liquidGlassNativeTabBarEnabled && initialHomeReady
                         val tabsRouteActive = currentBackStackEntry?.destination?.hasRoute<TabsRoute>() == true
+                        val navBarHazeState = rememberHazeState()
                         val onProfileSelected: (NuvioProfile) -> Unit = { profile ->
                             profileSwitchLoading = true
                             selectedTab = AppScreenTab.Home
@@ -1583,49 +1586,27 @@ private fun MainAppContent(
                                 .alpha(if (initialHomeReady) 1f else 0f),
                             containerColor = Color.Transparent,
                             contentWindowInsets = WindowInsets(0),
-                            bottomBar = {
-                                if (!isTabletLayout && !useNativeBottomTabs) {
-                                    NuvioNavigationBar {
-                                        NavItem(
-                                            selected = selectedTab == AppScreenTab.Home,
-                                            onClick = { handleRootTabClick(AppScreenTab.Home) },
-                                            icon = Icons.Filled.Home,
-                                            contentDescription = stringResource(Res.string.compose_nav_home),
-                                        )
-                                        NavItem(
-                                            selected = selectedTab == AppScreenTab.Search,
-                                            onClick = { handleRootTabClick(AppScreenTab.Search) },
-                                            icon = Res.drawable.sidebar_search,
-                                            contentDescription = stringResource(Res.string.compose_nav_search),
-                                        )
-                                        NavItem(
-                                            selected = selectedTab == AppScreenTab.Library,
-                                            onClick = { handleRootTabClick(AppScreenTab.Library) },
-                                            icon = Res.drawable.sidebar_library,
-                                            contentDescription = stringResource(Res.string.compose_nav_library),
-                                        )
-                                        NavItem(
-                                            selected = selectedTab == AppScreenTab.Settings,
-                                            onClick = { handleRootTabClick(AppScreenTab.Settings) },
-                                        ) {
-                                            ProfileSwitcherTab(
-                                                selected = selectedTab == AppScreenTab.Settings,
-                                                onClick = { handleRootTabClick(AppScreenTab.Settings) },
-                                                onProfileSelected = onProfileSelected,
-                                                onAddProfileRequested = onSwitchProfile,
-                                            )
-                                        }
-                                    }
-                                }
-                            },
                         ) { innerPadding ->
                             Box(modifier = Modifier.fillMaxSize()) {
                                 CompositionLocalProvider(
-                                    LocalNuvioBottomNavigationOverlayPadding provides if (useNativeBottomTabs) 49.dp else 0.dp,
+                                    LocalNuvioBottomNavigationOverlayPadding provides if (useNativeBottomTabs) {
+                                        49.dp
+                                    } else if (!isTabletLayout) {
+                                        72.dp
+                                    } else {
+                                        0.dp
+                                    },
                                 ) {
                                     AppTabHost(
                                         modifier = Modifier
                                             .fillMaxSize()
+                                            .then(
+                                                if (!isTabletLayout && !useNativeBottomTabs) {
+                                                    Modifier.hazeSource(state = navBarHazeState)
+                                                } else {
+                                                    Modifier
+                                                },
+                                            )
                                             .padding(innerPadding),
                                         selectedTab = selectedTab,
                                         searchFocusRequestCount = searchFocusRequestCount,
@@ -1708,6 +1689,47 @@ private fun MainAppContent(
                                         onProfileSelected = onProfileSelected,
                                         onAddProfileRequested = onSwitchProfile,
                                     )
+                                }
+
+                                if (!isTabletLayout && !useNativeBottomTabs) {
+                                    NuvioNavigationBar(
+                                        modifier = Modifier.align(Alignment.BottomCenter),
+                                        hazeState = navBarHazeState,
+                                    ) {
+                                        NavItem(
+                                            selected = selectedTab == AppScreenTab.Home,
+                                            onClick = { handleRootTabClick(AppScreenTab.Home) },
+                                            icon = Icons.Filled.Home,
+                                            contentDescription = stringResource(Res.string.compose_nav_home),
+                                            label = stringResource(Res.string.compose_nav_home),
+                                        )
+                                        NavItem(
+                                            selected = selectedTab == AppScreenTab.Search,
+                                            onClick = { handleRootTabClick(AppScreenTab.Search) },
+                                            icon = Res.drawable.sidebar_search,
+                                            contentDescription = stringResource(Res.string.compose_nav_search),
+                                            label = stringResource(Res.string.compose_nav_search),
+                                        )
+                                        NavItem(
+                                            selected = selectedTab == AppScreenTab.Library,
+                                            onClick = { handleRootTabClick(AppScreenTab.Library) },
+                                            icon = Res.drawable.sidebar_library,
+                                            contentDescription = stringResource(Res.string.compose_nav_library),
+                                            label = stringResource(Res.string.compose_nav_library),
+                                        )
+                                        NavItem(
+                                            selected = selectedTab == AppScreenTab.Settings,
+                                            onClick = { handleRootTabClick(AppScreenTab.Settings) },
+                                            label = stringResource(Res.string.compose_nav_profile),
+                                        ) {
+                                            ProfileSwitcherTab(
+                                                selected = selectedTab == AppScreenTab.Settings,
+                                                onClick = { handleRootTabClick(AppScreenTab.Settings) },
+                                                onProfileSelected = onProfileSelected,
+                                                onAddProfileRequested = onSwitchProfile,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

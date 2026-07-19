@@ -85,6 +85,18 @@ class HomeScreenTest {
     }
 
     @Test
+    fun `continue watching release day follows notification adjusted metadata day`() {
+        assertEquals(
+            "2026-07-26",
+            continueWatchingNotificationReleaseDayIso("2026-07-25T17:30:00.000Z"),
+        )
+        assertEquals(
+            "2026-07-25",
+            continueWatchingNotificationReleaseDayIso("2026-07-25"),
+        )
+    }
+
+    @Test
     fun `Trakt continue watching window filters old progress only when Trakt source is active`() {
         val oldEntry = progressEntry(
             videoId = "old",
