@@ -50,6 +50,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingSortMode
 import com.nuvio.app.features.watchprogress.isSeriesTypeForContinueWatching
 import com.nuvio.app.features.watchprogress.nextUpDismissKey
+import com.nuvio.app.features.watchprogress.parseReleaseDateToEpochMs
 import com.nuvio.app.features.watchprogress.WatchProgressClock
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
@@ -240,7 +241,12 @@ fun HomeScreen(
                 return@mapNotNull null
             }
             val item = cached.toContinueWatchingItem() ?: return@mapNotNull null
-            cached.contentId to (cached.sortTimestamp to item)
+            val sortTimestamp = if (item.isReleaseAlert) {
+                parseReleaseDateToEpochMs(item.released) ?: cached.sortTimestamp
+            } else {
+                cached.sortTimestamp
+            }
+            cached.contentId to (sortTimestamp to item)
         }.toMap()
     }
     val cachedInProgressItems = remember(cachedSnapshots.second) {
@@ -417,6 +423,8 @@ fun HomeScreen(
                 sortTimestamp = pair.first,
                 seedSeason = item.nextUpSeedSeasonNumber,
                 seedEpisode = item.nextUpSeedEpisodeNumber,
+                isReleaseAlert = item.isReleaseAlert,
+                isNewSeasonRelease = item.isNewSeasonRelease,
             )
         }
         val inProgressCache = visibleContinueWatchingEntries.map { entry ->
@@ -761,8 +769,13 @@ internal fun buildHomeContinueWatchingItems(
         addAll(
             nextUpItemsBySeries.values.mapNotNull { (lastUpdatedEpochMs, item) ->
                 if (item.parentMetaId in inProgressSeriesIds) return@mapNotNull null
+                val sortTimestamp = if (item.isReleaseAlert) {
+                    parseReleaseDateToEpochMs(item.released) ?: lastUpdatedEpochMs
+                } else {
+                    lastUpdatedEpochMs
+                }
                 HomeContinueWatchingCandidate(
-                    lastUpdatedEpochMs = lastUpdatedEpochMs,
+                    lastUpdatedEpochMs = sortTimestamp,
                     item = item,
                     isProgressEntry = false,
                 )
@@ -977,6 +990,12 @@ private fun ContinueWatchingItem.shouldDisplayInContinueWatching(): Boolean =
     isNextUp || progressFraction < 0.995f
 
 private fun CachedNextUpItem.toContinueWatchingItem(): ContinueWatchingItem? {
+    val alertState = com.nuvio.app.features.watchprogress.calculateReleaseAlertState(
+        seedLastUpdatedEpochMs = lastWatched,
+        seedSeasonNumber = seedSeason,
+        nextSeasonNumber = season,
+        releasedIso = released,
+    )
     return ContinueWatchingItem(
         parentMetaId = contentId,
         parentMetaType = contentType,
@@ -1004,6 +1023,8 @@ private fun CachedNextUpItem.toContinueWatchingItem(): ContinueWatchingItem? {
         resumeProgressFraction = null,
         durationMs = 0L,
         progressFraction = 0f,
+        isReleaseAlert = isReleaseAlert || alertState.isReleaseAlert,
+        isNewSeasonRelease = isNewSeasonRelease || alertState.isNewSeasonRelease,
     )
 }
 

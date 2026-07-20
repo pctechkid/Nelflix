@@ -1,9 +1,7 @@
 package com.nuvio.app.features.home.components
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -118,6 +116,7 @@ private fun firstNonBlank(vararg values: String?): String? =
     values.firstOrNull { value -> !value.isNullOrBlank() }?.trim()
 
 private val NetflixProgressRed = Color(0xFFE50914)
+private val NewEpisodeBlue = Color(0xFF1D4ED8)
 
 @Composable
 internal fun HomeContinueWatchingSection(
@@ -350,7 +349,6 @@ private fun PosterCardPreview() {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingLandscapeCard(
     item: ContinueWatchingItem,
@@ -383,10 +381,11 @@ private fun ContinueWatchingLandscapeCard(
                 color = Color.White.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(layout.cardRadius),
             )
-            .combinedClickable(
-                enabled = onClick != null || onLongClick != null,
-                onClick = { onClick?.invoke() },
+            .posterCardClickable(
+                onClick = onClick,
                 onLongClick = onLongClick,
+                zoomImageUrl = artworkUrl,
+                zoomCornerRadius = layout.cardRadius,
             ),
     ) {
         if (artworkUrl != null) {
@@ -431,7 +430,11 @@ private fun ContinueWatchingLandscapeCard(
                     .align(Alignment.TopEnd)
                     .padding(10.dp),
             ) {
-                UpNextBadge(compact = false, textSize = layout.wideBadgeTextSize)
+                ContinueWatchingStatusBadge(
+                    item = item,
+                    compact = false,
+                    textSize = layout.wideBadgeTextSize,
+                )
             }
         }
         if (item.seasonNumber != null && item.episodeNumber != null) {
@@ -528,7 +531,6 @@ private fun ContinueWatchingLandscapeCard(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingWideCard(
     item: ContinueWatchingItem,
@@ -559,6 +561,8 @@ private fun LegacyContinueWatchingWideCard(
     onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
 ) {
+    val artworkUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails)
+
     Row(
         modifier = Modifier
             .width(layout.wideCardWidth)
@@ -570,14 +574,14 @@ private fun LegacyContinueWatchingWideCard(
                 color = Color.White.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(layout.cardRadius),
             )
-            .combinedClickable(
-                enabled = onClick != null || onLongClick != null,
-                onClick = { onClick?.invoke() },
+            .posterCardClickable(
+                onClick = onClick,
                 onLongClick = onLongClick,
+                zoomImageUrl = artworkUrl,
+                zoomCornerRadius = layout.cardRadius,
             ),
     ) {
         val shouldBlurArtwork = blurNextUp && useEpisodeThumbnails && item.isNextUp
-        val artworkUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails)
         ArtworkPanel(
             imageUrl = artworkUrl,
             width = layout.widePosterStripWidth,
@@ -611,7 +615,11 @@ private fun LegacyContinueWatchingWideCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
-                        UpNextBadge(compact = false, textSize = layout.wideBadgeTextSize)
+                        ContinueWatchingStatusBadge(
+                            item = item,
+                            compact = false,
+                            textSize = layout.wideBadgeTextSize,
+                        )
                     }
                 }
                 Text(
@@ -660,7 +668,6 @@ private fun LegacyContinueWatchingWideCard(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingPosterCard(
     item: ContinueWatchingItem,
@@ -685,7 +692,12 @@ private fun ContinueWatchingPosterCard(
                     color = Color.White.copy(alpha = 0.15f),
                     shape = RoundedCornerShape(layout.cardRadius),
                 )
-                .posterCardClickable(onClick = onClick, onLongClick = onLongClick),
+                .posterCardClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                    zoomImageUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails),
+                    zoomCornerRadius = layout.cardRadius,
+                ),
         ) {
             val shouldBlurArtwork = blurNextUp && useEpisodeThumbnails && item.isNextUp
             val imageUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails)
@@ -705,7 +717,11 @@ private fun ContinueWatchingPosterCard(
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
                 ) {
-                    UpNextBadge(compact = true, textSize = layout.posterBadgeTextSize)
+                    ContinueWatchingStatusBadge(
+                        item = item,
+                        compact = true,
+                        textSize = layout.posterBadgeTextSize,
+                    )
                 }
             }
             if (item.progressFraction > 0f) {
@@ -797,24 +813,44 @@ private fun ArtworkPanel(
 }
 
 @Composable
+private fun ContinueWatchingStatusBadge(
+    item: ContinueWatchingItem,
+    compact: Boolean,
+    textSize: androidx.compose.ui.unit.TextUnit,
+) {
+    UpNextBadge(
+        compact = compact,
+        textSize = textSize,
+        text = if (item.isReleaseAlert) {
+            stringResource(Res.string.cw_new_episode)
+        } else {
+            stringResource(Res.string.home_continue_watching_up_next)
+        },
+        backgroundColor = if (item.isReleaseAlert) NewEpisodeBlue else NetflixProgressRed,
+    )
+}
+
+@Composable
 private fun UpNextBadge(
     compact: Boolean,
     textSize: androidx.compose.ui.unit.TextUnit,
+    text: String,
+    backgroundColor: Color,
 ) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(if (compact) 4.dp else 9.dp))
-            .background(NetflixProgressRed)
+            .background(backgroundColor)
             .padding(
                 horizontal = if (compact) 6.dp else 9.dp,
                 vertical = if (compact) 3.dp else 5.dp,
             ),
     ) {
         Text(
-            text = stringResource(Res.string.home_continue_watching_up_next),
+            text = text,
             style = MaterialTheme.typography.titleMedium.copy(
                 fontSize = textSize,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Normal,
                 lineHeight = textSize * 1.05f,
             ),
             color = Color.White,

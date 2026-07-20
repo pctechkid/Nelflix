@@ -37,7 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -419,9 +419,8 @@ fun NuvioStatusModal(
                 modifier = Modifier.padding(20.dp),
             ) {
                 if (isBusy) {
-                    CircularProgressIndicator(
+                    NuvioLoadingIndicator(
                         color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 2.5.dp,
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                 }

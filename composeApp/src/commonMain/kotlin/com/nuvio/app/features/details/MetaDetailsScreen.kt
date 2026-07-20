@@ -27,9 +27,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.CircularProgressIndicator
+import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,10 +64,15 @@ import coil3.compose.AsyncImage
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.deeplink.buildMetaShareUrl
+import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.share.ShareSheet
 import com.nuvio.app.core.ui.NuvioBackButton
+import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
+import com.nuvio.app.core.ui.PosterZoomAnchor
+import com.nuvio.app.core.ui.PosterZoomAnchorHolder
+import com.nuvio.app.core.ui.PosterZoomOverlayAction
 import com.nuvio.app.core.ui.TraktListPickerDialog
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.details.components.DetailActionButtons
@@ -76,7 +87,6 @@ import com.nuvio.app.features.details.components.DetailPosterRailSection
 import com.nuvio.app.features.details.components.DetailProductionSection
 import com.nuvio.app.features.details.components.DetailSeriesContent
 import com.nuvio.app.features.details.components.DetailTrailersSection
-import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryRepository
@@ -95,6 +105,7 @@ import com.nuvio.app.features.trailer.TrailerPlaybackSource
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watched.previousReleasedEpisodesBefore
 import com.nuvio.app.features.watched.releasedEpisodesForSeason
+import com.nuvio.app.features.watched.releasedPlayableEpisodes
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
@@ -102,6 +113,8 @@ import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
@@ -153,6 +166,10 @@ fun MetaDetailsScreen(
     var autoLoadAttempted by remember(type, id) { mutableStateOf(false) }
     var observedOfflineState by remember(type, id) { mutableStateOf(false) }
     var selectedEpisodeForActions by remember(type, id) { mutableStateOf<MetaVideo?>(null) }
+    var selectedEpisodeZoomAnchor by remember(type, id) { mutableStateOf<PosterZoomAnchor?>(null) }
+    var selectedSeasonForActions by remember(type, id) { mutableStateOf<Int?>(null) }
+    var selectedSeasonZoomAnchor by remember(type, id) { mutableStateOf<PosterZoomAnchor?>(null) }
+    val detailContextMenuHazeState = rememberHazeState()
     val commentsEnabled by remember {
         TraktCommentsSettings.ensureLoaded()
         TraktCommentsSettings.enabled
@@ -258,7 +275,7 @@ fun MetaDetailsScreen(
     ) {
         when {
             displayedMeta == null && uiState.isLoading -> {
-                CircularProgressIndicator(
+                NuvioLoadingIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -626,6 +643,17 @@ fun MetaDetailsScreen(
                     val cinematicEnabled = metaScreenSettingsUiState.cinematicBackground
 
                     Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (selectedEpisodeForActions != null || selectedSeasonForActions != null) {
+                                        Modifier.hazeSource(state = detailContextMenuHazeState)
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                        ) {
                         if (cinematicEnabled) {
                             val backdropUrl = meta.background ?: meta.poster
                             if (backdropUrl != null) {
@@ -730,7 +758,14 @@ fun MetaDetailsScreen(
                                     watchedKeys = watchedUiState.watchedKeys,
                                     blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
                                     onEpisodeClick = onEpisodePlayClick,
-                                    onEpisodeLongPress = { video -> selectedEpisodeForActions = video },
+                                    onEpisodeLongPress = { video ->
+                                        selectedEpisodeZoomAnchor = PosterZoomAnchorHolder.consume()
+                                        selectedEpisodeForActions = video
+                                    },
+                                    onSeasonLongPress = { season ->
+                                        selectedSeasonZoomAnchor = PosterZoomAnchorHolder.consume()
+                                        selectedSeasonForActions = season
+                                    },
                                     onOpenMeta = onOpenMeta,
                                     onCastClick = onCastClick,
                                     onCompanyClick = onCompanyClick,
@@ -785,14 +820,16 @@ fun MetaDetailsScreen(
                             onToggleSaved = toggleSaved,
                             modifier = Modifier.zIndex(2f),
                         )
+                        }
 
                         selectedEpisodeForActions?.let { selectedEpisode ->
-                            val isSelectedEpisodeWatched = remember(meta, selectedEpisode, watchedUiState.watchedKeys) {
-                                WatchingState.isEpisodeWatched(
-                                    watchedKeys = watchedUiState.watchedKeys,
-                                    metaType = meta.type,
-                                    metaId = meta.id,
+                            val progressByVideoId = watchProgressUiState.byVideoId
+                            val isSelectedEpisodeWatched = remember(meta, selectedEpisode, watchedUiState.watchedKeys, progressByVideoId) {
+                                isEpisodeWatchedForActions(
+                                    meta = meta,
                                     episode = selectedEpisode,
+                                    watchedKeys = watchedUiState.watchedKeys,
+                                    progressByVideoId = progressByVideoId,
                                 )
                             }
                             val previousEpisodes = remember(meta, selectedEpisode, todayIsoDate) {
@@ -807,56 +844,203 @@ fun MetaDetailsScreen(
                                     todayIsoDate = todayIsoDate,
                                 )
                             }
-                            val arePreviousEpisodesWatched = remember(previousEpisodes, watchedUiState.watchedKeys) {
-                                WatchingState.areEpisodesWatched(
-                                    watchedKeys = watchedUiState.watchedKeys,
-                                    metaType = meta.type,
-                                    metaId = meta.id,
+                            val arePreviousEpisodesWatched = remember(previousEpisodes, watchedUiState.watchedKeys, progressByVideoId) {
+                                areEpisodesWatchedForActions(
+                                    meta = meta,
                                     episodes = previousEpisodes,
-                                )
-                            }
-                            val isSeasonWatched = remember(seasonEpisodes, watchedUiState.watchedKeys) {
-                                WatchingState.areEpisodesWatched(
                                     watchedKeys = watchedUiState.watchedKeys,
-                                    metaType = meta.type,
-                                    metaId = meta.id,
-                                    episodes = seasonEpisodes,
+                                    progressByVideoId = progressByVideoId,
                                 )
                             }
-                            EpisodeWatchedActionSheet(
-                                episode = selectedEpisode,
-                                seasonLabel = selectedEpisode.season?.let {
-                                    stringResource(Res.string.episodes_season, it)
-                                } ?: stringResource(Res.string.episodes_specials),
-                                isEpisodeWatched = isSelectedEpisodeWatched,
-                                canMarkPreviousEpisodes = previousEpisodes.isNotEmpty(),
-                                arePreviousEpisodesWatched = arePreviousEpisodesWatched,
-                                isSeasonWatched = isSeasonWatched,
-                                onDismiss = { selectedEpisodeForActions = null },
-                                onToggleWatched = {
-                                    WatchingActions.toggleEpisodeWatched(
-                                        meta = meta,
-                                        episode = selectedEpisode,
-                                        isCurrentlyWatched = isSelectedEpisodeWatched,
+                            val isSeasonWatched = remember(seasonEpisodes, watchedUiState.watchedKeys, progressByVideoId) {
+                                areEpisodesWatchedForActions(
+                                    meta = meta,
+                                    episodes = seasonEpisodes,
+                                    watchedKeys = watchedUiState.watchedKeys,
+                                    progressByVideoId = progressByVideoId,
+                                )
+                            }
+                            val seasonLabel = selectedEpisode.season?.let {
+                                stringResource(Res.string.episodes_season, it)
+                            } ?: stringResource(Res.string.episodes_specials)
+                            val episodeSubtitle = buildString {
+                                localizedSeasonEpisodeCode(
+                                    seasonNumber = selectedEpisode.season,
+                                    episodeNumber = selectedEpisode.episode,
+                                )?.let { code ->
+                                    append(code)
+                                    append(" • ")
+                                }
+                                append(seasonLabel)
+                            }
+                            NuvioPosterZoomActionOverlay(
+                                imageUrl = selectedEpisodeZoomAnchor?.imageUrl
+                                    ?: selectedEpisode.thumbnail
+                                    ?: meta.background
+                                    ?: meta.poster,
+                                title = selectedEpisode.title,
+                                subtitle = episodeSubtitle,
+                                isWatched = isSelectedEpisodeWatched,
+                                anchor = selectedEpisodeZoomAnchor,
+                                actions = buildList {
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = if (isSelectedEpisodeWatched) {
+                                                Icons.Default.CheckCircle
+                                            } else {
+                                                Icons.Default.CheckCircleOutline
+                                            },
+                                            label = if (isSelectedEpisodeWatched) {
+                                                stringResource(Res.string.episode_mark_unwatched)
+                                            } else {
+                                                stringResource(Res.string.episode_mark_watched)
+                                            },
+                                            onSelected = {
+                                                WatchingActions.toggleEpisodeWatched(
+                                                    meta = meta,
+                                                    episode = selectedEpisode,
+                                                    isCurrentlyWatched = isSelectedEpisodeWatched,
+                                                )
+                                            },
+                                        ),
                                     )
-                                },
-                                onTogglePreviousWatched = {
-                                    WatchingActions.togglePreviousEpisodesWatched(
-                                        meta = meta,
-                                        episodes = previousEpisodes,
-                                        areCurrentlyWatched = arePreviousEpisodesWatched,
+                                    if (previousEpisodes.isNotEmpty()) {
+                                        add(
+                                            PosterZoomOverlayAction(
+                                                icon = Icons.Default.DoneAll,
+                                                label = if (arePreviousEpisodesWatched) {
+                                                    stringResource(Res.string.episode_mark_previous_unwatched)
+                                                } else {
+                                                    stringResource(Res.string.episode_mark_previous_watched)
+                                                },
+                                                onSelected = {
+                                                    WatchingActions.togglePreviousEpisodesWatched(
+                                                        meta = meta,
+                                                        episodes = previousEpisodes,
+                                                        areCurrentlyWatched = arePreviousEpisodesWatched,
+                                                    )
+                                                },
+                                            ),
+                                        )
+                                    }
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Default.PlaylistAddCheckCircle,
+                                            label = if (isSeasonWatched) {
+                                                stringResource(Res.string.episode_mark_season_unwatched, seasonLabel)
+                                            } else {
+                                                stringResource(Res.string.episode_mark_season_watched, seasonLabel)
+                                            },
+                                            onSelected = {
+                                                WatchingActions.toggleSeasonWatched(
+                                                    meta = meta,
+                                                    episodes = seasonEpisodes,
+                                                    areCurrentlyWatched = isSeasonWatched,
+                                                )
+                                            },
+                                        ),
                                     )
+                                    if (showManualPlayOption) {
+                                        add(
+                                            PosterZoomOverlayAction(
+                                                icon = Icons.Default.PlayArrow,
+                                                label = stringResource(Res.string.play_manually),
+                                                onSelected = {
+                                                    onEpisodeManualPlayClick(selectedEpisode)
+                                                },
+                                            ),
+                                        )
+                                    }
                                 },
-                                onToggleSeasonWatched = {
-                                    WatchingActions.toggleSeasonWatched(
+                                hazeState = detailContextMenuHazeState,
+                                modifier = Modifier.zIndex(30f),
+                                onDismissed = {
+                                    selectedEpisodeForActions = null
+                                    selectedEpisodeZoomAnchor = null
+                                },
+                            )
+                        }
+
+                        selectedSeasonForActions?.let { selectedSeason ->
+                            val progressByVideoId = watchProgressUiState.byVideoId
+                            val seasonLabel = selectedSeasonLabel(selectedSeason)
+                            val seasonEpisodes = remember(meta, selectedSeason, todayIsoDate) {
+                                meta.releasedEpisodesForSeason(
+                                    seasonNumber = selectedSeason,
+                                    todayIsoDate = todayIsoDate,
+                                )
+                            }
+                            val previousSeasonEpisodes = remember(meta, selectedSeason, todayIsoDate) {
+                                val normalizedSelectedSeason = selectedSeason.coerceAtLeast(0)
+                                meta.releasedPlayableEpisodes(todayIsoDate)
+                                    .filter { episode ->
+                                        val season = episode.season?.coerceAtLeast(0) ?: 0
+                                        season > 0 && season < normalizedSelectedSeason
+                                    }
+                            }
+                            val isSeasonWatched = remember(seasonEpisodes, watchedUiState.watchedKeys, progressByVideoId) {
+                                areEpisodesWatchedForActions(
+                                    meta = meta,
+                                    episodes = seasonEpisodes,
+                                    watchedKeys = watchedUiState.watchedKeys,
+                                    progressByVideoId = progressByVideoId,
+                                )
+                            }
+                            val canMarkPreviousSeasons = remember(previousSeasonEpisodes, watchedUiState.watchedKeys, progressByVideoId) {
+                                previousSeasonEpisodes.any { episode ->
+                                    !isEpisodeWatchedForActions(
                                         meta = meta,
-                                        episodes = seasonEpisodes,
-                                        areCurrentlyWatched = isSeasonWatched,
+                                        episode = episode,
+                                        watchedKeys = watchedUiState.watchedKeys,
+                                        progressByVideoId = progressByVideoId,
                                     )
+                                }
+                            }
+                            NuvioPosterZoomActionOverlay(
+                                imageUrl = selectedSeasonZoomAnchor?.imageUrl ?: meta.poster ?: meta.background,
+                                title = seasonLabel,
+                                subtitle = meta.name,
+                                isWatched = isSeasonWatched,
+                                anchor = selectedSeasonZoomAnchor,
+                                actions = buildList {
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Default.PlaylistAddCheckCircle,
+                                            label = if (isSeasonWatched) {
+                                                stringResource(Res.string.episode_mark_season_unwatched, seasonLabel)
+                                            } else {
+                                                stringResource(Res.string.episode_mark_season_watched, seasonLabel)
+                                            },
+                                            onSelected = {
+                                                WatchingActions.toggleSeasonWatched(
+                                                    meta = meta,
+                                                    episodes = seasonEpisodes,
+                                                    areCurrentlyWatched = isSeasonWatched,
+                                                )
+                                            },
+                                        ),
+                                    )
+                                    if (canMarkPreviousSeasons) {
+                                        add(
+                                            PosterZoomOverlayAction(
+                                                icon = Icons.Default.DoneAll,
+                                                label = stringResource(Res.string.episode_mark_previous_seasons_watched),
+                                                onSelected = {
+                                                    WatchingActions.togglePreviousEpisodesWatched(
+                                                        meta = meta,
+                                                        episodes = previousSeasonEpisodes,
+                                                        areCurrentlyWatched = false,
+                                                    )
+                                                },
+                                            ),
+                                        )
+                                    }
                                 },
-                                showPlayManually = showManualPlayOption,
-                                onPlayManually = {
-                                    onEpisodeManualPlayClick(selectedEpisode)
+                                hazeState = detailContextMenuHazeState,
+                                modifier = Modifier.zIndex(30f),
+                                onDismissed = {
+                                    selectedSeasonForActions = null
+                                    selectedSeasonZoomAnchor = null
                                 },
                             )
                         }
@@ -1038,6 +1222,7 @@ private fun ConfiguredMetaSections(
     blurUnwatchedEpisodes: Boolean,
     onEpisodeClick: (MetaVideo) -> Unit,
     onEpisodeLongPress: (MetaVideo) -> Unit,
+    onSeasonLongPress: (Int) -> Unit,
     onOpenMeta: ((MetaPreview) -> Unit)?,
     onCastClick: ((MetaPerson, String?) -> Unit)?,
     onCompanyClick: ((MetaCompany, String) -> Unit)?,
@@ -1135,6 +1320,7 @@ private fun ConfiguredMetaSections(
                         blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                         onEpisodeClick = onEpisodeClick,
                         onEpisodeLongPress = onEpisodeLongPress,
+                        onSeasonLongPress = onSeasonLongPress,
                     )
                 }
             }
@@ -1267,6 +1453,50 @@ private fun TabbedSectionGroup(
         }
     }
 }
+
+@Composable
+private fun selectedSeasonLabel(season: Int): String =
+    if (season == 0) {
+        stringResource(Res.string.episodes_specials)
+    } else {
+        stringResource(Res.string.episodes_season, season)
+    }
+
+private fun isEpisodeWatchedForActions(
+    meta: MetaDetails,
+    episode: MetaVideo,
+    watchedKeys: Set<String>,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+): Boolean {
+    val episodeVideoId = buildPlaybackVideoId(
+        parentMetaId = meta.id,
+        seasonNumber = episode.season,
+        episodeNumber = episode.episode,
+        fallbackVideoId = episode.id,
+    )
+    return progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+        WatchingState.isEpisodeWatched(
+            watchedKeys = watchedKeys,
+            metaType = meta.type,
+            metaId = meta.id,
+            episode = episode,
+        )
+}
+
+private fun areEpisodesWatchedForActions(
+    meta: MetaDetails,
+    episodes: Collection<MetaVideo>,
+    watchedKeys: Set<String>,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+): Boolean =
+    episodes.isNotEmpty() && episodes.all { episode ->
+        isEpisodeWatchedForActions(
+            meta = meta,
+            episode = episode,
+            watchedKeys = watchedKeys,
+            progressByVideoId = progressByVideoId,
+        )
+    }
 
 private fun detailTabletContentMaxWidth(maxWidth: Dp, isTablet: Boolean): Dp =
     if (!isTablet) {

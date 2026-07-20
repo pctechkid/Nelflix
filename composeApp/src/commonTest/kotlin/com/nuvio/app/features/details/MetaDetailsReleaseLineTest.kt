@@ -25,9 +25,9 @@ class MetaDetailsReleaseLineTest {
     }
 
     @Test
-    fun ongoingSeriesShowsOpenRange() {
+    fun ongoingSeriesShowsStartYearOnly() {
         assertEquals(
-            "2025 -",
+            "2025",
             formatMetaReleaseLineForDetails(
                 meta("series", "2025-01-10", status = "Returning Series", lastAirDate = "2025-03-01"),
             ),
@@ -35,9 +35,9 @@ class MetaDetailsReleaseLineTest {
     }
 
     @Test
-    fun endedSeriesShowsClosedRange() {
+    fun endedSeriesShowsStartYearOnly() {
         assertEquals(
-            "2021 - 2028",
+            "2021",
             formatMetaReleaseLineForDetails(
                 meta("series", "2021-09-01", status = "Ended", lastAirDate = "2028-05-20"),
             ),
@@ -65,5 +65,10 @@ class MetaDetailsReleaseLineTest {
             "2020",
             formatMetaReleaseLineForDetails(meta("series", "2020-04-01", status = "Ended", lastAirDate = null)),
         )
+    }
+
+    @Test
+    fun danglingRangeShowsStartYearOnly() {
+        assertEquals("1999", formatMetaReleaseLineForDetails(meta("series", "1999-")))
     }
 }

@@ -26,14 +26,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -136,7 +142,12 @@ fun NuvioPosterCard(
                 .aspectRatio(shape.aspectRatio)
                 .clip(cardShape)
                 .background(MaterialTheme.colorScheme.surface)
-                .posterCardClickable(onClick = onClick, onLongClick = onLongClick),
+                .posterCardClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                    zoomImageUrl = imageUrl,
+                    zoomCornerRadius = posterCardStyle.cornerRadiusDp.dp,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             if (imageUrl != null) {
@@ -387,15 +398,45 @@ private fun NuvioPosterShape.cardWidth(basePosterWidthDp: Int): Dp =
     }
 
 @OptIn(ExperimentalFoundationApi::class)
+@Composable
 internal fun Modifier.posterCardClickable(
     onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
-): Modifier =
-    if (onClick != null || onLongClick != null) {
-        combinedClickable(
+    zoomImageUrl: String? = null,
+    zoomCornerRadius: Dp = 12.dp,
+): Modifier {
+    val latestBounds = remember { mutableStateOf<Rect?>(null) }
+    return if (onClick != null || onLongClick != null) {
+        onGloballyPositioned { coordinates ->
+            latestBounds.value = coordinates.unclippedBoundsInRoot()
+        }.combinedClickable(
             onClick = { onClick?.invoke() },
-            onLongClick = onLongClick,
+            onLongClick = onLongClick?.let { handler ->
+                {
+                    latestBounds.value?.let { bounds ->
+                        PosterZoomAnchorHolder.stash(
+                            PosterZoomAnchor(
+                                boundsInRoot = bounds,
+                                imageUrl = zoomImageUrl,
+                                cornerRadius = zoomCornerRadius,
+                            ),
+                        )
+                    }
+                    handler()
+                }
+            },
         )
     } else {
         this
     }
+}
+
+private fun LayoutCoordinates.unclippedBoundsInRoot(): Rect {
+    val position = positionInRoot()
+    return Rect(
+        left = position.x,
+        top = position.y,
+        right = position.x + size.width,
+        bottom = position.y + size.height,
+    )
+}

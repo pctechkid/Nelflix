@@ -41,7 +41,7 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SearchOff
-import androidx.compose.material3.CircularProgressIndicator
+import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -339,10 +339,9 @@ fun StreamsScreen(
                     .background(Color.Black.copy(alpha = 0.92f)),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator(
+                NuvioLoadingIndicator(
                     modifier = Modifier.size(36.dp),
                     color = Color.White,
-                    strokeWidth = 3.dp,
                 )
             }
         }
@@ -974,9 +973,8 @@ private fun StreamSectionHeader(
         )
         AnimatedVisibility(visible = isLoading, enter = fadeIn(), exit = fadeOut()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(
+                NuvioLoadingIndicator(
                     modifier = Modifier.size(12.dp),
-                    strokeWidth = 1.5.dp,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -1216,7 +1214,7 @@ private fun LoadingStateBlock(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CircularProgressIndicator(
+        NuvioLoadingIndicator(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(32.dp),
         )
@@ -1301,9 +1299,8 @@ private fun FooterLoadingBlock(modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CircularProgressIndicator(
+        NuvioLoadingIndicator(
             modifier = Modifier.size(14.dp),
-            strokeWidth = 2.dp,
             color = MaterialTheme.colorScheme.primary,
         )
         Spacer(modifier = Modifier.width(8.dp))

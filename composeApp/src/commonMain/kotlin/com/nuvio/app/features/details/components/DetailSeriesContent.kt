@@ -64,6 +64,7 @@ import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioAnimatedWatchedBadge
 import com.nuvio.app.core.ui.NuvioProgressBar
+import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaVideo
@@ -101,6 +102,7 @@ fun DetailSeriesContent(
     blurUnwatchedEpisodes: Boolean = false,
     onEpisodeClick: ((MetaVideo) -> Unit)? = null,
     onEpisodeLongPress: ((MetaVideo) -> Unit)? = null,
+    onSeasonLongPress: ((Int) -> Unit)? = null,
 ) {
     val hasVideos = meta.videos.isNotEmpty()
     if (meta.type != "series" && !hasVideos) return
@@ -231,12 +233,14 @@ fun DetailSeriesContent(
                                     currentSeason = currentSeason,
                                     sizing = sizing,
                                     onSelect = { selectedSeasonOverride = it },
+                                    onLongPress = onSeasonLongPress,
                                 )
                                 SeasonViewMode.Text -> SeasonTextChipScrollRow(
                                     seasons = seasons,
                                     currentSeason = currentSeason,
                                     sizing = sizing,
                                     onSelect = { selectedSeasonOverride = it },
+                                    onLongPress = onSeasonLongPress,
                                 )
                             }
                         }
@@ -246,6 +250,7 @@ fun DetailSeriesContent(
                             currentSeason = currentSeason,
                             sizing = sizing,
                             onSelect = { selectedSeasonOverride = it },
+                            onLongPress = onSeasonLongPress,
                         )
                     }
                 }
@@ -374,12 +379,14 @@ private fun SeasonViewModeToggle(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SeasonTextChipScrollRow(
     seasons: List<Int>,
     currentSeason: Int,
     sizing: SeriesContentSizing,
     onSelect: (Int) -> Unit,
+    onLongPress: ((Int) -> Unit)?,
 ) {
     val seasonListState = rememberLazyListState()
     var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
@@ -413,7 +420,10 @@ private fun SeasonTextChipScrollRow(
                             Color.Transparent
                         },
                     )
-                    .clickable { onSelect(season) }
+                    .combinedClickable(
+                        onClick = { onSelect(season) },
+                        onLongClick = onLongPress?.let { handler -> { handler(season) } },
+                    )
                     .padding(
                         horizontal = sizing.seasonChipHorizontalPadding,
                         vertical = sizing.seasonChipVerticalPadding,
@@ -445,6 +455,7 @@ private fun SeasonPosterScrollRow(
     currentSeason: Int,
     sizing: SeriesContentSizing,
     onSelect: (Int) -> Unit,
+    onLongPress: ((Int) -> Unit)?,
 ) {
     val seasonListState = rememberLazyListState()
     var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
@@ -477,11 +488,13 @@ private fun SeasonPosterScrollRow(
                 isSelected = season == currentSeason,
                 sizing = sizing,
                 onClick = { onSelect(season) },
+                onLongClick = onLongPress?.let { handler -> { handler(season) } },
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SeasonPosterButton(
     label: String,
@@ -489,11 +502,17 @@ private fun SeasonPosterButton(
     isSelected: Boolean,
     sizing: SeriesContentSizing,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
 ) {
     Column(
         modifier = Modifier
             .width(sizing.seasonPosterWidth)
-            .clickable(onClick = onClick),
+            .posterCardClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+                zoomImageUrl = imageUrl,
+                zoomCornerRadius = sizing.seasonPosterRadius,
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
@@ -648,6 +667,7 @@ private fun EpisodeHorizontalCard(
     val ratingLabel = remember(imdbRating) { imdbRating?.takeIf { it > 0.0 }?.let(::formatEpisodeRating) }
     val formattedDate = remember(video.released) { video.released?.let { formatReleaseDateForDisplay(it) } }
     val runtimeLabel = remember(video.runtime) { video.runtime?.takeIf { it > 0 }?.let(::formatEpisodeRuntime) }
+    val imageUrl = video.thumbnail ?: fallbackImage
     Box(
         modifier = Modifier
             .width(metrics.cardWidth)
@@ -659,13 +679,13 @@ private fun EpisodeHorizontalCard(
                 color = Color.White.copy(alpha = 0.12f),
                 shape = cardShape,
             )
-            .combinedClickable(
-                enabled = onClick != null || onLongPress != null,
-                onClick = { onClick?.invoke() },
+            .posterCardClickable(
+                onClick = onClick,
                 onLongClick = onLongPress,
+                zoomImageUrl = imageUrl,
+                zoomCornerRadius = metrics.cornerRadius,
             ),
     ) {
-        val imageUrl = video.thumbnail ?: fallbackImage
         val shouldBlurArtwork = blurUnwatchedEpisodes && !isWatched
         if (imageUrl != null) {
             AsyncImage(
@@ -1000,6 +1020,7 @@ private fun EpisodeListCard(
     val cardShape = RoundedCornerShape(sizing.cardRadius)
     val ratingLabel = remember(imdbRating) { imdbRating?.takeIf { it > 0.0 }?.let(::formatEpisodeRating) }
     val formattedDate = remember(video.released) { video.released?.let { formatReleaseDateForDisplay(it) } }
+    val imageUrl = video.thumbnail ?: fallbackImage
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1011,10 +1032,11 @@ private fun EpisodeListCard(
                 color = Color.White.copy(alpha = 0.1f),
                 shape = cardShape,
             )
-            .combinedClickable(
-                enabled = onClick != null || onLongPress != null,
-                onClick = { onClick?.invoke() },
+            .posterCardClickable(
+                onClick = onClick,
                 onLongClick = onLongPress,
+                zoomImageUrl = imageUrl,
+                zoomCornerRadius = sizing.cardRadius,
             ),
     ) {
         Row(
@@ -1027,7 +1049,6 @@ private fun EpisodeListCard(
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(topStart = sizing.cardRadius, bottomStart = sizing.cardRadius)),
             ) {
-                val imageUrl = video.thumbnail ?: fallbackImage
                 val shouldBlurArtwork = blurUnwatchedEpisodes && !isWatched
                 if (imageUrl != null) {
                     AsyncImage(

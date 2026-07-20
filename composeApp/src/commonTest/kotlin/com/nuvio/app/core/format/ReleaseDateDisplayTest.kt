@@ -20,6 +20,16 @@ class ReleaseDateDisplayTest {
     }
 
     @Test
+    fun trimsDanglingYearRange() {
+        assertEquals("1999", formatReleaseDateForDisplay("1999-"))
+    }
+
+    @Test
+    fun trimsClosedYearRangeToStartYear() {
+        assertEquals("1999", formatReleaseDateForDisplay("1999-2026"))
+    }
+
+    @Test
     fun leavesNonIsoUnchanged() {
         assertEquals("TBA", formatReleaseDateForDisplay("TBA"))
     }

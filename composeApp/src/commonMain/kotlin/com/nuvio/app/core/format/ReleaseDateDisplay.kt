@@ -9,6 +9,7 @@ import com.nuvio.app.core.i18n.localizedMonthName
 fun formatReleaseDateForDisplay(raw: String): String {
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return raw
+    sanitizeReleaseYearRange(trimmed)?.let { return it }
     val datePart = trimmed.substringBefore('T').trim()
     val parts = datePart.split('-')
     if (parts.size != 3) return raw
@@ -31,3 +32,10 @@ fun extractReleaseYearForDisplay(raw: String): Int? {
     val yearStr = datePart.split('-').firstOrNull() ?: return null
     return yearStr.toIntOrNull()?.takeIf { it in 1000..9999 }
 }
+
+private fun sanitizeReleaseYearRange(raw: String): String? {
+    val match = ReleaseYearRangeRegex.matchEntire(raw) ?: return null
+    return match.groupValues[1]
+}
+
+private val ReleaseYearRangeRegex = Regex("""((?:19|20)\d{2})(?:\s*-\s*((?:19|20)\d{2})?)?""")

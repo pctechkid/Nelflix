@@ -30,7 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
-import androidx.compose.material3.CircularProgressIndicator
+import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -632,9 +632,8 @@ private fun TrailerLoadingState() {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        CircularProgressIndicator(
+        NuvioLoadingIndicator(
             color = MaterialTheme.colorScheme.primary,
-            strokeWidth = 3.dp,
         )
     }
 }

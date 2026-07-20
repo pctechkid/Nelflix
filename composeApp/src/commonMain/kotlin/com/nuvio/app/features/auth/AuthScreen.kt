@@ -43,7 +43,7 @@ import androidx.compose.material.icons.rounded.Login
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -856,9 +856,8 @@ private fun AuthActionButton(
         contentPadding = ButtonDefaults.ContentPadding,
     ) {
         if (isLoading) {
-            CircularProgressIndicator(
+            NuvioLoadingIndicator(
                 color = Color.White,
-                strokeWidth = 2.4.dp,
                 modifier = Modifier.size(22.dp),
             )
         } else {

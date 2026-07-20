@@ -170,6 +170,8 @@ data class ContinueWatchingItem(
     val resumeProgressFraction: Float? = null,
     val durationMs: Long,
     val progressFraction: Float,
+    val isReleaseAlert: Boolean = false,
+    val isNewSeasonRelease: Boolean = false,
 )
 
 data class ContinueWatchingPreferencesUiState(
@@ -230,12 +232,20 @@ internal fun WatchProgressEntry.toContinueWatchingItem(): ContinueWatchingItem {
         resumeProgressFraction = explicitResumeProgressFraction,
         durationMs = normalizedEntry.durationMs,
         progressFraction = normalizedEntry.progressFraction,
+        isReleaseAlert = false,
+        isNewSeasonRelease = false,
     )
 }
 
 internal fun WatchProgressEntry.toUpNextContinueWatchingItem(
     nextEpisode: MetaVideo,
 ): ContinueWatchingItem {
+    val alertState = calculateReleaseAlertState(
+        seedLastUpdatedEpochMs = lastUpdatedEpochMs,
+        seedSeasonNumber = seasonNumber,
+        nextSeasonNumber = nextEpisode.season,
+        releasedIso = nextEpisode.released,
+    )
     return ContinueWatchingItem(
         parentMetaId = parentMetaId,
         parentMetaType = parentMetaType,
@@ -268,6 +278,8 @@ internal fun WatchProgressEntry.toUpNextContinueWatchingItem(
         resumeProgressFraction = null,
         durationMs = 0L,
         progressFraction = 0f,
+        isReleaseAlert = alertState.isReleaseAlert,
+        isNewSeasonRelease = alertState.isNewSeasonRelease,
     )
 }
 

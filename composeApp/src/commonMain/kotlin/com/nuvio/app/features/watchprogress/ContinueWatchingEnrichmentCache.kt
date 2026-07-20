@@ -25,6 +25,8 @@ data class CachedNextUpItem(
     val sortTimestamp: Long,
     val seedSeason: Int? = null,
     val seedEpisode: Int? = null,
+    val isReleaseAlert: Boolean = false,
+    val isNewSeasonRelease: Boolean = false,
 )
 
 @Serializable
@@ -76,8 +78,12 @@ internal object ContinueWatchingEnrichmentCache {
         nextUp: List<CachedNextUpItem>,
         inProgress: List<CachedInProgressItem>,
     ) {
+        val payload = CachedEnrichmentPayload(
+            nextUp = normalizeNextUpSnapshotForCache(nextUp),
+            inProgress = normalizeInProgressSnapshotForCache(inProgress),
+        )
         val encoded = runCatching {
-            json.encodeToString(CachedEnrichmentPayload(nextUp = nextUp, inProgress = inProgress))
+            json.encodeToString(payload)
         }.getOrNull() ?: return
         ContinueWatchingEnrichmentStorage.savePayload(ProfileScopedKey.of(storageKey), encoded)
     }
@@ -90,3 +96,24 @@ internal object ContinueWatchingEnrichmentCache {
         }.getOrNull()
     }
 }
+
+internal const val MaxCachedNextUpItems = 60
+internal const val MaxCachedInProgressItems = 20
+
+internal fun normalizeNextUpSnapshotForCache(items: List<CachedNextUpItem>): List<CachedNextUpItem> =
+    items
+        .asSequence()
+        .filter { item -> item.contentId.isNotBlank() && item.videoId.isNotBlank() }
+        .sortedByDescending { item -> maxOf(item.sortTimestamp, item.lastWatched) }
+        .distinctBy { item -> item.contentId.trim() }
+        .take(MaxCachedNextUpItems)
+        .toList()
+
+internal fun normalizeInProgressSnapshotForCache(items: List<CachedInProgressItem>): List<CachedInProgressItem> =
+    items
+        .asSequence()
+        .filter { item -> item.contentId.isNotBlank() && item.videoId.isNotBlank() }
+        .sortedByDescending { item -> item.lastWatched }
+        .distinctBy { item -> item.videoId.trim() }
+        .take(MaxCachedInProgressItems)
+        .toList()

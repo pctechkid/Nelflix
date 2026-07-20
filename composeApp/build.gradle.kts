@@ -332,6 +332,7 @@ kotlin {
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor3)
             implementation(libs.coil.svg)
+            implementation(libs.compottie)
             implementation("dev.chrisbanes.haze:haze:1.7.2")
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
