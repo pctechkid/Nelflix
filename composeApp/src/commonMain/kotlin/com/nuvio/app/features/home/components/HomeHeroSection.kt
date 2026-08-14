@@ -1,5 +1,8 @@
 package com.nuvio.app.features.home.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -28,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,7 +56,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
+import com.nuvio.app.core.ui.heroStretchHeight
+import com.nuvio.app.core.ui.heroStretchZoom
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.home.stableKey
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
@@ -61,6 +69,7 @@ import kotlin.math.abs
 
 private const val HERO_BACKGROUND_PARALLAX = 0.055f
 private const val HERO_BACKGROUND_SCALE = 1.14f
+private const val HERO_AUTO_ZOOM_SCALE = 1.08f
 private const val HERO_CONTENT_PARALLAX = 0.18f
 private const val HERO_SCROLL_PARALLAX = 0.3f
 private const val HERO_SCROLL_DOWN_SCALE_MULTIPLIER = 0.0001f
@@ -71,6 +80,9 @@ private const val HERO_SWIPE_VELOCITY_THRESHOLD = 300f
 private const val MOBILE_HERO_VIEWPORT_RATIO = 0.82f
 private const val MOBILE_HERO_MIN_HEIGHT_DP = 360f
 private const val MOBILE_HERO_MAX_HEIGHT_DP = 760f
+private const val HOME_HERO_AUTO_CAROUSEL_DELAY_MS = 6_500L
+private const val HOME_HERO_ZOOM_MS = 7_500
+private val NelflixRed = Color(0xFFE50914)
 
 internal data class HomeHeroLayout(
     val isTablet: Boolean,
@@ -90,12 +102,22 @@ fun HomeHeroSection(
     viewportHeight: Dp? = null,
     mobileBelowSectionHeightHint: Dp? = null,
     listState: LazyListState? = null,
+    backgroundColor: Color = MaterialTheme.colorScheme.background,
+    stretchPx: () -> Float = { 0f },
     onItemClick: ((MetaPreview) -> Unit)? = null,
 ) {
     if (items.isEmpty()) return
 
     val pagerState = rememberPagerState(pageCount = { items.size })
     val coroutineScope = rememberCoroutineScope()
+    LaunchedEffect(items) {
+        if (items.size <= 1) return@LaunchedEffect
+        while (true) {
+            delay(HOME_HERO_AUTO_CAROUSEL_DELAY_MS)
+            val nextPage = (pagerState.currentPage + 1) % items.size
+            pagerState.animateScrollToPage(nextPage)
+        }
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -154,7 +176,7 @@ fun HomeHeroSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(layout.heroHeight),
+                .heroStretchHeight(layout.heroHeight, stretchPx),
         ) {
             HorizontalPager(
                 state = pagerState,
@@ -166,25 +188,43 @@ fun HomeHeroSection(
                 Box(modifier = Modifier.fillMaxSize())
             }
 
-            Box(
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                visiblePages.forEach { layer ->
-                    AsyncImage(
-                        model = items[layer.page].banner ?: items[layer.page].poster,
-                        contentDescription = items[layer.page].name,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                alpha = layer.visibility
-                                translationX = -layer.offset * heroWidthPx * HERO_BACKGROUND_PARALLAX
-                                translationY = heroScrollTranslationY
-                                scaleX = HERO_BACKGROUND_SCALE * heroScrollScale
-                                scaleY = HERO_BACKGROUND_SCALE * heroScrollScale
-                            },
-                        alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
-                        contentScale = ContentScale.Crop,
-                    )
+            Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(layout.heroHeight)
+                        .heroStretchZoom(stretchPx),
+                ) {
+                    visiblePages.forEach { layer ->
+                        val layerItem = items[layer.page]
+                        val layerArtwork = layerItem.banner ?: layerItem.poster
+                        val layerIdentity = "${layerItem.stableKey()}:${layerArtwork.orEmpty()}"
+                        val pageZoom = remember(layerIdentity) { Animatable(1f) }
+
+                        LaunchedEffect(layerIdentity) {
+                            pageZoom.snapTo(1f)
+                            pageZoom.animateTo(
+                                targetValue = HERO_AUTO_ZOOM_SCALE,
+                                animationSpec = tween(HOME_HERO_ZOOM_MS, easing = LinearEasing),
+                            )
+                        }
+
+                        AsyncImage(
+                            model = layerArtwork,
+                            contentDescription = layerItem.name,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    alpha = layer.visibility
+                                    translationX = -layer.offset * heroWidthPx * HERO_BACKGROUND_PARALLAX
+                                    translationY = heroScrollTranslationY
+                                    scaleX = HERO_BACKGROUND_SCALE * heroScrollScale * pageZoom.value
+                                    scaleY = HERO_BACKGROUND_SCALE * heroScrollScale * pageZoom.value
+                                },
+                            alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                            contentScale = ContentScale.Crop,
+                        )
+                    }
                 }
 
                 Box(
@@ -193,10 +233,10 @@ fun HomeHeroSection(
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.02f),
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.12f),
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.34f),
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.78f),
+                                    Color.Black.copy(alpha = 0.18f),
+                                    Color.Black.copy(alpha = 0.28f),
+                                    backgroundColor.copy(alpha = 0.48f),
+                                    backgroundColor.copy(alpha = 0.94f),
                                 ),
                             ),
                         ),
@@ -210,8 +250,8 @@ fun HomeHeroSection(
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0f),
-                                    MaterialTheme.colorScheme.background,
+                                    backgroundColor.copy(alpha = 0f),
+                                    backgroundColor,
                                 ),
                             ),
                         ),
@@ -253,19 +293,28 @@ fun HomeHeroSection(
                         Spacer(modifier = Modifier.height(14.dp))
                         Surface(
                             modifier = Modifier
+                                .height(44.dp)
                                 .clickable(enabled = onItemClick != null) {
                                     onItemClick?.invoke(currentItem)
                                 },
-                            color = Color(0xFFE50914),
+                            color = NelflixRed,
                             contentColor = Color.White,
                             shape = RoundedCornerShape(40.dp),
                         ) {
-                            Text(
-                                text = stringResource(Res.string.home_view_details),
-                                modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Normal,
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .padding(horizontal = 24.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = stringResource(Res.string.home_view_details),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
 

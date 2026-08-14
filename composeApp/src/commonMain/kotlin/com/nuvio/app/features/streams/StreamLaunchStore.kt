@@ -17,6 +17,7 @@ data class StreamLaunch(
     val resumePositionMs: Long? = null,
     val resumeProgressFraction: Float? = null,
     val manualSelection: Boolean = false,
+    val launchedFromManualStreamSelection: Boolean = manualSelection,
     val startFromBeginning: Boolean = false,
 )
 

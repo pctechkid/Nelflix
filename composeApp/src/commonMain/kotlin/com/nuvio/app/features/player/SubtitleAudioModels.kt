@@ -22,6 +22,7 @@ data class SubtitleTrack(
     val language: String? = null,
     val isSelected: Boolean = false,
     val isForced: Boolean = false,
+    val isExternal: Boolean = false,
 )
 
 data class PlayerChapter(
@@ -123,6 +124,7 @@ fun localizedTrackDisplayName(
     label: String?,
     language: String?,
     index: Int,
+    kind: PlayerTrackKind,
     isForced: Boolean = false,
 ): String {
     val normalizedLanguage = normalizeLanguageCode(language)
@@ -131,8 +133,11 @@ fun localizedTrackDisplayName(
             normalizeLanguageCode(option.code)?.substringBefore('-') == normalized.substringBefore('-')
         }
     } ?: inferLanguageCodeFromTrackLabel(label)
+    val normalizedLabel = label?.trim()
     val baseName = if (languageCode != null) {
         languageLabelForCode(languageCode)
+    } else if (normalizedLabel == defaultPlayerTrackLabel(kind, index)) {
+        normalizedLabel
     } else {
         stringResource(Res.string.compose_player_track_number, index + 1)
     }

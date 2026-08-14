@@ -16,8 +16,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,16 +46,16 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun DetailFloatingHeader(
     meta: MetaDetails,
-    isSaved: Boolean,
     progress: Float,
     onBack: () -> Unit,
-    onToggleSaved: () -> Unit,
+    onOpenActions: () -> Unit,
+    backgroundColor: Color? = null,
     modifier: Modifier = Modifier,
 ) {
     val safeAreaTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerTopPadding = (safeAreaTop - 6.dp).coerceAtLeast(safeAreaTop * 0.8f)
     val interactive = progress > 0.05f
-    val surfaceColor = if (isIos) {
+    val surfaceColor = backgroundColor ?: if (isIos) {
         MaterialTheme.colorScheme.surface.copy(alpha = 1.0f)
     } else {
         MaterialTheme.colorScheme.background
@@ -135,9 +134,8 @@ fun DetailFloatingHeader(
                 }
 
                 DetailFloatingHeaderAction(
-                    isSaved = isSaved,
                     enabled = interactive,
-                    onClick = onToggleSaved,
+                    onClick = onOpenActions,
                 )
             }
 
@@ -156,7 +154,6 @@ fun DetailFloatingHeader(
 
 @Composable
 private fun DetailFloatingHeaderAction(
-    isSaved: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
@@ -167,12 +164,8 @@ private fun DetailFloatingHeaderAction(
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-            contentDescription = if (isSaved) {
-                stringResource(Res.string.hero_remove_from_library)
-            } else {
-                stringResource(Res.string.hero_add_to_library)
-            },
+            imageVector = Icons.Default.MoreHoriz,
+            contentDescription = stringResource(Res.string.details_actions_menu_label),
             tint = MaterialTheme.colorScheme.onBackground,
         )
     }

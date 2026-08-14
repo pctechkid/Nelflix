@@ -81,6 +81,7 @@ fun NuvioScreen(
     modifier: Modifier = Modifier,
     horizontalPadding: Dp = 16.dp,
     topPadding: Dp? = null,
+    backgroundColor: Color = MaterialTheme.colorScheme.background,
     listState: LazyListState = rememberLazyListState(),
     content: LazyListScope.() -> Unit,
 ) {
@@ -89,7 +90,7 @@ fun NuvioScreen(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(backgroundColor),
         contentPadding = PaddingValues(
             start = horizontalPadding,
             top = topPadding ?: 10.dp + statusBarTop + nuvioPlatformExtraTopPadding,

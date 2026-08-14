@@ -85,6 +85,40 @@ class PosterZoomOverlayAction(
     val onSelected: () -> Unit,
 )
 
+@Composable
+fun BoxScope.NuvioGlassModalBackdrop(
+    hazeState: HazeState?,
+    modifier: Modifier = Modifier,
+    progress: Float = 1f,
+    scrimAlpha: Float = 0.45f,
+) {
+    val visibleProgress = progress.coerceIn(0f, 1f)
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .then(
+                if (hazeState != null) {
+                    Modifier.hazeEffect(state = hazeState) {
+                        blurRadius = 36.dp
+                        inputScale = HazeInputScale.Auto
+                        noiseFactor = 0f
+                        blurredEdgeTreatment = BlurredEdgeTreatment.Rectangle
+                        clipToAreasBounds = false
+                        expandLayerBounds = true
+                        alpha = visibleProgress
+                    }
+                } else {
+                    Modifier
+                },
+            ),
+    )
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = scrimAlpha * visibleProgress)),
+    )
+}
+
 private enum class PosterZoomPhase {
     Open,
     Closing,
@@ -184,23 +218,9 @@ fun NuvioPosterZoomActionOverlay(
         val menuWidth = min(252.dp, menuAvailableWidth)
         val columnWidth = max(posterWidth, menuWidth)
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeEffect(state = hazeState) {
-                    blurRadius = 36.dp
-                    inputScale = HazeInputScale.Auto
-                    noiseFactor = 0f
-                    blurredEdgeTreatment = BlurredEdgeTreatment.Rectangle
-                    clipToAreasBounds = false
-                    expandLayerBounds = true
-                    alpha = scrim.value.coerceIn(0f, 1f)
-                },
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.45f * scrim.value.coerceIn(0f, 1f))),
+        NuvioGlassModalBackdrop(
+            hazeState = hazeState,
+            progress = scrim.value,
         )
 
         Column(

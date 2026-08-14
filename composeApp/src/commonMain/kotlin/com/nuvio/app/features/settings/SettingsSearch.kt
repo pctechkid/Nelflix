@@ -93,6 +93,7 @@ internal fun settingsSearchEntries(
     val playbackPage = stringResource(Res.string.compose_settings_page_playback)
     val integrationsPage = stringResource(Res.string.compose_settings_page_integrations)
     val notificationsPage = stringResource(Res.string.compose_settings_page_notifications)
+    val advancedPage = stringResource(Res.string.compose_settings_page_advanced)
     val supportersPage = stringResource(Res.string.compose_settings_page_supporters_contributors)
     val licensesPage = stringResource(Res.string.compose_settings_page_licenses_attributions)
     val homeLayoutPage = stringResource(Res.string.compose_settings_page_homescreen)
@@ -233,6 +234,13 @@ internal fun settingsSearchEntries(
         title = notificationsPage,
         description = stringResource(Res.string.compose_settings_root_notifications_description),
         icon = Icons.Rounded.Notifications,
+    )
+    addPage(
+        page = SettingsPage.Advanced,
+        key = "advanced",
+        title = advancedPage,
+        description = stringResource(Res.string.compose_settings_root_advanced_description),
+        icon = Icons.Rounded.Tune,
     )
     addPage(
         page = SettingsPage.SupportersContributors,
@@ -662,6 +670,15 @@ internal fun settingsSearchEntries(
         pageLabel = notificationsPage,
         section = "Release Calendar",
         icon = Icons.Rounded.Notifications,
+    )
+    addRow(
+        page = SettingsPage.Advanced,
+        key = "clear-continue-watching-cache",
+        title = stringResource(Res.string.settings_advanced_clear_cw_cache),
+        description = stringResource(Res.string.settings_advanced_clear_cw_cache_subtitle),
+        pageLabel = advancedPage,
+        section = stringResource(Res.string.settings_advanced_section_cache),
+        icon = Icons.Rounded.Tune,
     )
 
     val hiddenKeys = setOf(

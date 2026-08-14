@@ -27,9 +27,11 @@ actual fun PlatformPlayerSurface(
     useYoutubeChunkedPlayback: Boolean,
     modifier: Modifier,
     playWhenReady: Boolean,
+    initialPositionMs: Long?,
     resizeMode: PlayerResizeMode,
     useNativeController: Boolean,
     onControllerReady: (PlayerEngineController) -> Unit,
+    onTrackListChanged: () -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
 ) {
@@ -37,6 +39,7 @@ actual fun PlatformPlayerSurface(
     val latestOnControllerReady = rememberUpdatedState(onControllerReady)
     val latestOnSnapshot = rememberUpdatedState(onSnapshot)
     val latestOnError = rememberUpdatedState(onError)
+    val latestOnTrackListChanged = rememberUpdatedState(onTrackListChanged)
 
     val bridge = remember {
         NuvioPlayerBridgeFactory.create()
@@ -78,11 +81,16 @@ actual fun PlatformPlayerSurface(
             override fun getAudioTracks(): List<AudioTrack> {
                 val count = bridge.getAudioTrackCount()
                 return (0 until count).map { i ->
+                    val language = bridge.getAudioTrackLang(i)
                     AudioTrack(
                         index = bridge.getAudioTrackIndex(i),
                         id = bridge.getAudioTrackId(i),
-                        label = bridge.getAudioTrackLabel(i),
-                        language = bridge.getAudioTrackLang(i),
+                        label = buildPlayerTrackLabel(
+                            kind = PlayerTrackKind.Audio,
+                            displayedIndex = i,
+                            candidates = listOf(bridge.getAudioTrackLabel(i), language),
+                        ),
+                        language = language,
                         isSelected = bridge.isAudioTrackSelected(i),
                     )
                 }
@@ -97,7 +105,11 @@ actual fun PlatformPlayerSurface(
                     SubtitleTrack(
                         index = bridge.getSubtitleTrackIndex(i),
                         id = trackId,
-                        label = trackLabel,
+                        label = buildPlayerTrackLabel(
+                            kind = PlayerTrackKind.Subtitle,
+                            displayedIndex = i,
+                            candidates = listOf(trackLabel, trackLanguage),
+                        ),
                         language = trackLanguage,
                         isSelected = bridge.isSubtitleTrackSelected(i),
                         isForced = inferForcedSubtitleTrack(
@@ -245,6 +257,7 @@ actual fun PlatformPlayerSurface(
     // Polling for snapshots
     LaunchedEffect(bridge) {
         var lastReportedError: String? = null
+        var lastTrackSignature: String? = null
         while (isActive) {
             val snapshot = PlayerPlaybackSnapshot(
                 isLoading = bridge.getIsLoading(),
@@ -260,6 +273,30 @@ actual fun PlatformPlayerSurface(
             if (errorMessage != lastReportedError) {
                 lastReportedError = errorMessage
                 latestOnError.value(errorMessage)
+            }
+            val trackSignature = buildString {
+                val audioCount = bridge.getAudioTrackCount()
+                append("a:")
+                append(audioCount)
+                repeat(audioCount) { index ->
+                    append(':')
+                    append(bridge.getAudioTrackId(index))
+                    append(':')
+                    append(bridge.isAudioTrackSelected(index))
+                }
+                val subtitleCount = bridge.getSubtitleTrackCount()
+                append("|s:")
+                append(subtitleCount)
+                repeat(subtitleCount) { index ->
+                    append(':')
+                    append(bridge.getSubtitleTrackId(index))
+                    append(':')
+                    append(bridge.isSubtitleTrackSelected(index))
+                }
+            }
+            if (trackSignature != lastTrackSignature) {
+                lastTrackSignature = trackSignature
+                latestOnTrackListChanged.value()
             }
             delay(250L)
         }

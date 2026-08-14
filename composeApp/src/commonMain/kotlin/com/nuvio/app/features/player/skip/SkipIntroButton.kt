@@ -14,9 +14,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_skip
@@ -73,8 +81,8 @@ fun SkipIntroButton(
         }
     }
 
-    LaunchedEffect(shouldShow, autoHidden, controlsVisible) {
-        if (shouldShow && !autoHidden && !controlsVisible) {
+    LaunchedEffect(shouldShow, autoHidden) {
+        if (shouldShow && !autoHidden) {
             progress.animateTo(
                 1f,
                 animationSpec = tween(
@@ -94,24 +102,44 @@ fun SkipIntroButton(
         exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.8f),
         modifier = modifier,
     ) {
-        val shape = RoundedCornerShape(5.dp)
+        val shape = RoundedCornerShape(26.dp)
         Box(
             modifier = Modifier
                 .width(IntrinsicSize.Max)
-                .shadow(elevation = 12.dp, shape = shape, clip = false)
+                .shadow(elevation = 18.dp, shape = shape, clip = false)
                 .clip(shape)
-                .background(Color.White)
-                .border(width = 1.25.dp, color = Color.White, shape = shape)
+                .background(Color.Black.copy(alpha = 0.9f))
+                .border(width = 0.75.dp, color = Color.White.copy(alpha = 0.06f), shape = shape)
                 .clickable { onSkip() },
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 174.dp, minHeight = 48.dp)
+                    .padding(start = 20.dp, top = 10.dp, end = 14.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = skipLabel(lastType).uppercase(),
-                    color = Color.Black,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.sp,
+                    ),
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Box(
+                    modifier = Modifier
+                        .width(2.dp)
+                        .height(26.dp)
+                        .background(Color(0xFFE50914)),
+                )
+                Spacer(modifier = Modifier.width(13.dp))
+                Icon(
+                    imageVector = Icons.Rounded.FastForward,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(21.dp),
                 )
             }
         }

@@ -806,18 +806,18 @@ private fun ProgressControls(
                         onClick = onSeekForward,
                     )
                     PlayerActionBarButton(
-                        label = "Skip",
-                        icon = Icons.Outlined.SkipNext,
-                        buttonSize = actionButtonSize,
-                        iconSize = actionIconSize,
-                        onClick = onSilenceSkipClick,
-                    )
-                    PlayerActionBarButton(
                         label = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
                         icon = Icons.Outlined.Speed,
                         buttonSize = actionButtonSize,
                         iconSize = actionIconSize,
                         onClick = onSpeedClick,
+                    )
+                    PlayerActionBarButton(
+                        label = "Skip",
+                        icon = Icons.Outlined.SkipNext,
+                        buttonSize = actionButtonSize,
+                        iconSize = actionIconSize,
+                        onClick = onSilenceSkipClick,
                     )
             }
             Row(
@@ -878,15 +878,19 @@ private fun ProgressControls(
     }
 }
 
-private fun <T> playerControlsEnterAnimationSpec(): FiniteAnimationSpec<T> = tween(
+internal fun <T> playerControlsEnterAnimationSpec(): FiniteAnimationSpec<T> = tween(
     durationMillis = 320,
     easing = LinearOutSlowInEasing,
 )
 
-private fun <T> playerControlsExitAnimationSpec(): FiniteAnimationSpec<T> = tween(
+internal fun <T> playerControlsExitAnimationSpec(): FiniteAnimationSpec<T> = tween(
     durationMillis = 300,
     easing = FastOutSlowInEasing,
 )
+
+internal fun playerPanelEnterOffsetY(containerHeight: Int): Int = containerHeight
+
+internal fun playerPanelExitOffsetY(containerHeight: Int): Int = containerHeight
 
 @Composable
 private fun NetflixSeekBar(
@@ -1044,14 +1048,6 @@ internal fun LockedPlayerOverlay(
     modifier: Modifier = Modifier,
 ) {
     val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
-    val sliderColors = SliderDefaults.colors(
-        thumbColor = Color.White,
-        activeTrackColor = NetflixProgressRed,
-        inactiveTrackColor = Color.White.copy(alpha = 0.22f),
-        disabledThumbColor = Color.White,
-        disabledActiveTrackColor = NetflixProgressRed,
-        disabledInactiveTrackColor = Color.White.copy(alpha = 0.22f),
-    )
 
     Box(modifier = modifier.fillMaxSize()) {
         Box(
@@ -1071,16 +1067,18 @@ internal fun LockedPlayerOverlay(
 
         Column(
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .align(Alignment.TopEnd)
+                .padding(
+                    end = horizontalSafePadding + metrics.horizontalPadding,
+                    top = metrics.verticalPadding + 14.dp,
+                ),
+            horizontalAlignment = Alignment.End,
         ) {
             Box(
                 modifier = Modifier
-                    .size(78.dp)
+                    .size(58.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.52f))
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
                     .clickable(onClick = onUnlock),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1088,14 +1086,14 @@ internal fun LockedPlayerOverlay(
                     imageVector = Icons.Rounded.Lock,
                     contentDescription = stringResource(Res.string.compose_player_unlock_controls),
                     tint = Color.White,
-                    modifier = Modifier.size(34.dp),
+                    modifier = Modifier.size(27.dp),
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = stringResource(Res.string.compose_player_tap_to_unlock),
-                style = MaterialTheme.nuvioTypeScale.bodyMd.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White.copy(alpha = 0.92f),
+                style = MaterialTheme.nuvioTypeScale.bodySm.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White.copy(alpha = 0.88f),
             )
         }
 
@@ -1104,19 +1102,18 @@ internal fun LockedPlayerOverlay(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(horizontal = horizontalSafePadding + metrics.horizontalPadding)
-                .padding(bottom = metrics.sliderBottomOffset),
+                .padding(bottom = metrics.sliderBottomOffset + 18.dp),
         ) {
-            Slider(
+            NetflixSeekBar(
+                durationMs = durationMs,
+                playedFraction = displayedPositionMs.coerceIn(0L, durationMs).toFloat() / durationMs.toFloat(),
+                bufferedFraction = (playbackSnapshot.bufferedPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f),
+                touchHeight = metrics.sliderTouchHeight,
+                onScrubChange = {},
+                onScrubFinished = {},
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(metrics.sliderTouchHeight)
                     .graphicsLayer(scaleY = metrics.sliderScaleY),
-                value = displayedPositionMs.coerceIn(0L, durationMs).toFloat(),
-                onValueChange = {},
-                onValueChangeFinished = {},
-                valueRange = 0f..durationMs.toFloat(),
-                enabled = false,
-                colors = sliderColors,
             )
             Row(
                 modifier = Modifier

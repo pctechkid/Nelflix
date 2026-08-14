@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -65,17 +68,26 @@ class NuvioNavBarScrollState {
 @Composable
 fun rememberNuvioNavBarScrollState(): NuvioNavBarScrollState = remember { NuvioNavBarScrollState() }
 
+enum class NuvioNavigationBarPlacement {
+    Top,
+    Bottom,
+}
+
 @Composable
 fun NuvioNavigationBar(
     modifier: Modifier = Modifier,
     scrollState: NuvioNavBarScrollState? = null,
     hazeState: HazeState? = null,
+    placement: NuvioNavigationBarPlacement = NuvioNavigationBarPlacement.Bottom,
     content: @Composable NuvioNavigationBarScope.() -> Unit,
 ) {
     val labelFraction = scrollState?.labelVisibility ?: 0f
     val bottomSafePadding = nuvioBottomNavigationBarInsets()
         .asPaddingValues()
         .calculateBottomPadding()
+    val topSafePadding = WindowInsets.statusBars
+        .asPaddingValues()
+        .calculateTopPadding()
     val horizontalPadding = 28.dp + (58.dp - 28.dp) * (1f - labelFraction)
     val pillShape = RoundedCornerShape(999.dp)
 
@@ -83,13 +95,23 @@ fun NuvioNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .padding(
-                bottom = bottomSafePadding + nuvioBottomNavigationExtraVerticalPadding + 8.dp,
+                top = if (placement == NuvioNavigationBarPlacement.Top) topSafePadding + 10.dp else 0.dp,
+                bottom = if (placement == NuvioNavigationBarPlacement.Bottom) {
+                    bottomSafePadding + nuvioBottomNavigationExtraVerticalPadding + 8.dp
+                } else {
+                    0.dp
+                },
             ),
-        contentAlignment = Alignment.BottomCenter,
+        contentAlignment = if (placement == NuvioNavigationBarPlacement.Top) {
+            Alignment.TopCenter
+        } else {
+            Alignment.BottomCenter
+        },
     ) {
         Box(
             modifier = Modifier
                 .padding(horizontal = horizontalPadding)
+                .widthIn(max = 360.dp)
                 .fillMaxWidth()
                 .clip(pillShape)
                 .then(

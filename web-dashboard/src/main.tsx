@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import type { LibraryItemRow, Notice, Profile, RemoteEntry, TabKey, WatchedItemRow, WatchProgressRow } from "./types";
+import type { AccountStatistics, LibraryItemRow, Notice, Profile, RemoteEntry, TabKey, WatchedItemRow, WatchProgressRow } from "./types";
 import "./styles.css";
 
 function normalizeManifestUrl(value: string) {
@@ -257,6 +257,7 @@ function Console({ session }: { session: Session }) {
   const [watchedItems, setWatchedItems] = useState<WatchedItemRow[]>([]);
   const [watchedPage, setWatchedPage] = useState(1);
   const [watchedTotal, setWatchedTotal] = useState(0);
+  const [accountStatistics, setAccountStatistics] = useState<AccountStatistics | null>(null);
   const [tab, setTab] = useState<TabKey>("addons");
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(true);
@@ -296,6 +297,21 @@ function Console({ session }: { session: Session }) {
     if (library.error) throw library.error;
     setWatchProgress((progress.data ?? []) as WatchProgressRow[]);
     setLibraryItems((library.data ?? []) as LibraryItemRow[]);
+  }, []);
+
+  const loadAccountStatistics = useCallback(async (profileId: number): Promise<AccountStatistics | null> => {
+    const { data, error } = await supabase.rpc("sync_account_statistics", {
+      p_profile_id: profileId,
+    });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+    return {
+      profile_id: profileId,
+      progress_count: Math.max(0, Number(row.progress_count ?? 0)),
+      library_count: Math.max(0, Number(row.library_count ?? 0)),
+      watched_count: Math.max(0, Number(row.watched_count ?? 0)),
+    };
   }, []);
 
   const loadWatchedPage = useCallback(async (profileId: number, page: number) => {
@@ -347,13 +363,15 @@ function Console({ session }: { session: Session }) {
       if (profiles.length === 0) return;
       setLoading(true);
       try {
-        const [nextAddons, nextPlugins] = await Promise.all([
+        const [nextAddons, nextPlugins, nextStatistics] = await Promise.all([
           loadEntries("addons", effectiveAddonProfile),
           loadEntries("plugins", effectivePluginProfile),
+          loadAccountStatistics(activeProfile).catch(() => null),
         ]);
         if (!cancelled) {
           setAddons(nextAddons);
           setPlugins(nextPlugins);
+          if (nextStatistics) setAccountStatistics(nextStatistics);
           await loadProfileData(activeProfile);
           await loadWatchedPage(activeProfile, watchedPage);
         }
@@ -367,7 +385,7 @@ function Console({ session }: { session: Session }) {
     return () => {
       cancelled = true;
     };
-  }, [profiles, activeProfile, watchedPage, effectiveAddonProfile, effectivePluginProfile, loadEntries, loadProfileData, loadWatchedPage]);
+  }, [profiles, activeProfile, watchedPage, effectiveAddonProfile, effectivePluginProfile, loadEntries, loadAccountStatistics, loadProfileData, loadWatchedPage]);
 
   useEffect(() => {
     setWatchedPage(1);
@@ -447,16 +465,17 @@ function Console({ session }: { session: Session }) {
   }
 
   const visibleRows = tab === "addons" ? addons : plugins;
+  const canonicalStatistics = accountStatistics?.profile_id === activeProfile ? accountStatistics : null;
   const stats = useMemo(() => ({
     profiles: profiles.length,
     addons: addons.length,
     plugins: plugins.length,
-    progress: watchProgress.length,
-    library: libraryItems.length,
-    watched: watchedTotal,
+    progress: canonicalStatistics?.progress_count ?? "-",
+    library: canonicalStatistics?.library_count ?? "-",
+    watched: canonicalStatistics?.watched_count ?? "-",
     enabledAddons: addons.filter((row) => row.enabled).length,
     enabledPlugins: plugins.filter((row) => row.enabled).length,
-  }), [profiles, addons, plugins, watchProgress, libraryItems, watchedTotal]);
+  }), [profiles, addons, plugins, canonicalStatistics]);
 
   return (
     <main className="app-shell">

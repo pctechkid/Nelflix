@@ -6,11 +6,15 @@ import android.content.Intent
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.nuvio.app.features.watchprogress.ContinueWatchingClockChangeMonitor
 
 class EpisodeReleaseNotificationRescheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         if (action !in supportedActions) return
+        if (action == Intent.ACTION_TIME_CHANGED || action == Intent.ACTION_TIMEZONE_CHANGED) {
+            ContinueWatchingClockChangeMonitor.notifyClockChanged()
+        }
 
         val request = OneTimeWorkRequestBuilder<EpisodeReleaseNotificationRescheduleWorker>()
             .addTag(rescheduleWorkName)

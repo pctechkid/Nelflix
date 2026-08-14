@@ -48,6 +48,8 @@ import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
+import com.nuvio.app.features.watchprogress.canonicalIdentity
+import com.nuvio.app.features.watchprogress.continueWatchingEpisodeCode
 import kotlin.math.roundToInt
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -72,15 +74,16 @@ private fun continueWatchingRemainingLabel(item: ContinueWatchingItem): String {
 
 @Composable
 private fun localizedContinueWatchingMetaLine(item: ContinueWatchingItem): String =
-    when {
-        item.seasonNumber != null && item.episodeNumber != null && item.isNextUp ->
-            stringResource(Res.string.continue_watching_up_next_episode, item.seasonNumber, item.episodeNumber)
-        item.seasonNumber != null && item.episodeNumber != null ->
-            stringResource(Res.string.compose_player_episode_code_full, item.seasonNumber, item.episodeNumber)
-        item.isNextUp ->
-            stringResource(Res.string.continue_watching_up_next)
-        else ->
-            stringResource(Res.string.media_movie)
+    continueWatchingEpisodeCode(item.seasonNumber, item.episodeNumber).let { episodeCode ->
+        when {
+            episodeCode != null && item.isNextUp -> listOf(
+                stringResource(Res.string.continue_watching_up_next),
+                episodeCode,
+            ).joinToString(" • ")
+            episodeCode != null -> episodeCode
+            item.isNextUp -> stringResource(Res.string.continue_watching_up_next)
+            else -> stringResource(Res.string.media_movie)
+        }
     }
 
 private fun ContinueWatchingItem.continueWatchingArtworkUrl(
@@ -117,6 +120,7 @@ private fun firstNonBlank(vararg values: String?): String? =
 
 private val NetflixProgressRed = Color(0xFFE50914)
 private val NewEpisodeBlue = Color(0xFF1D4ED8)
+private val NewSeasonGreen = Color(0xFF15803D)
 
 @Composable
 internal fun HomeContinueWatchingSection(
@@ -190,7 +194,7 @@ private fun HomeContinueWatchingSectionContent(
         rowContentPadding = PaddingValues(horizontal = sectionPadding),
         itemSpacing = layout.itemGap,
         showHeaderAccent = !homeCatalogSettings.hideCatalogUnderline,
-        key = { item -> item.videoId },
+        key = { item -> item.canonicalIdentity() },
     ) { item ->
         ContinueWatchingLandscapeCard(
             item = item,
@@ -376,11 +380,6 @@ private fun ContinueWatchingLandscapeCard(
             .height(layout.wideCardHeight)
             .clip(RoundedCornerShape(layout.cardRadius))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(
-                width = 1.5.dp,
-                color = Color.White.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(layout.cardRadius),
-            )
             .posterCardClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -424,42 +423,29 @@ private fun ContinueWatchingLandscapeCard(
                     ),
                 ),
         )
-        if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
-            Box(
+        if (item.seasonNumber != null && item.episodeNumber != null) {
+            Row(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(10.dp),
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(9.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                ContinueWatchingStatusBadge(
-                    item = item,
+                ContinueWatchingEpisodeBadge(
+                    seasonNumber = item.seasonNumber,
+                    episodeNumber = item.episodeNumber,
                     compact = false,
                     textSize = layout.wideBadgeTextSize,
                 )
-            }
-        }
-        if (item.seasonNumber != null && item.episodeNumber != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(9.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
-            ) {
-                Text(
-                    text = stringResource(
-                        Res.string.compose_player_episode_code_full,
-                        item.seasonNumber,
-                        item.episodeNumber,
-                    ),
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = layout.wideMetaSize * 0.78f,
-                        fontWeight = FontWeight.Normal,
-                        lineHeight = layout.wideMetaSize * 0.9f,
-                    ),
-                    color = Color.White,
-                    maxLines = 1,
-                )
+                Spacer(modifier = Modifier.weight(1f))
+                if (item.progressFraction <= 0f) {
+                    ContinueWatchingStatusBadge(
+                        item = item,
+                        compact = false,
+                        textSize = layout.wideBadgeTextSize,
+                    )
+                }
             }
         }
         Column(
@@ -569,11 +555,6 @@ private fun LegacyContinueWatchingWideCard(
             .height(layout.wideCardHeight)
             .clip(RoundedCornerShape(layout.cardRadius))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-            .border(
-                width = 1.5.dp,
-                color = Color.White.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(layout.cardRadius),
-            )
             .posterCardClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -687,11 +668,6 @@ private fun ContinueWatchingPosterCard(
                 .height(layout.posterCardHeight)
                 .clip(RoundedCornerShape(layout.cardRadius))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(
-                    width = 1.5.dp,
-                    color = Color.White.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(layout.cardRadius),
-                )
                 .posterCardClickable(
                     onClick = onClick,
                     onLongClick = onLongClick,
@@ -711,17 +687,29 @@ private fun ContinueWatchingPosterCard(
                     contentScale = ContentScale.Crop,
                 )
             }
-            if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
-                Box(
+            if (item.seasonNumber != null && item.episodeNumber != null) {
+                Row(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
                         .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ContinueWatchingStatusBadge(
-                        item = item,
+                    ContinueWatchingEpisodeBadge(
+                        seasonNumber = item.seasonNumber,
+                        episodeNumber = item.episodeNumber,
                         compact = true,
                         textSize = layout.posterBadgeTextSize,
                     )
+                    Spacer(modifier = Modifier.weight(1f))
+                    if (item.progressFraction <= 0f) {
+                        ContinueWatchingStatusBadge(
+                            item = item,
+                            compact = true,
+                            textSize = layout.posterBadgeTextSize,
+                        )
+                    }
                 }
             }
             if (item.progressFraction > 0f) {
@@ -768,21 +756,6 @@ private fun ContinueWatchingPosterCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (item.seasonNumber != null && item.episodeNumber != null) {
-                Text(
-                    text = stringResource(
-                        Res.string.streams_episode_badge,
-                        item.seasonNumber,
-                        item.episodeNumber,
-                    ),
-                    modifier = Modifier.padding(start = 6.dp),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = layout.posterMetaSize,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
@@ -818,20 +791,40 @@ private fun ContinueWatchingStatusBadge(
     compact: Boolean,
     textSize: androidx.compose.ui.unit.TextUnit,
 ) {
-    UpNextBadge(
+    val isNewSeason = item.isNewSeasonRelease
+    ContinueWatchingBadge(
         compact = compact,
         textSize = textSize,
-        text = if (item.isReleaseAlert) {
-            stringResource(Res.string.cw_new_episode)
-        } else {
-            stringResource(Res.string.home_continue_watching_up_next)
+        text = when {
+            isNewSeason -> stringResource(Res.string.cw_new_season)
+            item.isReleaseAlert -> stringResource(Res.string.cw_new_episode)
+            else -> stringResource(Res.string.home_continue_watching_up_next)
         },
-        backgroundColor = if (item.isReleaseAlert) NewEpisodeBlue else NetflixProgressRed,
+        backgroundColor = when {
+            isNewSeason -> NewSeasonGreen
+            item.isReleaseAlert -> NewEpisodeBlue
+            else -> NetflixProgressRed
+        },
     )
 }
 
 @Composable
-private fun UpNextBadge(
+private fun ContinueWatchingEpisodeBadge(
+    seasonNumber: Int,
+    episodeNumber: Int,
+    compact: Boolean,
+    textSize: androidx.compose.ui.unit.TextUnit,
+) {
+    ContinueWatchingBadge(
+        compact = compact,
+        textSize = textSize,
+        text = continueWatchingEpisodeCode(seasonNumber, episodeNumber).orEmpty(),
+        backgroundColor = Color.Black.copy(alpha = 0.55f),
+    )
+}
+
+@Composable
+private fun ContinueWatchingBadge(
     compact: Boolean,
     textSize: androidx.compose.ui.unit.TextUnit,
     text: String,
@@ -839,7 +832,7 @@ private fun UpNextBadge(
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(if (compact) 4.dp else 9.dp))
+            .clip(RoundedCornerShape(if (compact) 4.dp else 6.dp))
             .background(backgroundColor)
             .padding(
                 horizontal = if (compact) 6.dp else 9.dp,
@@ -855,6 +848,7 @@ private fun UpNextBadge(
             ),
             color = Color.White,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

@@ -13,22 +13,28 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import com.nuvio.app.features.library.LibraryRepository
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.launch
@@ -61,13 +67,62 @@ private fun AccountSettingsBody(
     val watchProgressState by WatchProgressRepository.uiState.collectAsStateWithLifecycle()
     val libraryState by LibraryRepository.uiState.collectAsStateWithLifecycle()
     val watchedState by WatchedRepository.uiState.collectAsStateWithLifecycle()
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
+    val accountStatisticsState by AccountStatisticsRepository.uiState.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     var showSignOutConfirm by remember { mutableStateOf(false) }
+    val activeProfileId = profileState.activeProfile?.profileIndex ?: ProfileRepository.activeProfileId
+    val localStatistics = AccountStatistics(
+        progress = watchProgressState.entries.size.toLong(),
+        library = libraryState.items.size.toLong(),
+        watched = watchedState.items.size.toLong(),
+    )
+    val latestLocalStatistics = rememberUpdatedState(localStatistics)
+    val displayedStatistics = accountStatisticsForDisplay(
+        serverOrCached = accountStatisticsState.statistics.takeIf {
+            val authenticated = authState as? AuthState.Authenticated
+            authenticated != null &&
+                accountStatisticsState.userId == authenticated.userId &&
+                accountStatisticsState.profileId == activeProfileId
+        },
+        fallback = localStatistics,
+    )
 
     LaunchedEffect(Unit) {
         WatchProgressRepository.ensureLoaded()
         LibraryRepository.ensureLoaded()
         WatchedRepository.ensureLoaded()
+    }
+
+    LaunchedEffect((authState as? AuthState.Authenticated)?.userId, activeProfileId) {
+        val authenticated = authState as? AuthState.Authenticated
+        if (authenticated == null || authenticated.isAnonymous) {
+            AccountStatisticsRepository.clear()
+            return@LaunchedEffect
+        }
+        AccountStatisticsRepository.refresh(
+            userId = authenticated.userId,
+            profileId = activeProfileId,
+            fallback = latestLocalStatistics.value,
+        )
+    }
+
+    DisposableEffect(lifecycleOwner, authState, activeProfileId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+            val authenticated = authState as? AuthState.Authenticated ?: return@LifecycleEventObserver
+            if (authenticated.isAnonymous) return@LifecycleEventObserver
+            scope.launch {
+                AccountStatisticsRepository.refresh(
+                    userId = authenticated.userId,
+                    profileId = activeProfileId,
+                    fallback = latestLocalStatistics.value,
+                )
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -121,11 +176,11 @@ private fun AccountSettingsBody(
                             )
                         }
                         Spacer(modifier = Modifier.height(12.dp))
-                        AccountStatLine(label = "Progress", value = watchProgressState.entries.size)
+                        AccountStatLine(label = "Progress", value = displayedStatistics.progress)
                         Spacer(modifier = Modifier.height(6.dp))
-                        AccountStatLine(label = "Library", value = libraryState.items.size)
+                        AccountStatLine(label = "Library", value = displayedStatistics.library)
                         Spacer(modifier = Modifier.height(6.dp))
-                        AccountStatLine(label = "Watched", value = watchedState.items.size)
+                        AccountStatLine(label = "Watched", value = displayedStatistics.watched)
                     }
                 }
                 else -> {
@@ -175,7 +230,7 @@ private fun AccountSettingsBody(
 @Composable
 private fun AccountStatLine(
     label: String,
-    value: Int,
+    value: Long,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),

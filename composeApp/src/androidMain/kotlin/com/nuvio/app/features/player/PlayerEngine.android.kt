@@ -35,9 +35,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import java.io.File
 import java.net.URI
 import java.util.Collections
@@ -60,9 +57,11 @@ actual fun PlatformPlayerSurface(
     useYoutubeChunkedPlayback: Boolean,
     modifier: Modifier,
     playWhenReady: Boolean,
+    initialPositionMs: Long?,
     resizeMode: PlayerResizeMode,
     useNativeController: Boolean,
     onControllerReady: (PlayerEngineController) -> Unit,
+    onTrackListChanged: () -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
 ) {
@@ -71,6 +70,7 @@ actual fun PlatformPlayerSurface(
     val scope = rememberCoroutineScope()
     val latestOnSnapshot = rememberUpdatedState(onSnapshot)
     val latestOnError = rememberUpdatedState(onError)
+    val latestOnTrackListChanged = rememberUpdatedState(onTrackListChanged)
     val sanitizedSourceHeaders = sanitizePlaybackHeaders(sourceHeaders)
     val sanitizedSourceResponseHeaders = sanitizePlaybackResponseHeaders(sourceResponseHeaders)
     val playerSourceKey = remember(
@@ -79,6 +79,7 @@ actual fun PlatformPlayerSurface(
         sanitizedSourceHeaders,
         sanitizedSourceResponseHeaders,
         useYoutubeChunkedPlayback,
+        initialPositionMs,
     ) {
         MpvSource(
             url = sourceUrl,
@@ -86,8 +87,11 @@ actual fun PlatformPlayerSurface(
             headers = sanitizedSourceHeaders,
             responseHeaders = sanitizedSourceResponseHeaders,
             useYoutubeChunkedPlayback = useYoutubeChunkedPlayback,
+            initialPositionMs = initialPositionMs?.takeIf { it > 0L },
         )
     }
+    val mediaTrackStore = remember(playerSourceKey) { AndroidPlayerMediaTrackStore() }
+    val latestMediaTrackStore = rememberUpdatedState(mediaTrackStore)
     var playerView by remember { mutableStateOf<NuvioMpvView?>(null) }
 
     DisposableEffect(Unit) {
@@ -101,7 +105,26 @@ actual fun PlatformPlayerSurface(
             },
             onError = { latestOnError.value(it) },
             currentExternalAudioUrl = { playerView?.currentExternalAudioUrl() },
-            onTrackListChanged = { playerView?.reapplyCurrentResizeMode() },
+            onMediaTrackPropertyChanged = { property, value ->
+                when (property) {
+                    "track-list" -> {
+                        value?.let { node ->
+                            latestMediaTrackStore.value.merge(
+                                playerMediaTracks(trackNodes = mpvTracks(node)),
+                            )
+                        }
+                        playerView?.reapplyCurrentResizeMode()
+                    }
+                    "chapter-list" -> {
+                        value?.let { node ->
+                            latestMediaTrackStore.value.merge(
+                                playerMediaTracks(chapterNodes = mpvChapters(node)),
+                            )
+                        }
+                    }
+                }
+                scope.launch { latestOnTrackListChanged.value() }
+            },
         )
         MPVLib.addObserver(observer)
         onDispose {
@@ -139,6 +162,7 @@ actual fun PlatformPlayerSurface(
         onControllerReady(
             MpvPlayerEngineController(
                 context = context,
+                mediaTrackStore = mediaTrackStore,
                 onSubtitleConfigurationChanged = { playerView?.reapplyCurrentResizeMode() },
             ),
         )
@@ -176,6 +200,7 @@ internal data class MpvSource(
     val headers: Map<String, String>,
     val responseHeaders: Map<String, String>,
     val useYoutubeChunkedPlayback: Boolean,
+    val initialPositionMs: Long?,
 )
 
 class NuvioMpvView(
@@ -206,7 +231,21 @@ class NuvioMpvView(
             applyHeaders(source.headers)
             applyResponseHeaderOverrides(source.responseHeaders)
             applyYoutubeChunkedCompat(source.useYoutubeChunkedPlayback)
-            MPVLib.command("loadfile", source.url.toPlayablePath(context), "replace")
+            val playablePath = source.url.toPlayablePath(context)
+            val startSeconds = source.initialPositionMs
+                ?.takeIf { it > 0L }
+                ?.let { positionMs -> positionMs.toDouble() / 1000.0 }
+            if (startSeconds != null) {
+                MPVLib.command(
+                    "loadfile",
+                    playablePath,
+                    "replace",
+                    "-1",
+                    "start=$startSeconds",
+                )
+            } else {
+                MPVLib.command("loadfile", playablePath, "replace")
+            }
             applyRegularSubtitleOverride()
             applyResizeModeNow(currentResizeMode)
             MPVLib.setPropertyBoolean("pause", !playWhenReady)
@@ -413,7 +452,7 @@ private class NuvioMpvObserver(
     private val requestSnapshot: () -> Unit,
     private val onError: (String?) -> Unit,
     private val currentExternalAudioUrl: () -> String?,
-    private val onTrackListChanged: () -> Unit,
+    private val onMediaTrackPropertyChanged: (String, MPVNode?) -> Unit,
 ) : MPVLib.EventObserver {
     private val lastSnapshotRequestMs = AtomicLong(0L)
 
@@ -438,7 +477,9 @@ private class NuvioMpvObserver(
     }
 
     override fun eventProperty(property: String, value: MPVNode) {
-        if (property == "track-list") onTrackListChanged()
+        if (property == "track-list" || property == "chapter-list") {
+            onMediaTrackPropertyChanged(property, value)
+        }
         requestSnapshotThrottled()
     }
 
@@ -451,7 +492,7 @@ private class NuvioMpvObserver(
                         MPVLib.command("audio-add", audioUrl.toPlayablePath(context), "select")
                     }
                 }
-                onTrackListChanged()
+                onMediaTrackPropertyChanged("track-list", null)
                 onError(null)
                 requestSnapshotThrottled(force = true)
             }
@@ -473,6 +514,7 @@ private class NuvioMpvObserver(
 
 private class MpvPlayerEngineController(
     private val context: Context,
+    private val mediaTrackStore: AndroidPlayerMediaTrackStore,
     private val onSubtitleConfigurationChanged: () -> Unit,
 ) : PlayerEngineController {
     private val absoluteSeekGeneration = AtomicLong(0L)
@@ -518,46 +560,32 @@ private class MpvPlayerEngineController(
         MpvCalls.execute { MPVLib.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0)) }
     }
 
-    override fun getAudioTracks(): List<AudioTrack> =
-        MpvCalls.callBlocking(MpvReadTimeoutMs, emptyList()) { mpvTracks() }
-            .filter { it.isAudio }
-            .mapIndexed { index, track ->
-                AudioTrack(
-                    index = index,
-                    id = track.id.toString(),
-                    label = track.displayLabel(index),
-                    language = track.lang,
-                    isSelected = track.selected == true,
-                )
-            }
-
-    override fun getSubtitleTracks(): List<SubtitleTrack> =
-        MpvCalls.callBlocking(MpvReadTimeoutMs, emptyList()) { mpvTracks() }
-            .filter { it.isSubtitle }
-            .mapIndexed { index, track ->
-                SubtitleTrack(
-                    index = index,
-                    id = track.id.toString(),
-                    label = track.displayLabel(index),
-                    language = track.lang,
-                    isSelected = track.selected == true,
-                    isForced = track.forced == true || track.title?.contains("forced", ignoreCase = true) == true,
-                )
-            }
-
-    override fun getChapters(): List<PlayerChapter> =
-        MpvCalls.callBlocking(MpvReadTimeoutMs, emptyList()) { mpvChapters() }.mapIndexed { index, chapter ->
-            PlayerChapter(
-                index = index,
-                title = chapter.title?.takeIf { it.isNotBlank() } ?: "Chapter ${index + 1}",
-                timeMs = (chapter.time * 1000.0).toLong().coerceAtLeast(0L),
+    override fun getMediaTracks(): PlayerMediaTracks {
+        val cached = mediaTrackStore.snapshot()
+        return MpvCalls.callBlocking(MpvReadTimeoutMs, cached) {
+            mediaTrackStore.merge(
+                playerMediaTracks(
+                    trackNodes = mpvTracks(),
+                    chapterNodes = mpvChapters(),
+                ),
             )
         }
+    }
+
+    override fun getAudioTracks(): List<AudioTrack> = getMediaTracks().audioTracks
+
+    override fun getSubtitleTracks(): List<SubtitleTrack> = getMediaTracks().subtitleTracks
+
+    override fun getChapters(): List<PlayerChapter> = getMediaTracks().chapters
 
     override fun selectAudioTrack(index: Int) {
         MpvCalls.execute {
-            val track = mpvTracks().filter { it.isAudio }.getOrNull(index) ?: return@execute
-            MPVLib.setPropertyInt("aid", track.id)
+            val trackId = playerTrackIdAtDisplayedIndex(
+                trackIds = mediaTrackStore.snapshot().audioTracks.map(AudioTrack::id),
+                displayedIndex = index,
+            ) ?: mpvTracks().filter(MpvTrackNode::isAudio).getOrNull(index)?.id
+            trackId ?: return@execute
+            MPVLib.setPropertyInt("aid", trackId)
         }
     }
 
@@ -568,8 +596,12 @@ private class MpvPlayerEngineController(
                 onSubtitleConfigurationChanged()
                 return@execute
             }
-            val track = mpvTracks().filter { it.isSubtitle }.getOrNull(index) ?: return@execute
-            MPVLib.setPropertyInt("sid", track.id)
+            val trackId = playerTrackIdAtDisplayedIndex(
+                trackIds = mediaTrackStore.snapshot().subtitleTracks.map(SubtitleTrack::id),
+                displayedIndex = index,
+            ) ?: mpvTracks().filter(MpvTrackNode::isEmbeddedSubtitle).getOrNull(index)?.id
+            trackId ?: return@execute
+            MPVLib.setPropertyInt("sid", trackId)
             applyRegularSubtitleOverride()
             onSubtitleConfigurationChanged()
         }
@@ -600,8 +632,12 @@ private class MpvPlayerEngineController(
             if (trackIndex < 0) {
                 MPVLib.setPropertyString("sid", "no")
             } else {
-                val track = mpvTracks().filter { it.isSubtitle }.getOrNull(trackIndex) ?: return@execute
-                MPVLib.setPropertyInt("sid", track.id)
+                val trackId = playerTrackIdAtDisplayedIndex(
+                    trackIds = mediaTrackStore.snapshot().subtitleTracks.map(SubtitleTrack::id),
+                    displayedIndex = trackIndex,
+                ) ?: mpvTracks().filter(MpvTrackNode::isEmbeddedSubtitle).getOrNull(trackIndex)?.id
+                trackId ?: return@execute
+                MPVLib.setPropertyInt("sid", trackId)
                 applyRegularSubtitleOverride()
             }
             onSubtitleConfigurationChanged()
@@ -962,37 +998,132 @@ private object ContentFdRegistry {
     }
 }
 
-private val json = Json {
-    ignoreUnknownKeys = true
+private class AndroidPlayerMediaTrackStore {
+    private var tracks = PlayerMediaTracks()
+
+    fun snapshot(): PlayerMediaTracks = synchronized(this) { tracks }
+
+    fun merge(incoming: PlayerMediaTracks): PlayerMediaTracks = synchronized(this) {
+        tracks = PlayerMediaTracks(
+            audioTracks = incoming.audioTracks.ifEmpty { tracks.audioTracks },
+            subtitleTracks = incoming.subtitleTracks.ifEmpty { tracks.subtitleTracks },
+            chapters = incoming.chapters.ifEmpty { tracks.chapters },
+        )
+        tracks
+    }
 }
 
-private fun mpvTracks(): List<MpvTrackNode> =
+private fun playerMediaTracks(
+    trackNodes: List<MpvTrackNode> = emptyList(),
+    chapterNodes: List<MpvChapterNode> = emptyList(),
+): PlayerMediaTracks {
+    val audioTracks = trackNodes
+        .filter(MpvTrackNode::isAudio)
+        .mapIndexed { index, track ->
+            AudioTrack(
+                index = index,
+                id = track.id.toString(),
+                label = track.displayLabel(PlayerTrackKind.Audio, index),
+                language = track.lang,
+                isSelected = track.selected == true,
+            )
+        }
+    val subtitleTracks = trackNodes
+        .filter(MpvTrackNode::isEmbeddedSubtitle)
+        .mapIndexed { index, track ->
+            SubtitleTrack(
+                index = index,
+                id = track.id.toString(),
+                label = track.displayLabel(PlayerTrackKind.Subtitle, index),
+                language = track.lang,
+                isSelected = track.selected == true,
+                isForced = track.forced == true ||
+                    track.title?.contains("forced", ignoreCase = true) == true,
+                isExternal = track.external == true,
+            )
+        }
+    val chapters = normalizePlayerChapters(
+        chapterNodes.mapIndexed { index, chapter ->
+            PlayerChapter(
+                index = index,
+                title = chapter.title.orEmpty(),
+                timeMs = (chapter.time * 1000.0).toLong(),
+            )
+        },
+    )
+    return PlayerMediaTracks(
+        audioTracks = audioTracks,
+        subtitleTracks = subtitleTracks,
+        chapters = chapters,
+    )
+}
+
+private fun mpvTracks(node: MPVNode? = MPVLib.getPropertyNode("track-list")): List<MpvTrackNode> =
     runCatching {
-        MPVLib.getPropertyNode("track-list")?.toJson()?.let {
-            json.decodeFromString<List<MpvTrackNode>>(it)
-        }.orEmpty()
+        node
+            ?.asArray()
+            ?.mapNotNull { trackNode ->
+                val fields = trackNode.asMap() ?: return@mapNotNull null
+                val id = fields["id"]
+                    ?.asInt()
+                    ?.takeIf { value -> value in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }
+                    ?.toInt()
+                    ?: return@mapNotNull null
+                val type = fields["type"]
+                    ?.asString()
+                    ?.trim()
+                    ?.lowercase()
+                    ?.takeIf(String::isNotEmpty)
+                    ?: return@mapNotNull null
+                MpvTrackNode(
+                    id = id,
+                    type = type,
+                    title = fields.stringValue("title"),
+                    lang = fields.stringValue("lang"),
+                    selected = fields["selected"]?.asBoolean(),
+                    forced = fields["forced"]?.asBoolean(),
+                    external = fields["external"]?.asBoolean(),
+                    codec = fields.stringValue("codec"),
+                    codecDescription = fields.stringValue("codec-desc"),
+                )
+            }
+            .orEmpty()
     }.getOrElse { error ->
         Log.w(TAG, "Unable to read mpv track list", error)
         emptyList()
     }
 
-private fun mpvChapters(): List<MpvChapterNode> =
+private fun mpvChapters(node: MPVNode? = MPVLib.getPropertyNode("chapter-list")): List<MpvChapterNode> =
     runCatching {
-        MPVLib.getPropertyNode("chapter-list")?.toJson()?.let {
-            json.decodeFromString<List<MpvChapterNode>>(it)
-        }.orEmpty()
+        node
+            ?.asArray()
+            ?.mapNotNull { chapterNode ->
+                val fields = chapterNode.asMap() ?: return@mapNotNull null
+                val time = fields["time"]?.asDouble()
+                    ?: fields["time"]?.asInt()?.toDouble()
+                    ?: return@mapNotNull null
+                MpvChapterNode(
+                    title = fields.stringValue("title"),
+                    time = time.takeIf(Double::isFinite) ?: return@mapNotNull null,
+                )
+            }
+            .orEmpty()
     }.getOrElse { error ->
         Log.w(TAG, "Unable to read mpv chapter list", error)
         emptyList()
     }
 
-@Serializable
+private fun Map<String, MPVNode>.stringValue(key: String): String? =
+    get(key)
+        ?.asString()
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+
 private data class MpvChapterNode(
     val title: String? = null,
     val time: Double = 0.0,
 )
 
-@Serializable
 private data class MpvTrackNode(
     val id: Int,
     val type: String,
@@ -1000,18 +1131,20 @@ private data class MpvTrackNode(
     val lang: String? = null,
     val selected: Boolean? = null,
     val forced: Boolean? = null,
+    val external: Boolean? = null,
     val codec: String? = null,
-    @SerialName("codec-desc") val codecDescription: String? = null,
+    val codecDescription: String? = null,
 ) {
     val isAudio: Boolean get() = type == "audio"
     val isSubtitle: Boolean get() = type == "sub"
+    val isEmbeddedSubtitle: Boolean get() = isSubtitle && external != true
 
-    fun displayLabel(index: Int): String =
-        listOfNotNull(
-            title?.takeIf { it.isNotBlank() },
-            lang?.takeIf { it.isNotBlank() },
-            codecDescription?.takeIf { it.isNotBlank() } ?: codec?.takeIf { it.isNotBlank() },
-        ).joinToString(" - ").ifBlank { "Track ${index + 1}" }
+    fun displayLabel(kind: PlayerTrackKind, index: Int): String =
+        buildPlayerTrackLabel(
+            kind = kind,
+            displayedIndex = index,
+            candidates = listOf(title, lang, codecDescription ?: codec),
+        )
 }
 
 private fun androidx.compose.ui.graphics.Color.toMpvColor(): String {

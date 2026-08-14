@@ -1,6 +1,7 @@
 package com.nuvio.app.features.notifications
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.cache.InFlightRequestCoalescer
 import com.nuvio.app.core.deeplink.buildMetaDeepLinkUrl
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -10,11 +11,13 @@ import com.nuvio.app.features.library.LibraryUiState
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.trakt.TraktPlatformClock
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +45,7 @@ object EpisodeReleaseNotificationsRepository {
         encodeDefaults = true
     }
     private val refreshMutex = Mutex()
+    private val refreshRequests = InFlightRequestCoalescer<EpisodeReleaseRefreshKey, Unit>()
 
     private val _uiState = MutableStateFlow(EpisodeReleaseNotificationsUiState())
     val uiState: StateFlow<EpisodeReleaseNotificationsUiState> = _uiState.asStateFlow()
@@ -63,7 +67,7 @@ object EpisodeReleaseNotificationsRepository {
                     persist()
                 }
 
-                if (_uiState.value.isEnabled) {
+                if (shouldRefreshReleaseAlertsAfterLibraryUpdate(changed, _uiState.value.isEnabled)) {
                     refreshScheduledNotifications()
                 }
             }
@@ -306,113 +310,138 @@ object EpisodeReleaseNotificationsRepository {
     }
 
     private suspend fun refreshScheduledNotifications() {
-        refreshMutex.withLock {
-            LibraryRepository.ensureLoaded()
+        LibraryRepository.ensureLoaded()
 
-            val currentLibraryState = LibraryRepository.uiState.value
-            val trackedShowsChanged = reconcileTrackedShows(currentLibraryState)
-            if (trackedShowsChanged) {
-                persist()
-            }
+        val currentLibraryState = LibraryRepository.uiState.value
+        val trackedShowsChanged = reconcileTrackedShows(currentLibraryState)
+        if (trackedShowsChanged) {
+            persist()
+        }
 
-            val permissionGranted = runCatching { EpisodeReleaseNotificationPlatform.notificationsAuthorized() }
-                .onFailure { error ->
-                    log.w { "Failed to refresh episode release notification permission: ${error.message}" }
-                }
-                .getOrDefault(false)
+        val refreshKey = episodeReleaseRefreshKey(
+            profileId = ProfileRepository.activeProfileId,
+            enabled = _uiState.value.isEnabled,
+            timezoneId = _uiState.value.timezoneId,
+            trackedShows = trackedShowsByKey.values,
+        )
+        refreshRequests.runCoalesced(refreshKey) {
+            refreshMutex.withLock {
+                if (!isCurrentRefreshKey(refreshKey)) return@withLock
 
-            if (!_uiState.value.isEnabled || !permissionGranted) {
-                runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
+                val permissionGranted = runCatching { EpisodeReleaseNotificationPlatform.notificationsAuthorized() }
                     .onFailure { error ->
-                        log.w { "Failed to clear scheduled episode release notifications: ${error.message}" }
+                        log.w { "Failed to refresh episode release notification permission: ${error.message}" }
                     }
-                lastScheduledRequests = emptyList()
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    permissionGranted = permissionGranted,
-                    scheduledCount = 0,
-                    expectedAlerts = emptyList(),
-                    errorMessage = if (_uiState.value.isEnabled && !permissionGranted) {
-                        "System notifications are currently disabled for NELFLIX."
-                    } else {
-                        null
-                    },
-                )
-                return
-            }
+                    .getOrDefault(false)
 
-            _uiState.value = _uiState.value.copy(
-                isLoading = true,
-                permissionGranted = true,
-                errorMessage = null,
-            )
+                if (!refreshKey.enabled || !permissionGranted) {
+                    runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
+                        .onFailure { error ->
+                            log.w { "Failed to clear scheduled episode release notifications: ${error.message}" }
+                        }
+                    lastScheduledRequests = emptyList()
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        permissionGranted = permissionGranted,
+                        scheduledCount = 0,
+                        expectedAlerts = emptyList(),
+                        errorMessage = if (refreshKey.enabled && !permissionGranted) {
+                            "System notifications are currently disabled for NELFLIX."
+                        } else {
+                            null
+                        },
+                    )
+                    return@withLock
+                }
 
-            if (trackedShowsByKey.isEmpty()) {
-                runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
-                lastScheduledRequests = emptyList()
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    scheduledCount = 0,
-                    expectedAlerts = emptyList(),
+                    isLoading = true,
+                    permissionGranted = true,
                     errorMessage = null,
                 )
-                return
-            }
 
-            AddonRepository.initialize()
-            withTimeoutOrNull(10_000L) {
-                AddonRepository.awaitManifestsLoaded()
-            }
+                if (refreshKey.trackedShows.isEmpty()) {
+                    runCatching { EpisodeReleaseNotificationPlatform.clearScheduledEpisodeReleaseNotifications() }
+                    lastScheduledRequests = emptyList()
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        scheduledCount = 0,
+                        expectedAlerts = emptyList(),
+                        errorMessage = null,
+                    )
+                    return@withLock
+                }
 
-            val semaphore = Semaphore(metadataFetchConcurrency)
-            val nowEpochMs = TraktPlatformClock.nowEpochMs()
-            val requests = trackedShowsByKey.values.map { trackedShow ->
-                scope.async {
-                    semaphore.withPermit {
-                        buildRequestsForShow(trackedShow)
+                AddonRepository.initialize()
+                withTimeoutOrNull(10_000L) {
+                    AddonRepository.awaitManifestsLoaded()
+                }
+
+                val semaphore = Semaphore(metadataFetchConcurrency)
+                val nowEpochMs = TraktPlatformClock.nowEpochMs()
+                val requests = coroutineScope {
+                    refreshKey.trackedShows.map { trackedShow ->
+                        async {
+                            semaphore.withPermit {
+                                buildRequestsForShow(trackedShow)
+                            }
+                        }
+                    }.awaitAll()
+                }.flatten()
+                    .filter { request ->
+                        (request.triggerAtEpochMs ?: Long.MIN_VALUE) >= nowEpochMs - EpisodeReleaseNotificationScheduleGraceMs
                     }
-                }
-            }.awaitAll().flatten()
-                .filter { request ->
-                    (request.triggerAtEpochMs ?: Long.MIN_VALUE) >= nowEpochMs - EpisodeReleaseNotificationScheduleGraceMs
+
+                if (!isCurrentRefreshKey(refreshKey)) return@withLock
+
+                runCatching {
+                    EpisodeReleaseNotificationPlatform.scheduleEpisodeReleaseNotifications(requests)
+                }.onFailure { error ->
+                    log.e(error) { "Failed to schedule episode release notifications" }
                 }
 
-            runCatching {
-                EpisodeReleaseNotificationPlatform.scheduleEpisodeReleaseNotifications(requests)
-            }.onFailure { error ->
-                log.e(error) { "Failed to schedule episode release notifications" }
+                lastScheduledRequests = requests.sortedBy { it.triggerAtEpochMs ?: Long.MAX_VALUE }
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    permissionGranted = true,
+                    scheduledCount = requests.size,
+                    expectedAlerts = lastScheduledRequests
+                        .map { request ->
+                            EpisodeReleaseAlertPreview(
+                                requestId = request.requestId,
+                                title = request.notificationTitle,
+                                body = request.notificationBody,
+                                triggerTimeLabel = request.triggerTimeLabel.orEmpty(),
+                                imageUrl = request.backdropUrl,
+                                deepLinkUrl = request.deepLinkUrl,
+                            )
+                        },
+                    errorMessage = null,
+                )
             }
-
-            lastScheduledRequests = requests.sortedBy { it.triggerAtEpochMs ?: Long.MAX_VALUE }
-            _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                permissionGranted = true,
-                scheduledCount = requests.size,
-                expectedAlerts = lastScheduledRequests
-                    .map { request ->
-                        EpisodeReleaseAlertPreview(
-                            requestId = request.requestId,
-                            title = request.notificationTitle,
-                            body = request.notificationBody,
-                            triggerTimeLabel = request.triggerTimeLabel.orEmpty(),
-                            imageUrl = request.backdropUrl,
-                            deepLinkUrl = request.deepLinkUrl,
-                        )
-                    },
-                errorMessage = null,
-            )
         }
     }
 
+    private fun isCurrentRefreshKey(refreshKey: EpisodeReleaseRefreshKey): Boolean =
+        refreshKey == episodeReleaseRefreshKey(
+            profileId = ProfileRepository.activeProfileId,
+            enabled = _uiState.value.isEnabled,
+            timezoneId = _uiState.value.timezoneId,
+            trackedShows = trackedShowsByKey.values,
+        )
+
     private suspend fun buildRequestsForShow(trackedShow: TrackedFollowedShow): List<EpisodeReleaseNotificationRequest> {
-        val meta = runCatching {
+        val meta = try {
             MetaDetailsRepository.fetchNotificationReleaseMeta(
                 type = trackedShow.contentType,
                 id = trackedShow.contentId,
             )
-        }.onFailure { error ->
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
             log.w { "Failed to resolve metadata for ${trackedShow.contentType}:${trackedShow.contentId}: ${error.message}" }
-        }.getOrNull() ?: return emptyList()
+            null
+        } ?: return emptyList()
 
         val showTitle = meta.name.ifBlank { trackedShow.contentId }
         val settings = _uiState.value
@@ -436,6 +465,7 @@ object EpisodeReleaseNotificationsRepository {
                     notificationTitle = showTitle,
                     notificationBody = "Movie premiere",
                     releaseDateIso = releaseDate,
+                    rawReleaseValue = meta.released,
                     triggerAtEpochMs = triggerAtEpochMs,
                     triggerTimeLabel = EpisodeReleaseNotificationPlatform.formatReleaseTriggerLabel(
                         epochMs = triggerAtEpochMs,
@@ -476,6 +506,7 @@ object EpisodeReleaseNotificationsRepository {
                 notificationTitle = showTitle,
                 notificationBody = episodeBody,
                 releaseDateIso = releaseDate,
+                rawReleaseValue = episode.released,
                 triggerAtEpochMs = triggerAtEpochMs,
                 triggerTimeLabel = EpisodeReleaseNotificationPlatform.formatReleaseTriggerLabel(
                     epochMs = triggerAtEpochMs,
@@ -491,3 +522,29 @@ object EpisodeReleaseNotificationsRepository {
         }
     }
 }
+
+internal fun shouldRefreshReleaseAlertsAfterLibraryUpdate(
+    trackedShowsChanged: Boolean,
+    notificationsEnabled: Boolean,
+): Boolean = trackedShowsChanged && notificationsEnabled
+
+internal data class EpisodeReleaseRefreshKey(
+    val profileId: Int,
+    val enabled: Boolean,
+    val timezoneId: String,
+    val trackedShows: List<TrackedFollowedShow>,
+)
+
+internal fun episodeReleaseRefreshKey(
+    profileId: Int,
+    enabled: Boolean,
+    timezoneId: String,
+    trackedShows: Collection<TrackedFollowedShow>,
+): EpisodeReleaseRefreshKey = EpisodeReleaseRefreshKey(
+    profileId = profileId,
+    enabled = enabled,
+    timezoneId = timezoneId,
+    trackedShows = trackedShows.sortedWith(
+        compareBy(TrackedFollowedShow::contentType, TrackedFollowedShow::contentId, TrackedFollowedShow::followedOnIsoDate),
+    ),
+)

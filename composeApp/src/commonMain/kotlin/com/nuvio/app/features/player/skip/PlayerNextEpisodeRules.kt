@@ -1,6 +1,8 @@
 package com.nuvio.app.features.player.skip
 
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.streams.StreamAutoPlayMode
+import com.nuvio.app.features.streams.StreamAutoPlayPolicy
 
 object PlayerNextEpisodeRules {
 
@@ -50,6 +52,30 @@ object PlayerNextEpisodeRules {
             }
         }
     }
+
+    fun isTrueAutomaticStreamMode(
+        mode: StreamAutoPlayMode,
+        regexPattern: String,
+    ): Boolean =
+        when (mode) {
+            StreamAutoPlayMode.MANUAL -> false
+            StreamAutoPlayMode.FIRST_STREAM -> true
+            StreamAutoPlayMode.REGEX_MATCH ->
+                regexPattern.isNotBlank() &&
+                    StreamAutoPlayPolicy.isRegexSelectionConfigured(regexPattern)
+        }
+
+    fun isNextEpisodeAutoAdvanceEligible(
+        isSeriesEpisode: Boolean,
+        streamAutoPlayMode: StreamAutoPlayMode,
+        streamAutoPlayRegex: String,
+        launchedFromManualStreamSelection: Boolean,
+        isWatchTogetherGuest: Boolean,
+    ): Boolean =
+        isSeriesEpisode &&
+            !launchedFromManualStreamSelection &&
+            !isWatchTogetherGuest &&
+            isTrueAutomaticStreamMode(streamAutoPlayMode, streamAutoPlayRegex)
 
     fun hasEpisodeAired(raw: String?): Boolean {
         val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return true

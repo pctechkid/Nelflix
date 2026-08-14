@@ -1,6 +1,8 @@
 package com.nuvio.app.features.details
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.cache.InFlightRequestCoalescer
+import com.nuvio.app.core.cache.withBoundedEntry
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
@@ -25,6 +27,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
+import kotlin.concurrent.Volatile
 
 object MetaDetailsRepository {
     private const val aiometadataManifestUrl =
@@ -38,10 +41,13 @@ object MetaDetailsRepository {
 
     private val log = Logger.withTag("MetaDetailsRepo")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val continueWatchingMetaRequests =
+        InFlightRequestCoalescer<String, MetaDetails?>()
     private val _uiState = MutableStateFlow(MetaDetailsUiState())
     val uiState: StateFlow<MetaDetailsUiState> = _uiState.asStateFlow()
     private var activeRequestKey: String? = null
-    private val cachedMetaByRequestKey = mutableMapOf<String, CachedMetaEntry>()
+    @Volatile
+    private var cachedMetaByRequestKey: Map<String, CachedMetaEntry> = emptyMap()
 
     fun load(type: String, id: String) {
         log.d { "load() called — type=$type id=$id" }
@@ -108,11 +114,15 @@ object MetaDetailsRepository {
         _uiState.value = MetaDetailsUiState(isLoading = true)
 
         scope.launch {
-            val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
+            val metaLookupId = withContext(Dispatchers.Default) {
+                resolveMetaLookupId(itemId = id, itemType = type)
+            }
             val manifests = findMetaManifests(type = type, id = metaLookupId)
 
             if (manifests.isEmpty()) {
-                val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
+                val tmdbMeta = withContext(Dispatchers.Default) {
+                    tryFetchTmdbFallbackMeta(type = type, id = id)
+                }
                 if (tmdbMeta != null) {
                     publishLoadedMeta(
                         requestKey = requestKey,
@@ -148,7 +158,9 @@ object MetaDetailsRepository {
                 }
             }
 
-            val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
+            val tmdbMeta = withContext(Dispatchers.Default) {
+                tryFetchTmdbFallbackMeta(type = type, id = id)
+            }
             if (tmdbMeta != null) {
                 publishLoadedMeta(
                     requestKey = requestKey,
@@ -181,33 +193,131 @@ object MetaDetailsRepository {
 
     fun clear() {
         activeRequestKey = null
-        cachedMetaByRequestKey.clear()
+        cachedMetaByRequestKey = emptyMap()
         _uiState.value = MetaDetailsUiState()
     }
 
-    suspend fun fetch(type: String, id: String): MetaDetails? {
+    suspend fun fetch(
+        type: String,
+        id: String,
+        refreshIncompleteMaturityMetadata: Boolean = false,
+    ): MetaDetails? = withContext(Dispatchers.Default) {
+        fetchInternal(
+            type = type,
+            id = id,
+            refreshIncompleteMaturityMetadata = refreshIncompleteMaturityMetadata,
+        )
+    }
+
+    private suspend fun fetchInternal(
+        type: String,
+        id: String,
+        refreshIncompleteMaturityMetadata: Boolean,
+    ): MetaDetails? {
         val requestKey = "$type:$id"
-        cachedMetaByRequestKey[requestKey]?.let { return it.baseMeta }
+        val cachedMeta = cachedMetaByRequestKey[requestKey]?.baseMeta
+        if (
+            cachedMeta != null &&
+            (!refreshIncompleteMaturityMetadata || cachedMeta.hasCompleteMaturityMetadata())
+        ) {
+            return cachedMeta
+        }
 
         val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
         val manifests = findMetaManifests(type = type, id = metaLookupId)
+        var bestMaturityResult = cachedMeta
 
         for (manifest in manifests) {
             val result = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
                 tryFetchMeta(manifest, type, metaLookupId, includeMdbList = false)
             }
             if (result != null) {
-                cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
-                return result
+                if (!refreshIncompleteMaturityMetadata) {
+                    cacheMetaEntry(requestKey, CachedMetaEntry(baseMeta = result))
+                    return result
+                }
+                bestMaturityResult = bestMaturityResult
+                    ?.withMaturityFallback(result)
+                    ?: result
+                if (bestMaturityResult.hasCompleteMaturityMetadata()) {
+                    cacheMetaEntry(requestKey, CachedMetaEntry(baseMeta = bestMaturityResult))
+                    return bestMaturityResult
+                }
             }
         }
 
-        return tryFetchTmdbFallbackMeta(type = type, id = id)?.also { result ->
-            cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
+        val tmdbFallback = tryFetchTmdbFallbackMeta(type = type, id = id)
+        val result = when {
+            bestMaturityResult != null && tmdbFallback != null ->
+                bestMaturityResult.withMaturityFallback(tmdbFallback)
+            bestMaturityResult != null -> bestMaturityResult
+            else -> tmdbFallback
+        }
+        result?.let { cacheMetaEntry(requestKey, CachedMetaEntry(baseMeta = it)) }
+        return result
+    }
+
+    suspend fun fetchNotificationReleaseMeta(type: String, id: String): MetaDetails? =
+        continueWatchingMetaRequests.runCoalesced("notifications:$type:$id") {
+            withContext(Dispatchers.Default) {
+                fetchNotificationReleaseMetaUncoalesced(type = type, id = id)
+            }
+        }
+
+    suspend fun fetchFreshContinueWatchingMeta(type: String, id: String): MetaDetails? =
+        continueWatchingMetaRequests.runCoalesced("continue-watching:$type:$id") {
+            withContext(Dispatchers.Default) {
+                fetchFreshContinueWatchingMetaUncoalesced(type = type, id = id)
+            }
+        }
+
+    private suspend fun fetchFreshContinueWatchingMetaUncoalesced(
+        type: String,
+        id: String,
+    ): MetaDetails? {
+        val requestKey = "$type:$id"
+        val cached = peek(type = type, id = id)
+        val releaseMeta = fetchNotificationReleaseMetaUncoalesced(type = type, id = id)
+        val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
+        for (manifest in findMetaManifests(type = type, id = metaLookupId)) {
+            val result = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
+                tryFetchMeta(
+                    manifest = manifest,
+                    type = type,
+                    id = metaLookupId,
+                    includeMdbList = false,
+                )
+            }
+            if (result != null) {
+                return cacheContinueWatchingMeta(
+                    requestKey = requestKey,
+                    fresh = result.withContinueWatchingReleaseTimingFallback(releaseMeta),
+                    fallback = cached,
+                )
+            }
+        }
+        val tmdbFallback = tryFetchTmdbFallbackMeta(type = type, id = id)
+        return if (tmdbFallback != null) {
+            cacheContinueWatchingMeta(
+                requestKey = requestKey,
+                fresh = tmdbFallback.withContinueWatchingReleaseTimingFallback(releaseMeta),
+                fallback = cached,
+            )
+        } else {
+            releaseMeta?.let { releaseOnlyMeta ->
+                cacheContinueWatchingMeta(
+                    requestKey = requestKey,
+                    fresh = releaseOnlyMeta,
+                    fallback = cached,
+                )
+            } ?: cached
         }
     }
 
-    suspend fun fetchNotificationReleaseMeta(type: String, id: String): MetaDetails? {
+    private suspend fun fetchNotificationReleaseMetaUncoalesced(
+        type: String,
+        id: String,
+    ): MetaDetails? {
         val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
         val aiometadataManifest = AddonRepository.uiState.value.addons
             .mapNotNull { it.manifest }
@@ -240,6 +350,24 @@ object MetaDetailsRepository {
         }
 
         return null
+    }
+
+    private fun cacheContinueWatchingMeta(
+        requestKey: String,
+        fresh: MetaDetails,
+        fallback: MetaDetails?,
+    ): MetaDetails {
+        val merged = fresh.withContinueWatchingMetadataFallback(fallback)
+        updateCachedMetaEntry(requestKey) { cachedEntry ->
+            val mergedScreenMeta = cachedEntry?.metaScreenMeta
+                ?.withContinueWatchingMetadataFallback(merged)
+            CachedMetaEntry(
+                baseMeta = merged,
+                metaScreenMeta = mergedScreenMeta,
+                metaScreenSettingsFingerprint = cachedEntry?.metaScreenSettingsFingerprint,
+            )
+        }
+        return merged
     }
 
     private const val FETCH_TIMEOUT_MS = 5_000L
@@ -385,7 +513,7 @@ object MetaDetailsRepository {
         metaScreenSettingsFingerprint: String,
     ) {
         val cachedEntry = CachedMetaEntry(baseMeta = meta)
-        cachedMetaByRequestKey[requestKey] = cachedEntry
+        cacheMetaEntry(requestKey, cachedEntry)
 
         if (!shouldFetchMdbListOnMetaScreen(meta, fallbackItemId, mdbListSettings)) {
             _uiState.value = MetaDetailsUiState(meta = meta.withUnreleasedFilter())
@@ -406,9 +534,12 @@ object MetaDetailsRepository {
                 settingsFingerprint = metaScreenSettingsFingerprint,
             )
         }
-        cachedMetaByRequestKey[requestKey] = cachedEntry.copy(
-            metaScreenMeta = enrichedMeta,
-            metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
+        cacheMetaEntry(
+            requestKey = requestKey,
+            entry = cachedEntry.copy(
+                metaScreenMeta = enrichedMeta,
+                metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
+            ),
         )
         _uiState.value = MetaDetailsUiState(meta = enrichedMeta.withUnreleasedFilter())
         activeRequestKey = requestKey
@@ -429,8 +560,8 @@ object MetaDetailsRepository {
             )
         } ?: meta
 
-        cachedMetaByRequestKey[requestKey] = cachedMetaByRequestKey[requestKey]
-            ?.copy(
+        updateCachedMetaEntry(requestKey) { cachedEntry ->
+            cachedEntry?.copy(
                 metaScreenMeta = enrichedMeta,
                 metaScreenSettingsFingerprint = settingsFingerprint,
             )
@@ -439,8 +570,29 @@ object MetaDetailsRepository {
                 metaScreenMeta = enrichedMeta,
                 metaScreenSettingsFingerprint = settingsFingerprint,
             )
+        }
 
         return enrichedMeta
+    }
+
+    private fun cacheMetaEntry(requestKey: String, entry: CachedMetaEntry) {
+        cachedMetaByRequestKey = cachedMetaByRequestKey.withBoundedEntry(
+            key = requestKey,
+            value = entry,
+            maxEntries = MAX_CACHED_META_ENTRIES,
+        )
+    }
+
+    private inline fun updateCachedMetaEntry(
+        requestKey: String,
+        transform: (CachedMetaEntry?) -> CachedMetaEntry,
+    ) {
+        val snapshot = cachedMetaByRequestKey
+        cachedMetaByRequestKey = snapshot.withBoundedEntry(
+            key = requestKey,
+            value = transform(snapshot[requestKey]),
+            maxEntries = MAX_CACHED_META_ENTRIES,
+        )
     }
 
     private fun shouldFetchMdbListOnMetaScreen(
@@ -469,7 +621,8 @@ object MetaDetailsRepository {
         )
     }
 
-   
+    private const val MAX_CACHED_META_ENTRIES = 16
+
     fun findEmbeddedStreams(videoId: String): List<com.nuvio.app.features.streams.StreamItem> {
         val meta = _uiState.value.meta ?: return emptyList()
         val videosWithStreams = meta.videos.filter { it.streams.isNotEmpty() }
@@ -501,4 +654,106 @@ object MetaDetailsRepository {
 
         return emptyList()
     }
+}
+
+internal fun MetaDetails.hasCompleteMaturityMetadata(): Boolean =
+    !ageRating.isNullOrBlank() && genres.any { it.isNotBlank() }
+
+internal fun MetaDetails.withMaturityFallback(fallback: MetaDetails): MetaDetails {
+    val fallbackVideosByKey = fallback.videos.associateBy(MetaVideo::maturityMatchKey)
+    return copy(
+        ageRating = ageRating?.trim()?.takeIf(String::isNotBlank)
+            ?: fallback.ageRating?.trim()?.takeIf(String::isNotBlank),
+        genres = genres.filter(String::isNotBlank)
+            .ifEmpty { fallback.genres.filter(String::isNotBlank) },
+        videos = videos.map { video ->
+            val fallbackVideo = fallbackVideosByKey[video.maturityMatchKey()] ?: return@map video
+            video.copy(
+                ageRating = video.ageRating?.trim()?.takeIf(String::isNotBlank)
+                    ?: fallbackVideo.ageRating?.trim()?.takeIf(String::isNotBlank),
+                genres = video.genres.filter(String::isNotBlank)
+                    .ifEmpty { fallbackVideo.genres.filter(String::isNotBlank) },
+            )
+        },
+    )
+}
+
+private fun MetaVideo.maturityMatchKey(): String =
+    if (season != null && episode != null) {
+        "episode:$season:$episode"
+    } else {
+        "id:$id"
+    }
+
+internal fun MetaDetails.withContinueWatchingMetadataFallback(
+    fallback: MetaDetails?,
+): MetaDetails {
+    if (fallback == null) return this
+    val fallbackVideos = fallback.videos.associateBy(MetaVideo::continueWatchingMetadataKey)
+    val freshKeys = videos.mapTo(mutableSetOf(), MetaVideo::continueWatchingMetadataKey)
+    return copy(
+        name = name.displayValue() ?: fallback.name,
+        poster = poster.displayValue() ?: fallback.poster.displayValue(),
+        background = background.displayValue() ?: fallback.background.displayValue(),
+        logo = logo.displayValue() ?: fallback.logo.displayValue(),
+        description = description.displayValue() ?: fallback.description.displayValue(),
+        videos = videos.map { freshVideo ->
+            freshVideo.withContinueWatchingMetadataFallback(
+                fallbackVideos[freshVideo.continueWatchingMetadataKey()],
+            )
+        } + fallback.videos.filterNot { video -> video.continueWatchingMetadataKey() in freshKeys },
+    )
+}
+
+private fun MetaVideo.withContinueWatchingMetadataFallback(fallback: MetaVideo?): MetaVideo {
+    if (fallback == null) return this
+    val mergedTitle = when {
+        !title.isGenericEpisodeTitle(episode) -> title.trim()
+        !fallback.title.isGenericEpisodeTitle(episode) -> fallback.title.trim()
+        else -> title.displayValue() ?: fallback.title
+    }
+    return copy(
+        title = mergedTitle,
+        released = released.displayValue() ?: fallback.released.displayValue(),
+        thumbnail = thumbnail.displayValue() ?: fallback.thumbnail.displayValue(),
+        seasonPoster = seasonPoster.displayValue() ?: fallback.seasonPoster.displayValue(),
+        overview = overview.displayValue() ?: fallback.overview.displayValue(),
+        runtime = runtime ?: fallback.runtime,
+        imdbRating = imdbRating.displayValue() ?: fallback.imdbRating.displayValue(),
+        ageRating = ageRating.displayValue() ?: fallback.ageRating.displayValue(),
+        genres = genres.filter(String::isNotBlank).ifEmpty { fallback.genres.filter(String::isNotBlank) },
+        streams = streams.ifEmpty { fallback.streams },
+    )
+}
+
+private fun MetaVideo.continueWatchingMetadataKey(): String =
+    if (season != null && episode != null) "episode:$season:$episode" else "id:${id.trim()}"
+
+internal fun MetaDetails.withContinueWatchingReleaseTimingFallback(releaseMeta: MetaDetails?): MetaDetails {
+    if (releaseMeta == null) return this
+    val releaseVideosByKey = releaseMeta.videos.associateBy(MetaVideo::continueWatchingMetadataKey)
+    val richVideosByKey = videos.associateBy(MetaVideo::continueWatchingMetadataKey)
+    val mergedVideos = videos.map { richVideo ->
+        val releaseVideo = releaseVideosByKey[richVideo.continueWatchingMetadataKey()] ?: return@map richVideo
+        richVideo.copy(
+            released = releaseVideo.released.displayValue() ?: richVideo.released.displayValue(),
+        )
+    } + releaseMeta.videos.filterNot { releaseVideo ->
+        releaseVideo.continueWatchingMetadataKey() in richVideosByKey
+    }
+    return copy(
+        released = releaseMeta.released.displayValue() ?: released.displayValue(),
+        videos = mergedVideos,
+    )
+}
+
+private fun String?.displayValue(): String? = this?.trim()?.takeIf(String::isNotBlank)
+
+private fun String?.isGenericEpisodeTitle(episodeNumber: Int?): Boolean {
+    val value = displayValue()?.lowercase() ?: return true
+    if (value == "episode" || value == "tba" || value == "untitled") return true
+    val number = episodeNumber ?: return false
+    return value.matches(Regex("""episode\s*0*$number""")) ||
+        value.matches(Regex("""ep\.?\s*0*$number""")) ||
+        value.matches(Regex("""e0*$number"""))
 }

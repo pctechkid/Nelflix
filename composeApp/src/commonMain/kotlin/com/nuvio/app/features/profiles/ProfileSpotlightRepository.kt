@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -33,6 +34,10 @@ data class ProfileSpotlightItem(
     val poster: String? = null,
     val banner: String? = null,
     val logo: String? = null,
+    val description: String? = null,
+    val releaseInfo: String? = null,
+    val rawReleaseDate: String? = null,
+    val imdbRating: String? = null,
     val genres: List<String> = emptyList(),
 )
 
@@ -134,6 +139,10 @@ object ProfileSpotlightRepository {
                 banner = (meta.string("background") ?: meta.string("banner"))
                     .cleanProfileSpotlightBackgroundUrl(),
                 logo = meta.string("logo").cleanProfileSpotlightLogoUrl(),
+                description = meta.string("description") ?: description,
+                releaseInfo = meta.string("releaseInfo") ?: releaseInfo,
+                rawReleaseDate = meta.string("released") ?: rawReleaseDate,
+                imdbRating = meta.string("imdbRating") ?: imdbRating,
                 genres = meta.stringList("genres").take(3).ifEmpty { genres.take(3) },
             )
         } catch (error: Throwable) {
@@ -151,6 +160,10 @@ private fun ProfileSpotlightCatalogItem.toSpotlightItem(): ProfileSpotlightItem 
         poster = poster?.trim()?.takeIf(String::isNotBlank),
         banner = background.cleanProfileSpotlightBackgroundUrl(),
         logo = logo.cleanProfileSpotlightLogoUrl(),
+        description = description?.trim()?.takeIf(String::isNotBlank),
+        releaseInfo = releaseInfo?.trim()?.takeIf(String::isNotBlank),
+        rawReleaseDate = rawReleaseDate?.trim()?.takeIf(String::isNotBlank),
+        imdbRating = imdbRating?.trim()?.takeIf(String::isNotBlank),
         genres = genres.take(3),
     )
 
@@ -207,6 +220,11 @@ private data class ProfileSpotlightCatalogItem(
     val poster: String? = null,
     val background: String? = null,
     val logo: String? = null,
+    val description: String? = null,
+    val releaseInfo: String? = null,
+    @SerialName("released")
+    val rawReleaseDate: String? = null,
+    val imdbRating: String? = null,
     val genres: List<String> = emptyList(),
 )
 

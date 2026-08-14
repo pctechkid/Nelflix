@@ -52,9 +52,7 @@ import com.nuvio.app.features.home.HomeCatalogSettingsItem
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.settings_homescreen_collection_with_addon
 import nuvio.composeapp.generated.resources.settings_homescreen_display_name
-import nuvio.composeapp.generated.resources.settings_homescreen_hero_source
 import nuvio.composeapp.generated.resources.settings_homescreen_hidden
-import nuvio.composeapp.generated.resources.settings_homescreen_not_in_hero
 import nuvio.composeapp.generated.resources.settings_homescreen_pinned
 import nuvio.composeapp.generated.resources.settings_homescreen_pinned_to_top
 import nuvio.composeapp.generated.resources.settings_homescreen_reorder
@@ -412,15 +410,6 @@ internal fun HomescreenCatalogRow(
                                 append(" • ")
                                 append(stringResource(Res.string.settings_homescreen_pinned_to_top))
                             }
-                        } else {
-                            append(" • ")
-                            append(
-                                if (item.heroSourceEnabled) {
-                                    stringResource(Res.string.settings_homescreen_hero_source)
-                                } else {
-                                    stringResource(Res.string.settings_homescreen_not_in_hero)
-                                },
-                            )
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,

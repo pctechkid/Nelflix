@@ -67,4 +67,11 @@ export type WatchedItemRow = {
   watched_at: number;
 };
 
+export type AccountStatistics = {
+  profile_id: number;
+  progress_count: number;
+  library_count: number;
+  watched_count: number;
+};
+
 export type TabKey = "addons" | "plugins" | "watch-progress" | "library" | "watched" | "profiles" | "super-admin";

@@ -966,6 +966,57 @@ as $$
   offset greatest(0, coalesce(p_offset, 0));
 $$;
 
+-- Canonical Account Statistics contract used by both the app and dashboard.
+-- Invalid legacy rows are excluded and each table's persisted canonical key is
+-- counted once for the authenticated user and active profile.
+create or replace function public.sync_account_statistics(p_profile_id integer)
+returns table (
+  progress_count bigint,
+  library_count bigint,
+  watched_count bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    (
+      select count(*)
+      from (
+        select progress_key
+        from public.watch_progress
+        where user_id = auth.uid()
+          and profile_id = p_profile_id
+          and btrim(content_id) <> ''
+          and btrim(progress_key) <> ''
+        group by progress_key
+      ) progress_rows
+    )::bigint,
+    (
+      select count(*)
+      from (
+        select content_id
+        from public.library_items
+        where user_id = auth.uid()
+          and profile_id = p_profile_id
+          and btrim(content_id) <> ''
+        group by content_id
+      ) library_rows
+    )::bigint,
+    (
+      select count(*)
+      from (
+        select content_id, coalesce(season, -1), coalesce(episode, -1)
+        from public.watched_items
+        where user_id = auth.uid()
+          and profile_id = p_profile_id
+          and btrim(content_id) <> ''
+        group by content_id, coalesce(season, -1), coalesce(episode, -1)
+      ) watched_rows
+    )::bigint;
+$$;
+
 create or replace function public.sync_push_library(p_profile_id integer, p_items jsonb)
 returns void
 language plpgsql
@@ -1499,6 +1550,7 @@ grant execute on function public.sync_pull_watch_progress(integer) to authentica
 grant execute on function public.sync_push_watch_progress(integer, jsonb) to authenticated;
 grant execute on function public.sync_delete_watch_progress(integer, jsonb) to authenticated;
 grant execute on function public.sync_pull_library(integer, integer, integer) to authenticated;
+grant execute on function public.sync_account_statistics(integer) to authenticated;
 grant execute on function public.sync_push_library(integer, jsonb) to authenticated;
 grant execute on function public.sync_pull_collections(integer) to authenticated;
 grant execute on function public.sync_push_collections(integer, jsonb) to authenticated;

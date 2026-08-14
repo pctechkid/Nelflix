@@ -95,6 +95,7 @@ import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.SyncManager
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioNavigationBar
+import com.nuvio.app.core.ui.NuvioNavigationBarPlacement
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
 import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.PosterZoomAnchorHolder
@@ -131,6 +132,7 @@ import com.nuvio.app.features.downloads.DownloadsScreen
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaDetailsScreen
 import com.nuvio.app.features.details.MetaPerson
+import com.nuvio.app.features.details.nextReleasedEpisodeAfter
 import com.nuvio.app.features.details.PersonDetailScreen
 import com.nuvio.app.features.details.TmdbEntityBrowseScreen
 import com.nuvio.app.features.tmdb.TmdbEntityKind
@@ -149,6 +151,7 @@ import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
+import com.nuvio.app.features.player.NextEpisodePlaybackRequest
 import com.nuvio.app.features.player.PlayerRoute
 import com.nuvio.app.features.player.PlayerScreen
 import com.nuvio.app.features.player.sanitizePlaybackHeaders
@@ -180,6 +183,7 @@ import com.nuvio.app.features.collection.FolderDetailScreen
 import com.nuvio.app.features.collection.FolderDetailRepository
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlayPolicy
+import com.nuvio.app.features.streams.StreamAutoPlaySelector
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLaunch
 import com.nuvio.app.features.streams.StreamLaunchStore
@@ -198,6 +202,7 @@ import com.nuvio.app.features.watchtogether.WatchTogetherDialog
 import com.nuvio.app.features.watchtogether.WatchTogetherRoomState
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
+import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import com.nuvio.app.features.watchprogress.ResumePromptRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.nextUpDismissKey
@@ -226,6 +231,8 @@ import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+
+private const val MaxNextEpisodeAutoPlayCandidates = 8
 
 @Serializable
 object TabsRoute
@@ -965,6 +972,7 @@ private fun MainAppContent(
             bingeGroup: String?,
             seasonNumber: Int?,
             episodeNumber: Int?,
+            showDebridFailureToast: Boolean = true,
         ): ResolvedPlaybackSource? {
             val sanitizedHeaders = sanitizePlaybackHeaders(requestHeaders)
             if (sourceUrl.isReusableTorboxP2PSource()) {
@@ -996,7 +1004,9 @@ private fun MainAppContent(
                         )
                     }
                     else -> {
-                        resolved.toastMessage()?.let { NuvioToastController.show(it) }
+                        if (showDebridFailureToast) {
+                            resolved.toastMessage()?.let { NuvioToastController.show(it) }
+                        }
                         null
                     }
                 }
@@ -1271,6 +1281,321 @@ private fun MainAppContent(
                 ?.id
                 ?.takeIf { it.isNotBlank() }
                 ?: launch.videoId
+        }
+
+        suspend fun resolveNextEpisodePlaybackLaunch(
+            request: NextEpisodePlaybackRequest,
+        ): Result<PlayerLaunch> = runCatching {
+            val nextSeason = request.nextSeasonNumber
+            val nextEpisodeNumber = request.nextEpisodeNumber
+            val nextVideoId = request.nextVideoId.takeIf { it.isNotBlank() }
+                ?: com.nuvio.app.features.watchprogress.buildPlaybackVideoId(
+                    parentMetaId = request.parentMetaId,
+                    seasonNumber = nextSeason,
+                    episodeNumber = nextEpisodeNumber,
+                    fallbackVideoId = null,
+                )
+
+            fun preparedLaunch(
+                source: ResolvedPlaybackSource,
+                streamTitle: String,
+                streamSubtitle: String?,
+                bingeGroup: String?,
+                providerName: String,
+                providerAddonId: String?,
+                responseHeaders: Map<String, String> = source.responseHeaders,
+            ): PlayerLaunch = PlayerLaunch(
+                title = request.parentTitle,
+                sourceUrl = source.url,
+                reusableSourceUrl = source.reusableUrl,
+                fallbackRawSourceUrl = source.fallbackRawUrl,
+                sourceHeaders = source.requestHeaders,
+                fallbackRawSourceHeaders = source.fallbackRawHeaders,
+                sourceResponseHeaders = responseHeaders,
+                logo = request.parentLogo,
+                poster = request.parentPoster,
+                background = request.parentBackground,
+                seasonNumber = nextSeason,
+                episodeNumber = nextEpisodeNumber,
+                episodeTitle = request.nextEpisodeTitle,
+                episodeThumbnail = request.nextEpisodeThumbnail,
+                streamTitle = streamTitle,
+                streamSubtitle = streamSubtitle,
+                bingeGroup = bingeGroup,
+                pauseDescription = request.nextEpisodeOverview ?: request.parentDescription,
+                providerName = providerName,
+                providerAddonId = providerAddonId,
+                contentType = request.parentMetaType,
+                videoId = nextVideoId,
+                parentMetaId = request.parentMetaId,
+                parentMetaType = request.parentMetaType,
+                initialPositionMs = 0L,
+                initialProgressFraction = null,
+                launchedFromManualStreamSelection = false,
+            )
+
+            DownloadsRepository.findPlayableDownload(
+                parentMetaId = request.parentMetaId,
+                seasonNumber = nextSeason,
+                episodeNumber = nextEpisodeNumber,
+                videoId = nextVideoId,
+            )?.let { downloaded ->
+                DownloadsRepository.playableLocalFileUri(downloaded)?.let { localUrl ->
+                    return@runCatching preparedLaunch(
+                        source = ResolvedPlaybackSource(
+                            url = localUrl,
+                            reusableUrl = null,
+                            fallbackRawUrl = null,
+                            requestHeaders = emptyMap(),
+                            fallbackRawHeaders = emptyMap(),
+                            responseHeaders = emptyMap(),
+                        ),
+                        streamTitle = downloaded.streamTitle.ifBlank { request.nextEpisodeTitle },
+                        streamSubtitle = downloaded.streamSubtitle,
+                        bingeGroup = null,
+                        providerName = downloaded.providerName.ifBlank { downloadedProviderLabel },
+                        providerAddonId = downloaded.providerAddonId,
+                    )
+                }
+            }
+
+            WatchProgressRepository.progressForVideo(nextVideoId)
+                ?.takeIf { !it.lastSourceUrl.isNullOrBlank() }
+                ?.let { savedProgress ->
+                    val savedSource = try {
+                        resolveReusablePlaybackSource(
+                            sourceUrl = savedProgress.lastSourceUrl.orEmpty(),
+                            requestHeaders = emptyMap(),
+                            streamName = savedProgress.lastStreamTitle ?: request.nextEpisodeTitle,
+                            addonName = savedProgress.providerName.orEmpty(),
+                            addonId = savedProgress.providerAddonId.orEmpty(),
+                            bingeGroup = request.currentBingeGroup,
+                            seasonNumber = nextSeason,
+                            episodeNumber = nextEpisodeNumber,
+                            showDebridFailureToast = false,
+                        )
+                    } catch (error: Throwable) {
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        null
+                    }
+                    savedSource?.let {
+                        return@runCatching preparedLaunch(
+                            source = it,
+                            streamTitle = savedProgress.lastStreamTitle ?: request.nextEpisodeTitle,
+                            streamSubtitle = savedProgress.lastStreamSubtitle,
+                            bingeGroup = request.currentBingeGroup,
+                            providerName = savedProgress.providerName.orEmpty(),
+                            providerAddonId = savedProgress.providerAddonId,
+                        )
+                    }
+                }
+
+            val cacheKey = StreamLinkCacheRepository.contentKey(
+                type = request.parentMetaType,
+                videoId = nextVideoId,
+                parentMetaId = request.parentMetaId,
+                season = nextSeason,
+                episode = nextEpisodeNumber,
+            )
+            if (playerSettingsUiState.streamReuseLastLinkEnabled) {
+                val maxAgeMs = playerSettingsUiState.streamReuseLastLinkCacheHours * 60L * 60L * 1_000L
+                StreamLinkCacheRepository.getValid(cacheKey, maxAgeMs)?.let { cached ->
+                    val reusableUrl = cached.rawUrl ?: cached.url
+                    val cachedSource = try {
+                        resolveReusablePlaybackSource(
+                            sourceUrl = reusableUrl,
+                            requestHeaders = cached.requestHeaders,
+                            streamName = cached.streamName,
+                            addonName = cached.addonName,
+                            addonId = cached.addonId,
+                            bingeGroup = cached.bingeGroup,
+                            seasonNumber = nextSeason,
+                            episodeNumber = nextEpisodeNumber,
+                            showDebridFailureToast = false,
+                        )
+                    } catch (error: Throwable) {
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        null
+                    }
+                    cachedSource?.let {
+                        return@runCatching preparedLaunch(
+                            source = it,
+                            streamTitle = cached.streamName,
+                            streamSubtitle = null,
+                            bingeGroup = cached.bingeGroup,
+                            providerName = cached.addonName,
+                            providerAddonId = cached.addonId,
+                            responseHeaders = sanitizePlaybackResponseHeaders(cached.responseHeaders),
+                        )
+                    }
+                    StreamLinkCacheRepository.remove(cacheKey)
+                }
+            }
+
+            AddonRepository.initialize()
+            val authenticatedState = authState as? AuthState.Authenticated
+            if (authenticatedState != null && !authenticatedState.isAnonymous) {
+                val activeProfileId = profileState.activeProfile?.profileIndex
+                    ?: ProfileRepository.activeProfileId
+                AddonRepository.pullFromServer(activeProfileId)
+                AddonRepository.awaitManifestsLoaded()
+            }
+            val expectedRequestToken = StreamsRepository.requestToken(
+                type = request.parentMetaType,
+                videoId = nextVideoId,
+                season = nextSeason,
+                episode = nextEpisodeNumber,
+                manualSelection = false,
+            )
+            val installedAddonNames = AddonRepository.uiState.value.addons
+                .mapNotNull { addon ->
+                    addon.displayTitle.takeIf { it.isNotBlank() } ?: addon.manifest?.name
+                }
+                .toSet()
+            val attemptedStreams = mutableSetOf<StreamItem>()
+
+            suspend fun resolveCandidates(state: com.nuvio.app.features.streams.StreamsUiState): PlayerLaunch? {
+                val ordered = StreamAutoPlaySelector.orderedAutoPlayCandidates(
+                    streams = state.allStreams,
+                    mode = playerSettingsUiState.streamAutoPlayMode,
+                    regexPattern = playerSettingsUiState.streamAutoPlayRegex,
+                    source = playerSettingsUiState.streamAutoPlaySource,
+                    installedAddonNames = installedAddonNames,
+                    selectedAddons = playerSettingsUiState.streamAutoPlaySelectedAddons,
+                    selectedPlugins = playerSettingsUiState.streamAutoPlaySelectedPlugins,
+                    preferredBingeGroup = request.currentBingeGroup,
+                    preferBingeGroupInSelection = playerSettingsUiState.streamAutoPlayPreferBingeGroup,
+                    maxFileSizeBytes = playerSettingsUiState.streamAutoPlayMaxFileSizeBytes,
+                    limit = MaxNextEpisodeAutoPlayCandidates,
+                )
+                val candidates = (listOfNotNull(state.autoPlayStream) + ordered)
+                    .distinct()
+                    .filterNot(attemptedStreams::contains)
+                    .take(MaxNextEpisodeAutoPlayCandidates)
+
+                for (selectedStream in candidates) {
+                    attemptedStreams += selectedStream
+                    val playable = try {
+                        DirectDebridPlaybackResolver.resolveToPlayableStream(
+                            stream = selectedStream,
+                            season = nextSeason,
+                            episode = nextEpisodeNumber,
+                        )
+                    } catch (error: Throwable) {
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        continue
+                    }
+                    val playbackStream = when (playable) {
+                        is DirectDebridPlayableResult.Success -> playable.stream
+                        else -> continue
+                    }
+                    val sourceUrl = playbackStream.directPlaybackUrl ?: continue
+                    val source = try {
+                        val reusableSourceUrl = selectedStream.reusableTorboxSourceUrl() ?: sourceUrl
+                        val isReusableTorboxP2P = reusableSourceUrl.isReusableTorboxP2PSource()
+                        val initialHeaders = sanitizePlaybackHeaders(playbackStream.behaviorHints.proxyHeaders?.request)
+                        val resolvedUrl = StreamUrlResolver.resolve(sourceUrl, initialHeaders)
+                        ResolvedPlaybackSource(
+                            url = resolvedUrl.url,
+                            reusableUrl = reusableSourceUrl,
+                            fallbackRawUrl = sourceUrl.takeUnless { isReusableTorboxP2P },
+                            requestHeaders = sanitizePlaybackHeaders(resolvedUrl.requestHeaders),
+                            fallbackRawHeaders = if (isReusableTorboxP2P) emptyMap() else initialHeaders,
+                            responseHeaders = sanitizePlaybackResponseHeaders(
+                                playbackStream.behaviorHints.proxyHeaders?.response,
+                            ),
+                            filename = playbackStream.behaviorHints.filename,
+                            videoSize = playbackStream.behaviorHints.videoSize,
+                        )
+                    } catch (error: Throwable) {
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        continue
+                    }
+                    if (playerSettingsUiState.streamReuseLastLinkEnabled) {
+                        StreamLinkCacheRepository.save(
+                            contentKey = cacheKey,
+                            url = source.url,
+                            rawUrl = source.reusableUrl,
+                            streamName = playbackStream.streamLabel,
+                            addonName = playbackStream.addonName,
+                            addonId = playbackStream.addonId,
+                            requestHeaders = source.requestHeaders,
+                            responseHeaders = source.responseHeaders,
+                            filename = source.filename,
+                            videoSize = source.videoSize,
+                            bingeGroup = playbackStream.behaviorHints.bingeGroup,
+                        )
+                    }
+                    return preparedLaunch(
+                        source = source,
+                        streamTitle = playbackStream.streamLabel,
+                        streamSubtitle = playbackStream.streamSubtitle,
+                        bingeGroup = playbackStream.behaviorHints.bingeGroup,
+                        providerName = playbackStream.addonName,
+                        providerAddonId = playbackStream.addonId,
+                    )
+                }
+                return null
+            }
+
+            suspend fun awaitStreams(terminalOnly: Boolean): com.nuvio.app.features.streams.StreamsUiState? {
+                val waitMs = (playerSettingsUiState.streamAutoPlayTimeoutSeconds * 1_000L + 20_000L)
+                    .coerceIn(20_000L, 45_000L)
+                return kotlinx.coroutines.withTimeoutOrNull(waitMs) {
+                    StreamsRepository.uiState
+                        .filter { state ->
+                            state.requestToken == expectedRequestToken &&
+                                if (terminalOnly) {
+                                    !state.isAnyLoading
+                                } else {
+                                    state.autoPlayStream != null || !state.isAnyLoading
+                                }
+                        }
+                        .first()
+                } ?: StreamsRepository.uiState.value.takeIf { state ->
+                    state.requestToken == expectedRequestToken
+                }
+            }
+
+            repeat(2) { attempt ->
+                if (attempt == 0) {
+                    StreamsRepository.load(
+                        type = request.parentMetaType,
+                        videoId = nextVideoId,
+                        season = nextSeason,
+                        episode = nextEpisodeNumber,
+                        manualSelection = false,
+                        preferredBingeGroup = request.currentBingeGroup,
+                    )
+                } else {
+                    attemptedStreams.clear()
+                    StreamsRepository.reload(
+                        type = request.parentMetaType,
+                        videoId = nextVideoId,
+                        season = nextSeason,
+                        episode = nextEpisodeNumber,
+                        manualSelection = false,
+                        preferredBingeGroup = request.currentBingeGroup,
+                    )
+                }
+
+                val firstState = awaitStreams(terminalOnly = false)
+                if (firstState != null) {
+                    resolveCandidates(firstState)?.let { return@runCatching it }
+                    if (firstState.isAnyLoading) {
+                        awaitStreams(terminalOnly = true)?.let { completedState ->
+                            resolveCandidates(completedState)?.let { return@runCatching it }
+                        }
+                    }
+                }
+                if (attempt == 0) kotlinx.coroutines.delay(500L)
+            }
+            error("No playable automatic stream")
+        }.also {
+            StreamsRepository.consumeAutoPlay()
+            StreamsRepository.cancelLoading()
+        }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
         }
 
         LaunchedEffect(pendingDirectAutoPlayLaunch) {
@@ -1597,6 +1922,7 @@ private fun MainAppContent(
 
                     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                         val isTabletLayout = maxWidth >= 768.dp
+                        val useTopNavigationPill = isTabletLayout || maxWidth > maxHeight
                         val useNativeBottomTabs =
                             liquidGlassNativeTabBarSupported && liquidGlassNativeTabBarEnabled && initialHomeReady
                         val tabsRouteActive = currentBackStackEntry?.destination?.hasRoute<TabsRoute>() == true
@@ -1620,7 +1946,7 @@ private fun MainAppContent(
                                 CompositionLocalProvider(
                                     LocalNuvioBottomNavigationOverlayPadding provides if (useNativeBottomTabs) {
                                         49.dp
-                                    } else if (!isTabletLayout) {
+                                    } else if (!useTopNavigationPill) {
                                         72.dp
                                     } else {
                                         0.dp
@@ -1630,7 +1956,7 @@ private fun MainAppContent(
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .then(
-                                                if (!isTabletLayout && !useNativeBottomTabs) {
+                                                if (!useNativeBottomTabs) {
                                                     Modifier.hazeSource(state = navBarHazeState)
                                                 } else {
                                                     Modifier
@@ -1711,19 +2037,17 @@ private fun MainAppContent(
                                     )
                                 }
 
-                                if (isTabletLayout && !useNativeBottomTabs) {
-                                    TabletFloatingTopBar(
-                                        selectedTab = selectedTab,
-                                        onTabSelected = ::handleRootTabClick,
-                                        onProfileSelected = onProfileSelected,
-                                        onAddProfileRequested = onSwitchProfile,
-                                    )
-                                }
-
-                                if (!isTabletLayout && !useNativeBottomTabs) {
+                                if (!useNativeBottomTabs) {
                                     NuvioNavigationBar(
-                                        modifier = Modifier.align(Alignment.BottomCenter),
+                                        modifier = Modifier.align(
+                                            if (useTopNavigationPill) Alignment.TopCenter else Alignment.BottomCenter,
+                                        ),
                                         hazeState = navBarHazeState,
+                                        placement = if (useTopNavigationPill) {
+                                            NuvioNavigationBarPlacement.Top
+                                        } else {
+                                            NuvioNavigationBarPlacement.Bottom
+                                        },
                                     ) {
                                         NavItem(
                                             selected = selectedTab == AppScreenTab.Home,
@@ -2056,6 +2380,7 @@ private fun MainAppContent(
                                     parentMetaType = launch.parentMetaType ?: launch.type,
                                     initialPositionMs = launch.resumePositionMs ?: 0L,
                                     initialProgressFraction = launch.resumeProgressFraction,
+                                    launchedFromManualStreamSelection = launch.launchedFromManualStreamSelection,
                                 )
                             reuseNavigated = true
                             val launchId = PlayerLaunchStore.put(playerLaunch)
@@ -2171,6 +2496,7 @@ private fun MainAppContent(
                                 initialProgressFraction = launch.resumeProgressFraction,
                                 fallbackRawSourceUrl = sourceUrl.takeUnless { isReusableTorboxP2P },
                                 fallbackRawSourceHeaders = if (isReusableTorboxP2P) emptyMap() else initialRequestHeaders,
+                                launchedFromManualStreamSelection = launch.launchedFromManualStreamSelection,
                             )
                         StreamsRepository.consumeAutoPlay()
                         StreamsRepository.cancelLoading()
@@ -2290,6 +2616,7 @@ private fun MainAppContent(
                             parentMetaType = launch.parentMetaType ?: launch.type,
                             initialPositionMs = resolvedResumePositionMs ?: 0L,
                             initialProgressFraction = resolvedResumeProgressFraction,
+                            launchedFromManualStreamSelection = launch.launchedFromManualStreamSelection,
                         )
 
                         val launchId = PlayerLaunchStore.put(playerLaunch)
@@ -2401,6 +2728,8 @@ private fun MainAppContent(
                         initialPositionMs = launch.initialPositionMs,
                         initialProgressFraction = launch.initialProgressFraction,
                         initialWatchTogetherRoom = launch.initialWatchTogetherRoom,
+                        launchedFromManualStreamSelection = launch.launchedFromManualStreamSelection,
+                        resolveNextEpisodePlayback = ::resolveNextEpisodePlaybackLaunch,
                         onBack = {
                             ResumePromptRepository.markPlayerExitedNormally()
                             PlayerLaunchStore.remove(route.launchId)
@@ -2744,6 +3073,15 @@ private fun MainAppContent(
                         }
                         add(
                             PosterZoomOverlayAction(
+                                icon = Icons.Default.CheckCircleOutline,
+                                label = stringResource(Res.string.hero_mark_watched),
+                                onSelected = {
+                                    WatchingActions.markContinueWatchingWatched(item)
+                                },
+                            ),
+                        )
+                        add(
+                            PosterZoomOverlayAction(
                                 icon = Icons.Default.DeleteOutline,
                                 label = stringResource(Res.string.cw_action_remove),
                                 isDestructive = true,
@@ -2815,6 +3153,7 @@ private fun MainAppContent(
 
             if (showWatchTogetherJoinDialog) {
                 WatchTogetherDialog(
+                    visible = true,
                     session = null,
                     joinCode = watchTogetherJoinCode,
                     isBusy = watchTogetherJoinBusy,
@@ -3042,152 +3381,6 @@ private fun AppTabHost(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun TabletFloatingTopBar(
-    selectedTab: AppScreenTab,
-    onTabSelected: (AppScreenTab) -> Unit,
-    onProfileSelected: (NuvioProfile) -> Unit,
-    onAddProfileRequested: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = statusBarPadding + 10.dp, bottom = 8.dp),
-        contentAlignment = Alignment.TopCenter,
-    ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            shape = RoundedCornerShape(999.dp),
-            tonalElevation = 4.dp,
-            shadowElevation = 10.dp,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TabletTopPillItem(
-                    label = stringResource(Res.string.compose_nav_home),
-                    selected = selectedTab == AppScreenTab.Home,
-                    onClick = { onTabSelected(AppScreenTab.Home) },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Filled.Home,
-                            contentDescription = stringResource(Res.string.compose_nav_home),
-                            modifier = Modifier.size(18.dp),
-                            tint = if (selectedTab == AppScreenTab.Home) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    },
-                )
-                TabletTopPillItem(
-                    label = stringResource(Res.string.compose_nav_search),
-                    selected = selectedTab == AppScreenTab.Search,
-                    onClick = { onTabSelected(AppScreenTab.Search) },
-                    icon = {
-                        Icon(
-                            painter = painterResource(Res.drawable.sidebar_search),
-                            contentDescription = stringResource(Res.string.compose_nav_search),
-                            modifier = Modifier.size(18.dp),
-                            tint = if (selectedTab == AppScreenTab.Search) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    },
-                )
-                TabletTopPillItem(
-                    label = stringResource(Res.string.compose_nav_library),
-                    selected = selectedTab == AppScreenTab.Library,
-                    onClick = { onTabSelected(AppScreenTab.Library) },
-                    icon = {
-                        Icon(
-                            painter = painterResource(Res.drawable.sidebar_library),
-                            contentDescription = stringResource(Res.string.compose_nav_library),
-                            modifier = Modifier.size(18.dp),
-                            tint = if (selectedTab == AppScreenTab.Library) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    },
-                )
-                Surface(
-                    color = if (selectedTab == AppScreenTab.Settings) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    },
-                    shape = RoundedCornerShape(999.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ProfileSwitcherTab(
-                            selected = selectedTab == AppScreenTab.Settings,
-                            onClick = { onTabSelected(AppScreenTab.Settings) },
-                            onProfileSelected = onProfileSelected,
-                            onAddProfileRequested = onAddProfileRequested,
-                        )
-                        Text(
-                            text = stringResource(Res.string.compose_nav_profile),
-                            modifier = Modifier.clickable { onTabSelected(AppScreenTab.Settings) },
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (selectedTab == AppScreenTab.Settings) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TabletTopPillItem(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    icon: @Composable () -> Unit,
-) {
-    Surface(
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(999.dp),
-        tonalElevation = if (selected) 2.dp else 0.dp,
-        modifier = Modifier.clickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            icon()
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
         }
     }
 }

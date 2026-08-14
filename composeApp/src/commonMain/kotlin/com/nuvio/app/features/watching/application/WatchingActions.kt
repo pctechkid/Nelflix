@@ -12,6 +12,7 @@ import com.nuvio.app.features.watched.toEpisodeWatchedItem
 import com.nuvio.app.features.watched.toSeriesWatchedItem
 import com.nuvio.app.features.watched.toWatchedItem
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
+import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,7 @@ object WatchingActions {
         val meta = MetaDetailsRepository.fetch(type = preview.type, id = preview.id)
         if (meta == null) {
             WatchedRepository.toggleWatched(preview.toWatchedItem(markedAtEpochMs = 0L))
+            WatchProgressRepository.invalidateContinueWatchingProjection(listOf(preview.id))
             return
         }
 
@@ -55,6 +57,39 @@ object WatchingActions {
                 meta.releasedPlayableEpisodes(todayIsoDate).map(meta::episodePlaybackId),
             )
         }
+        refreshSeriesProjection(meta)
+    }
+
+    fun markContinueWatchingWatched(item: ContinueWatchingItem) {
+        WatchedRepository.markWatched(
+            WatchedItem(
+                id = item.parentMetaId,
+                type = item.parentMetaType,
+                name = item.title,
+                poster = item.poster,
+                season = item.seasonNumber,
+                episode = item.episodeNumber,
+                markedAtEpochMs = 0L,
+            ),
+        )
+        WatchProgressRepository.clearProgress(item.videoId)
+        WatchProgressRepository.invalidateContinueWatchingProjection(listOf(item.parentMetaId))
+
+        if (item.seasonNumber == null || item.episodeNumber == null) return
+        val cachedMeta = MetaDetailsRepository.peek(
+            type = item.parentMetaType,
+            id = item.parentMetaId,
+        )
+        cachedMeta?.let(::refreshSeriesProjection)
+        actionScope.launch {
+            val meta = runCatching {
+                MetaDetailsRepository.fetch(
+                    type = item.parentMetaType,
+                    id = item.parentMetaId,
+                )
+            }.getOrNull() ?: return@launch
+            if (meta != cachedMeta) refreshSeriesProjection(meta)
+        }
     }
 
     fun toggleEpisodeWatched(
@@ -70,7 +105,7 @@ object WatchingActions {
             WatchedRepository.markWatched(watchedItem)
             WatchProgressRepository.clearProgress(meta.episodePlaybackId(episode))
         }
-        reconcileSeriesWatchedState(meta)
+        refreshSeriesProjection(meta)
     }
 
     fun togglePreviousEpisodesWatched(
@@ -125,6 +160,11 @@ object WatchingActions {
         WatchedRepository.markWatched(watchedItem)
 
         if (!entry.isEpisode) return
+        val cachedMeta = MetaDetailsRepository.peek(
+            type = entry.parentMetaType,
+            id = entry.parentMetaId,
+        )
+        cachedMeta?.let(::refreshSeriesProjection)
         actionScope.launch {
             val meta = runCatching {
                 MetaDetailsRepository.fetch(
@@ -133,7 +173,7 @@ object WatchingActions {
                 )
             }.getOrNull() ?: return@launch
 
-            reconcileSeriesWatchedState(meta = meta)
+            if (meta != cachedMeta) refreshSeriesProjection(meta)
         }
     }
 
@@ -151,6 +191,11 @@ object WatchingActions {
             WatchedRepository.markWatched(watchedItems)
             WatchProgressRepository.clearProgress(episodes.map(meta::episodePlaybackId))
         }
+        refreshSeriesProjection(meta)
+    }
+
+    private fun refreshSeriesProjection(meta: MetaDetails) {
         reconcileSeriesWatchedState(meta)
+        WatchProgressRepository.primeContinueWatchingProjection(meta)
     }
 }

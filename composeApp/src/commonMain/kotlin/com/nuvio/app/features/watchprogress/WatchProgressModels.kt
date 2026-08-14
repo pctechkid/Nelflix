@@ -1,5 +1,6 @@
 package com.nuvio.app.features.watchprogress
 
+import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.watching.domain.WatchingContentRef
 import kotlinx.serialization.Serializable
@@ -49,6 +50,7 @@ data class WatchProgressEntry(
     val isCompleted: Boolean = false,
     val progressPercent: Float? = null,
     val source: String = WatchProgressSourceLocal,
+    val metadataCheckedAtEpochMs: Long = 0L,
 ) {
     val normalizedProgressPercent: Float?
         get() = progressPercent?.coerceIn(0f, 100f)
@@ -147,6 +149,35 @@ data class WatchProgressPlaybackSession(
     val lastSourceUrl: String? = null,
 )
 
+internal fun WatchProgressPlaybackSession.withPreservedCheckedMetadata(
+    previousEntry: WatchProgressEntry?,
+): WatchProgressPlaybackSession {
+    if (previousEntry == null || previousEntry.metadataCheckedAtEpochMs <= 0L) return this
+
+    val previousEpisodeTitle = previousEntry.episodeTitle?.trim()?.takeIf(String::isNotBlank)
+    val sessionEpisodeTitle = episodeTitle?.trim()?.takeIf(String::isNotBlank)
+    val mergedEpisodeTitle = when {
+        previousEpisodeTitle.isGenericContinueWatchingEpisodeTitle(episodeNumber) &&
+            !sessionEpisodeTitle.isGenericContinueWatchingEpisodeTitle(episodeNumber) -> sessionEpisodeTitle
+        previousEpisodeTitle != null -> previousEpisodeTitle
+        else -> sessionEpisodeTitle
+    }
+
+    return copy(
+        title = previousEntry.title.trim().takeIf(String::isNotBlank) ?: title,
+        logo = previousEntry.logo.preferredDisplayValue(logo),
+        poster = previousEntry.poster.preferredDisplayValue(poster),
+        background = previousEntry.background.preferredDisplayValue(background),
+        episodeTitle = mergedEpisodeTitle,
+        episodeThumbnail = previousEntry.episodeThumbnail.preferredDisplayValue(episodeThumbnail),
+        pauseDescription = previousEntry.pauseDescription.preferredDisplayValue(pauseDescription),
+    )
+}
+
+private fun String?.preferredDisplayValue(fallback: String?): String? =
+    this?.trim()?.takeIf(String::isNotBlank)
+        ?: fallback?.trim()?.takeIf(String::isNotBlank)
+
 data class ContinueWatchingItem(
     val parentMetaId: String,
     val parentMetaType: String,
@@ -162,16 +193,76 @@ data class ContinueWatchingItem(
     val episodeTitle: String? = null,
     val episodeThumbnail: String? = null,
     val pauseDescription: String? = null,
+    val metadataCheckedAtEpochMs: Long = 0L,
     val released: String? = null,
+    val releaseEpochMs: Long? = null,
     val isNextUp: Boolean = false,
     val nextUpSeedSeasonNumber: Int? = null,
     val nextUpSeedEpisodeNumber: Int? = null,
+    val nextUpSeedLastUpdatedEpochMs: Long? = null,
     val resumePositionMs: Long,
     val resumeProgressFraction: Float? = null,
     val durationMs: Long,
     val progressFraction: Float,
     val isReleaseAlert: Boolean = false,
     val isNewSeasonRelease: Boolean = false,
+)
+
+internal fun ContinueWatchingItem.canonicalIdentity(): String =
+    continueWatchingCanonicalIdentity(
+        parentMetaId = parentMetaId,
+        parentMetaType = parentMetaType,
+        videoId = videoId,
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
+    )
+
+internal fun continueWatchingCanonicalIdentity(
+    parentMetaId: String,
+    parentMetaType: String,
+    videoId: String,
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+): String {
+    val normalizedType = when (parentMetaType.trim().lowercase()) {
+        "series", "show", "tv", "tvshow" -> "series"
+        "movie", "film" -> "movie"
+        else -> parentMetaType.trim().lowercase().ifBlank { "unknown" }
+    }
+    val normalizedVideoId = videoId.trim().lowercase()
+    if (normalizedType != "series" || seasonNumber == null || episodeNumber == null) {
+        return "$normalizedType|${normalizedVideoId.ifBlank { parentMetaId.trim().lowercase() }}"
+    }
+
+    val identityInput = "$parentMetaId|$videoId"
+    val canonicalSeriesId = ContinueWatchingImdbIdRegex.find(identityInput)
+        ?.value
+        ?.lowercase()
+        ?.let { "imdb:$it" }
+        ?: ContinueWatchingTmdbIdRegex.find(identityInput)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.let { "tmdb:$it" }
+        ?: parentMetaId.trim().lowercase().ifBlank { normalizedVideoId }
+    return "$normalizedType|$canonicalSeriesId|s${seasonNumber}:e${episodeNumber}"
+}
+
+internal fun ContinueWatchingItem.metadataQualityScore(): Int {
+    var score = 0
+    if (title.isNotBlank()) score += 1
+    if (!episodeTitle.isGenericContinueWatchingEpisodeTitle(episodeNumber)) score += 4
+    if (!episodeThumbnail.isNullOrBlank()) score += 3
+    if (!pauseDescription.isNullOrBlank()) score += 2
+    if (!logo.isNullOrBlank()) score += 1
+    if (!poster.isNullOrBlank()) score += 1
+    if (!background.isNullOrBlank()) score += 1
+    return score
+}
+
+private val ContinueWatchingImdbIdRegex = Regex("tt[0-9]+", RegexOption.IGNORE_CASE)
+private val ContinueWatchingTmdbIdRegex = Regex(
+    "(?:^|[|:/])tmdb(?::|/)([0-9]+)",
+    RegexOption.IGNORE_CASE,
 )
 
 data class ContinueWatchingPreferencesUiState(
@@ -224,10 +315,13 @@ internal fun WatchProgressEntry.toContinueWatchingItem(): ContinueWatchingItem {
         episodeTitle = normalizedEntry.episodeTitle,
         episodeThumbnail = normalizedEntry.episodeThumbnail,
         pauseDescription = normalizedEntry.pauseDescription,
+        metadataCheckedAtEpochMs = normalizedEntry.metadataCheckedAtEpochMs,
         released = null,
+        releaseEpochMs = null,
         isNextUp = false,
         nextUpSeedSeasonNumber = null,
         nextUpSeedEpisodeNumber = null,
+        nextUpSeedLastUpdatedEpochMs = null,
         resumePositionMs = if (explicitResumeProgressFraction != null) 0L else normalizedEntry.lastPositionMs,
         resumeProgressFraction = explicitResumeProgressFraction,
         durationMs = normalizedEntry.durationMs,
@@ -239,12 +333,13 @@ internal fun WatchProgressEntry.toContinueWatchingItem(): ContinueWatchingItem {
 
 internal fun WatchProgressEntry.toUpNextContinueWatchingItem(
     nextEpisode: MetaVideo,
+    releaseEpochMs: Long?,
 ): ContinueWatchingItem {
     val alertState = calculateReleaseAlertState(
         seedLastUpdatedEpochMs = lastUpdatedEpochMs,
         seedSeasonNumber = seasonNumber,
         nextSeasonNumber = nextEpisode.season,
-        releasedIso = nextEpisode.released,
+        releaseEpochMs = releaseEpochMs,
     )
     return ContinueWatchingItem(
         parentMetaId = parentMetaId,
@@ -271,13 +366,34 @@ internal fun WatchProgressEntry.toUpNextContinueWatchingItem(
         episodeThumbnail = nextEpisode.thumbnail,
         pauseDescription = nextEpisode.overview,
         released = nextEpisode.released,
+        releaseEpochMs = releaseEpochMs,
         isNextUp = true,
         nextUpSeedSeasonNumber = seasonNumber,
         nextUpSeedEpisodeNumber = episodeNumber,
+        nextUpSeedLastUpdatedEpochMs = lastUpdatedEpochMs,
         resumePositionMs = 0L,
         resumeProgressFraction = null,
         durationMs = 0L,
         progressFraction = 0f,
+        isReleaseAlert = alertState.isReleaseAlert,
+        isNewSeasonRelease = alertState.isNewSeasonRelease,
+    )
+}
+
+internal fun ContinueWatchingItem.withReleaseAlertState(
+    nowEpochMs: Long,
+): ContinueWatchingItem {
+    if (!isNextUp) return this
+    val seedTimestamp = nextUpSeedLastUpdatedEpochMs
+        ?: return copy(isReleaseAlert = false, isNewSeasonRelease = false)
+    val alertState = calculateReleaseAlertState(
+        seedLastUpdatedEpochMs = seedTimestamp,
+        seedSeasonNumber = nextUpSeedSeasonNumber,
+        nextSeasonNumber = seasonNumber,
+        releaseEpochMs = releaseEpochMs,
+        nowEpochMs = nowEpochMs,
+    )
+    return copy(
         isReleaseAlert = alertState.isReleaseAlert,
         isNewSeasonRelease = alertState.isNewSeasonRelease,
     )
@@ -288,13 +404,102 @@ internal fun buildContinueWatchingEpisodeSubtitle(
     episodeNumber: Int?,
     episodeTitle: String?,
 ): String {
-    val episodeCode = when {
-        seasonNumber != null && episodeNumber != null -> "S${seasonNumber}E${episodeNumber}"
-        episodeNumber != null -> "E${episodeNumber}"
-        else -> null
-    }
+    val episodeCode = continueWatchingEpisodeCode(seasonNumber, episodeNumber)
     val title = episodeTitle.orEmpty()
     return listOfNotNull(episodeCode, title.takeIf { it.isNotBlank() }).joinToString(" • ")
+}
+
+internal fun continueWatchingEpisodeCode(
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+): String? = when {
+    seasonNumber != null && episodeNumber != null -> "S${seasonNumber}:E${episodeNumber}"
+    episodeNumber != null -> "E${episodeNumber}"
+    else -> null
+}
+
+internal const val IncompleteContinueWatchingMetadataTtlMs = 30L * 60L * 1000L
+internal const val CompleteContinueWatchingMetadataTtlMs = 6L * 60L * 60L * 1000L
+
+internal fun WatchProgressEntry.needsContinueWatchingMetadataRefresh(
+    nowEpochMs: Long,
+    force: Boolean = false,
+): Boolean {
+    if (isEffectivelyCompleted) return false
+    if (force || metadataCheckedAtEpochMs <= 0L) return true
+    val ttlMs = if (hasIncompleteContinueWatchingMetadata()) {
+        IncompleteContinueWatchingMetadataTtlMs
+    } else {
+        CompleteContinueWatchingMetadataTtlMs
+    }
+    return nowEpochMs - metadataCheckedAtEpochMs >= ttlMs
+}
+
+internal fun WatchProgressEntry.withRefreshedContinueWatchingMetadata(
+    meta: MetaDetails?,
+    checkedAtEpochMs: Long,
+): WatchProgressEntry {
+    val episode = meta?.videos?.firstOrNull { video ->
+        seasonNumber != null &&
+            episodeNumber != null &&
+            video.season == seasonNumber &&
+            video.episode == episodeNumber
+    }
+    return copy(
+        title = preferFreshText(title, meta?.name) ?: title,
+        logo = preferFreshText(logo, meta?.logo),
+        poster = preferFreshText(poster, meta?.poster),
+        background = preferFreshText(background, meta?.background),
+        episodeTitle = preferFreshEpisodeTitle(
+            current = episodeTitle,
+            incoming = episode?.title,
+            episodeNumber = episodeNumber,
+        ),
+        episodeThumbnail = preferFreshText(episodeThumbnail, episode?.thumbnail),
+        pauseDescription = preferFreshText(
+            current = pauseDescription,
+            incoming = episode?.overview ?: meta?.description,
+        ),
+        metadataCheckedAtEpochMs = checkedAtEpochMs.coerceAtLeast(metadataCheckedAtEpochMs),
+    )
+}
+
+private fun WatchProgressEntry.hasIncompleteContinueWatchingMetadata(): Boolean {
+    if (poster.isNullOrBlank() || background.isNullOrBlank()) return true
+    if (!isEpisode) return false
+    return episodeThumbnail.isNullOrBlank() ||
+        pauseDescription.isNullOrBlank() ||
+        episodeTitle.isGenericContinueWatchingEpisodeTitle(episodeNumber)
+}
+
+private fun preferFreshText(current: String?, incoming: String?): String? =
+    incoming?.trim()?.takeIf(String::isNotBlank)
+        ?: current?.trim()?.takeIf(String::isNotBlank)
+
+private fun preferFreshEpisodeTitle(
+    current: String?,
+    incoming: String?,
+    episodeNumber: Int?,
+): String? {
+    val currentValue = current?.trim()?.takeIf(String::isNotBlank)
+    val incomingValue = incoming?.trim()?.takeIf(String::isNotBlank) ?: return currentValue
+    if (
+        incomingValue.isGenericContinueWatchingEpisodeTitle(episodeNumber) &&
+        currentValue != null &&
+        !currentValue.isGenericContinueWatchingEpisodeTitle(episodeNumber)
+    ) {
+        return currentValue
+    }
+    return incomingValue
+}
+
+internal fun String?.isGenericContinueWatchingEpisodeTitle(episodeNumber: Int?): Boolean {
+    val value = this?.trim()?.lowercase()?.takeIf(String::isNotBlank) ?: return true
+    if (value == "episode" || value == "tba" || value == "untitled") return true
+    val number = episodeNumber ?: return false
+    return value.matches(Regex("""episode\s*0*$number""")) ||
+        value.matches(Regex("""ep\.?\s*0*$number""")) ||
+        value.matches(Regex("""e0*$number"""))
 }
 
 fun buildPlaybackVideoId(

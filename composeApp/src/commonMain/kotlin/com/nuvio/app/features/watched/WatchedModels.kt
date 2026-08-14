@@ -22,6 +22,7 @@ data class WatchedUiState(
     val items: List<WatchedItem> = emptyList(),
     val watchedKeys: Set<String> = emptySet(),
     val isLoaded: Boolean = false,
+    val syncErrorMessage: String? = null,
 )
 
 fun MetaPreview.toWatchedItem(markedAtEpochMs: Long): WatchedItem =

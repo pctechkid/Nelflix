@@ -34,6 +34,8 @@ import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watching.application.WatchingState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -72,7 +74,7 @@ fun LibraryScreen(
         refreshLibraryAndWatchedState()
     }
 
-    LaunchedEffect(networkStatusUiState.condition, isTraktSource) {
+    LaunchedEffect(networkStatusUiState.condition) {
         when (networkStatusUiState.condition) {
             NetworkCondition.NoInternet,
             NetworkCondition.ServersUnreachable,
@@ -83,16 +85,27 @@ fun LibraryScreen(
             NetworkCondition.Online -> {
                 if (!observedOfflineState) return@LaunchedEffect
                 observedOfflineState = false
-                if (isTraktSource) {
-                    coroutineScope.launch {
-                        refreshLibraryAndWatchedState()
-                    }
+                coroutineScope.launch {
+                    refreshLibraryAndWatchedState()
                 }
             }
 
             NetworkCondition.Unknown,
             NetworkCondition.Checking,
             -> Unit
+        }
+    }
+
+    LaunchedEffect(networkStatusUiState.condition, uiState.sourceMode) {
+        if (networkStatusUiState.condition != NetworkCondition.Online) return@LaunchedEffect
+        var refreshDelayMs = LIBRARY_VISIBLE_REFRESH_INTERVAL_MS
+        while (isActive) {
+            delay(refreshDelayMs)
+            val refreshed = LibraryRepository.pullFromServer(ProfileRepository.activeProfileId)
+            refreshDelayMs = nextLibraryVisibleRefreshDelayMs(
+                previousDelayMs = refreshDelayMs,
+                succeeded = refreshed,
+            )
         }
     }
 
@@ -243,3 +256,15 @@ private fun LazyListScope.librarySections(
 }
 
 private const val LIBRARY_SECTION_PREVIEW_LIMIT = 18
+internal const val LIBRARY_VISIBLE_REFRESH_INTERVAL_MS = 30_000L
+internal const val LIBRARY_VISIBLE_REFRESH_MAX_BACKOFF_MS = 5L * 60L * 1000L
+
+internal fun nextLibraryVisibleRefreshDelayMs(
+    previousDelayMs: Long,
+    succeeded: Boolean,
+): Long = if (succeeded) {
+    LIBRARY_VISIBLE_REFRESH_INTERVAL_MS
+} else {
+    (previousDelayMs.coerceAtLeast(LIBRARY_VISIBLE_REFRESH_INTERVAL_MS) * 2L)
+        .coerceAtMost(LIBRARY_VISIBLE_REFRESH_MAX_BACKOFF_MS)
+}

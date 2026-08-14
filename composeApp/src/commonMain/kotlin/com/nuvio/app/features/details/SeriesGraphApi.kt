@@ -10,7 +10,8 @@ import kotlinx.serialization.json.Json
 internal object SeriesGraphApi {
     suspend fun getSeasonRatings(tmdbId: Int): List<SeriesGraphSeasonRatingsDto> =
         requestSeasonRatings(
-            baseUrl = ImdbEpisodeRatingsConfig.IMDB_RATINGS_API_BASE_URL,
+            baseUrl = ImdbEpisodeRatingsConfig.IMDB_RATINGS_API_BASE_URL
+                .ifBlank { PUBLIC_SERIES_GRAPH_API_BASE_URL },
             showId = tmdbId.toString(),
         )
 }
@@ -18,14 +19,10 @@ internal object SeriesGraphApi {
 internal object ImdbTapframeApi {
     suspend fun getSeasonRatings(imdbId: String): List<SeriesGraphSeasonRatingsDto> =
         requestSeasonRatings(
-            baseUrl = ImdbEpisodeRatingsConfig.IMDB_TAPFRAME_API_BASE_URL,
+            baseUrl = ImdbEpisodeRatingsConfig.IMDB_TAPFRAME_API_BASE_URL
+                .ifBlank { PUBLIC_IMDB_TAPFRAME_API_BASE_URL },
             showId = imdbId,
         )
-}
-
-internal object ImdbApiDevEpisodeRatingsApi {
-    suspend fun getEpisodeRatings(imdbId: String): Map<Pair<Int, Int>, Double> =
-        requestImdbApiDevEpisodeRatings(imdbId)
 }
 
 @Serializable
@@ -40,23 +37,6 @@ internal data class SeriesGraphEpisodeRatingDto(
 @Serializable
 internal data class SeriesGraphSeasonRatingsDto(
     val episodes: List<SeriesGraphEpisodeRatingDto>? = null,
-)
-
-@Serializable
-private data class ImdbApiDevEpisodesResponseDto(
-    val episodes: List<ImdbApiDevEpisodeDto>? = null,
-)
-
-@Serializable
-private data class ImdbApiDevEpisodeDto(
-    val season: String? = null,
-    val episodeNumber: Int? = null,
-    val rating: ImdbApiDevRatingDto? = null,
-)
-
-@Serializable
-private data class ImdbApiDevRatingDto(
-    val aggregateRating: Double? = null,
 )
 
 private val seriesGraphLog = Logger.withTag("SeriesGraphApi")
@@ -86,27 +66,5 @@ private suspend fun requestSeasonRatings(
     }.getOrDefault(emptyList())
 }
 
-private suspend fun requestImdbApiDevEpisodeRatings(imdbId: String): Map<Pair<Int, Int>, Double> =
-    runCatching {
-        val response = httpRequestRaw(
-            method = "GET",
-            url = "https://api.imdbapi.dev/titles/${imdbId.trim()}/episodes",
-            headers = mapOf("Accept" to "application/json"),
-            body = "",
-        )
-        if (response.status !in 200..299 || response.body.isBlank()) {
-            seriesGraphLog.w { "IMDb API episode ratings request failed for $imdbId (${response.status})" }
-            return emptyMap()
-        }
-        val body = seriesGraphJson.decodeFromString<ImdbApiDevEpisodesResponseDto>(response.body)
-        buildMap {
-            body.episodes.orEmpty().forEach { episode ->
-                val seasonNumber = episode.season?.toIntOrNull() ?: return@forEach
-                val episodeNumber = episode.episodeNumber ?: return@forEach
-                val rating = episode.rating?.aggregateRating?.takeIf { it > 0.0 } ?: return@forEach
-                put(seasonNumber to episodeNumber, rating)
-            }
-        }
-    }.onFailure { error ->
-        seriesGraphLog.w(error) { "IMDb API episode ratings request failed for $imdbId" }
-    }.getOrDefault(emptyMap())
+private const val PUBLIC_SERIES_GRAPH_API_BASE_URL = "https://seriesgraph.com"
+private const val PUBLIC_IMDB_TAPFRAME_API_BASE_URL = "https://imdb.tapframe.space"

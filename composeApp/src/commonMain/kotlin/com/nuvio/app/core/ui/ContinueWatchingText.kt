@@ -2,6 +2,7 @@ package com.nuvio.app.core.ui
 
 import androidx.compose.runtime.Composable
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
+import com.nuvio.app.features.watchprogress.continueWatchingEpisodeCode
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -11,11 +12,13 @@ fun localizedContinueWatchingSubtitle(item: ContinueWatchingItem): String {
     val episodeNumber = item.episodeNumber
     val episodeTitle = item.episodeTitle?.takeIf { it.isNotBlank() }
 
+    val episodeCode = continueWatchingEpisodeCode(seasonNumber, episodeNumber)
     val base = when {
-        seasonNumber != null && episodeNumber != null && item.isNextUp ->
-            stringResource(Res.string.continue_watching_up_next_episode, seasonNumber, episodeNumber)
-        seasonNumber != null && episodeNumber != null ->
-            stringResource(Res.string.compose_player_episode_code_full, seasonNumber, episodeNumber)
+        episodeCode != null && item.isNextUp -> listOf(
+            stringResource(Res.string.continue_watching_up_next),
+            episodeCode,
+        ).joinToString(" • ")
+        episodeCode != null -> episodeCode
         item.isNextUp ->
             stringResource(Res.string.continue_watching_up_next)
         else ->

@@ -485,6 +485,7 @@ private fun MobileSettingsScreen(
                         onPlaybackClick = { onPageChange(SettingsPage.Playback) },
                         onAppearanceClick = { onPageChange(SettingsPage.Appearance) },
                         onNotificationsClick = { onPageChange(SettingsPage.Notifications) },
+                        onAdvancedClick = { onPageChange(SettingsPage.Advanced) },
                         onContentDiscoveryClick = { onPageChange(SettingsPage.ContentDiscovery) },
                         onIntegrationsClick = { onPageChange(SettingsPage.Integrations) },
                         onTraktClick = { onPageChange(SettingsPage.TraktAuthentication) },
@@ -557,6 +558,7 @@ private fun MobileSettingsScreen(
                     isTablet = false,
                     uiState = episodeReleaseNotificationsUiState,
                 )
+                SettingsPage.Advanced -> advancedSettingsContent(isTablet = false)
                 SettingsPage.ContinueWatching -> continueWatchingSettingsContent(
                     isTablet = false,
                     isVisible = continueWatchingPreferencesUiState.isVisible,
@@ -882,6 +884,7 @@ private fun TabletSettingsScreen(
                             onPlaybackClick = { openInlinePage(SettingsPage.Playback) },
                             onAppearanceClick = { openInlinePage(SettingsPage.Appearance) },
                             onNotificationsClick = { openInlinePage(SettingsPage.Notifications) },
+                            onAdvancedClick = { openInlinePage(SettingsPage.Advanced) },
                             onContentDiscoveryClick = { openInlinePage(SettingsPage.ContentDiscovery) },
                             onIntegrationsClick = { openInlinePage(SettingsPage.Integrations) },
                             onTraktClick = { openInlinePage(SettingsPage.TraktAuthentication) },
@@ -957,6 +960,7 @@ private fun TabletSettingsScreen(
                         isTablet = true,
                         uiState = episodeReleaseNotificationsUiState,
                     )
+                    SettingsPage.Advanced -> advancedSettingsContent(isTablet = true)
                     SettingsPage.ContinueWatching -> continueWatchingSettingsContent(
                         isTablet = true,
                         isVisible = continueWatchingPreferencesUiState.isVisible,

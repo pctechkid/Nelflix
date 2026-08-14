@@ -2,6 +2,8 @@ package com.nuvio.app.features.watchprogress
 
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.nextReleasedEpisodeAfter
+import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
+import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 
 object ResumePromptRepository {
 
@@ -45,6 +47,14 @@ object ResumePromptRepository {
             todayIsoDate = CurrentDateProvider.todayIsoDate(),
         ) ?: return null
 
-        return entry.toUpNextContinueWatchingItem(nextEpisode)
+        EpisodeReleaseNotificationsRepository.ensureLoaded()
+        val releaseEpochMs = EpisodeReleaseNotificationPlatform.resolveReleaseTriggerEpochMs(
+            rawReleaseValue = nextEpisode.released,
+            timezoneId = EpisodeReleaseNotificationsRepository.uiState.value.timezoneId,
+        )
+        return entry.toUpNextContinueWatchingItem(
+            nextEpisode = nextEpisode,
+            releaseEpochMs = releaseEpochMs,
+        )
     }
 }

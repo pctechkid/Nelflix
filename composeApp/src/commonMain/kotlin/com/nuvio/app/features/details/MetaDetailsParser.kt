@@ -40,9 +40,15 @@ internal object MetaDetailsParser {
             lastAirDate = meta.string("lastAirDate"),
             status = meta.string("status"),
             imdbRating = meta.string("imdbRating"),
-            ageRating = meta.string("ageRating"),
+            ageRating = meta.firstNonBlankString(
+                "ageRating",
+                "certification",
+                "contentRating",
+                "content_rating",
+                "rated",
+            ),
             runtime = meta.string("runtime"),
-            genres = meta.stringList("genres"),
+            genres = meta.firstNonEmptyStringList("genres", "genre"),
             director = meta.directors(links),
             writer = meta.writers(links),
             cast = meta.cast(links),
@@ -81,6 +87,20 @@ internal object MetaDetailsParser {
             else -> emptyList()
         }
     }
+
+    private fun JsonObject.firstNonBlankString(vararg names: String): String? =
+        names.firstNotNullOfOrNull { name ->
+            string(name)?.trim()?.takeIf(String::isNotBlank)
+        }
+
+    private fun JsonObject.firstNonEmptyStringList(vararg names: String): List<String> =
+        names.firstNotNullOfOrNull { name ->
+            stringListOrCsv(name)
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+                .takeIf(List<String>::isNotEmpty)
+        }.orEmpty()
 
     private fun JsonObject.links(): List<MetaLink> =
         array("links").mapNotNull { element ->
@@ -233,7 +253,15 @@ internal object MetaDetailsParser {
                 episode = video.int("episode"),
                 overview = video.string("overview") ?: video.string("description"),
                 runtime = video.int("runtime"),
-                imdbRating = video.string("imdbRating") ?: video.string("imdb_rating") ?: video.string("rating"),
+                imdbRating = video.string("imdbRating") ?: video.string("imdb_rating"),
+                ageRating = video.firstNonBlankString(
+                    "ageRating",
+                    "certification",
+                    "contentRating",
+                    "content_rating",
+                    "rated",
+                ),
+                genres = video.firstNonEmptyStringList("genres", "genre"),
                 streams = video.embeddedStreams(),
             )
         }

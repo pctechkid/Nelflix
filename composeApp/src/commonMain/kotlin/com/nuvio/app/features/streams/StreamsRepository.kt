@@ -52,29 +52,53 @@ object StreamsRepository {
     ): String =
         "$type::$videoId::$season::$episode::$manualSelection"
 
-    fun load(type: String, videoId: String, season: Int? = null, episode: Int? = null, manualSelection: Boolean = false) {
+    fun load(
+        type: String,
+        videoId: String,
+        season: Int? = null,
+        episode: Int? = null,
+        manualSelection: Boolean = false,
+        preferredBingeGroup: String? = null,
+    ) {
         load(
             type = type,
             videoId = videoId,
             season = season,
             episode = episode,
             manualSelection = manualSelection,
+            preferredBingeGroup = preferredBingeGroup,
             forceRefresh = false,
         )
     }
 
-    fun reload(type: String, videoId: String, season: Int? = null, episode: Int? = null, manualSelection: Boolean = false) {
+    fun reload(
+        type: String,
+        videoId: String,
+        season: Int? = null,
+        episode: Int? = null,
+        manualSelection: Boolean = false,
+        preferredBingeGroup: String? = null,
+    ) {
         load(
             type = type,
             videoId = videoId,
             season = season,
             episode = episode,
             manualSelection = manualSelection,
+            preferredBingeGroup = preferredBingeGroup,
             forceRefresh = true,
         )
     }
 
-    private fun load(type: String, videoId: String, season: Int?, episode: Int?, manualSelection: Boolean, forceRefresh: Boolean) {
+    private fun load(
+        type: String,
+        videoId: String,
+        season: Int?,
+        episode: Int?,
+        manualSelection: Boolean,
+        preferredBingeGroup: String?,
+        forceRefresh: Boolean,
+    ) {
         val pluginUiState = if (AppFeaturePolicy.pluginsEnabled) {
             PluginRepository.initialize()
             PluginRepository.uiState.value
@@ -88,7 +112,11 @@ object StreamsRepository {
             episode = episode,
             manualSelection = manualSelection,
         )
-        val requestKey = "$requestToken::pluginsGrouped=${pluginUiState.groupStreamsByRepository}"
+        val requestKey = buildString {
+            append(requestToken)
+            append("::pluginsGrouped=").append(pluginUiState.groupStreamsByRepository)
+            append("::bingeGroup=").append(preferredBingeGroup.orEmpty())
+        }
         val currentState = _uiState.value
         if (
             !forceRefresh &&
@@ -119,9 +147,32 @@ object StreamsRepository {
             )
         }
 
+        val installedAddons = AddonRepository.uiState.value.addons
+        val installedAddonNames = installedAddons
+            .mapNotNull { addon ->
+                val manifestName = addon.manifest?.name
+                addon.displayTitle.takeIf { it.isNotBlank() } ?: manifestName
+            }
+            .toSet()
         val embeddedStreams = MetaDetailsRepository.findEmbeddedStreams(videoId)
         if (embeddedStreams.isNotEmpty()) {
             log.d { "Using ${embeddedStreams.size} embedded streams for type=$type id=$videoId" }
+            val selected = if (isAutoPlayEnabled) {
+                StreamAutoPlaySelector.selectAutoPlayStream(
+                    streams = embeddedStreams,
+                    mode = autoPlayMode,
+                    regexPattern = playerSettings.streamAutoPlayRegex,
+                    source = playerSettings.streamAutoPlaySource,
+                    installedAddonNames = installedAddonNames + embeddedStreams.map(StreamItem::addonName),
+                    selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
+                    selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
+                    preferredBingeGroup = preferredBingeGroup,
+                    preferBingeGroupInSelection = playerSettings.streamAutoPlayPreferBingeGroup,
+                    maxFileSizeBytes = playerSettings.streamAutoPlayMaxFileSizeBytes,
+                )
+            } else {
+                null
+            }
             val group = AddonStreamGroup(
                 addonName = embeddedStreams.first().addonName,
                 addonId = "embedded",
@@ -133,11 +184,14 @@ object StreamsRepository {
                 groups = listOf(group),
                 activeAddonIds = setOf("embedded"),
                 isAnyLoading = false,
+                autoPlayStream = selected,
+                isDirectAutoPlayFlow = selected != null,
+                showDirectAutoPlayOverlay = selected != null,
+                autoPlayNoMatch = isAutoPlayEnabled && selected == null,
             )
             return
         }
 
-        val installedAddons = AddonRepository.uiState.value.addons
         val selectedAutoPlayAddons = playerSettings.streamAutoPlaySelectedAddons
         val selectedAutoPlayPlugins = playerSettings.streamAutoPlaySelectedPlugins
         val autoPlaySource = playerSettings.streamAutoPlaySource
@@ -254,12 +308,6 @@ object StreamsRepository {
                 pluginProviderGroups.sumOf { it.scrapers.size } +
                 debridTargets.size
 
-            val installedAddonNames = installedAddons
-                .mapNotNull { addon ->
-                    val manifestName = addon.manifest?.name
-                    addon.displayTitle.takeIf { it.isNotBlank() } ?: manifestName
-                }
-                .toSet()
             var autoSelectTriggered = false
             var timeoutElapsed = false
             var debridPreparationLaunched = false
@@ -282,6 +330,8 @@ object StreamsRepository {
                     installedAddonNames = installedAddonNames,
                     selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
                     selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
+                    preferredBingeGroup = preferredBingeGroup,
+                    preferBingeGroupInSelection = playerSettings.streamAutoPlayPreferBingeGroup,
                     maxFileSizeBytes = playerSettings.streamAutoPlayMaxFileSizeBytes,
                 )
 
@@ -543,6 +593,8 @@ object StreamsRepository {
                     installedAddonNames = installedAddonNames,
                     selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
                     selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
+                    preferredBingeGroup = preferredBingeGroup,
+                    preferBingeGroupInSelection = playerSettings.streamAutoPlayPreferBingeGroup,
                     maxFileSizeBytes = playerSettings.streamAutoPlayMaxFileSizeBytes,
                 )
                 _uiState.update { it.copy(autoPlayStream = selected) }

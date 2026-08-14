@@ -1,11 +1,8 @@
 package com.nuvio.app.features.settings
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -13,16 +10,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,15 +37,10 @@ import nuvio.composeapp.generated.resources.settings_homescreen_empty_title
 import nuvio.composeapp.generated.resources.settings_homescreen_hide_catalog_underline
 import nuvio.composeapp.generated.resources.settings_homescreen_hide_catalog_underline_description
 import nuvio.composeapp.generated.resources.settings_homescreen_keep_home_focused
-import nuvio.composeapp.generated.resources.settings_homescreen_limit_reached
-import nuvio.composeapp.generated.resources.settings_homescreen_no_sources_selected
 import nuvio.composeapp.generated.resources.settings_homescreen_pin_to_move_toast
 import nuvio.composeapp.generated.resources.settings_homescreen_section_catalogs
 import nuvio.composeapp.generated.resources.settings_homescreen_section_catalogs_collections
 import nuvio.composeapp.generated.resources.settings_homescreen_section_collections
-import nuvio.composeapp.generated.resources.settings_homescreen_section_hero
-import nuvio.composeapp.generated.resources.settings_homescreen_section_hero_sources
-import nuvio.composeapp.generated.resources.settings_homescreen_selected_count
 import nuvio.composeapp.generated.resources.settings_homescreen_show_hero
 import nuvio.composeapp.generated.resources.settings_homescreen_show_hero_description
 import nuvio.composeapp.generated.resources.settings_homescreen_summary
@@ -71,14 +58,12 @@ internal fun LazyListScope.homescreenSettingsContent(
     showCatalogTypeLabels: Boolean,
     items: List<HomeCatalogSettingsItem>,
 ) {
-    val selectedHeroSourceCount = items.count { it.heroSourceEnabled }
     val enabledCatalogCount = items.count { it.enabled }
     item {
         HomescreenSummaryCard(
             isTablet = isTablet,
             enabledCatalogCount = enabledCatalogCount,
             totalCatalogCount = items.size,
-            selectedHeroSourceCount = selectedHeroSourceCount,
         )
     }
     item {
@@ -123,89 +108,10 @@ internal fun LazyListScope.homescreenSettingsContent(
 }
 
 @Composable
-private fun HeroSourcesDropdown(
-    isTablet: Boolean,
-    items: List<HomeCatalogSettingsItem>,
-    selectedHeroSourceCount: Int,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-) {
-    val noSourcesSelected = stringResource(Res.string.settings_homescreen_no_sources_selected)
-    SettingsGroup(isTablet = isTablet) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-                .clickable { onExpandedChange(!expanded) },
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = stringResource(
-                        Res.string.settings_homescreen_selected_count,
-                        selectedHeroSourceCount,
-                        HomeCatalogSettingsRepository.HERO_SOURCE_SELECTION_LIMIT,
-                    ),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = items.filter { it.heroSourceEnabled }
-                        .joinToString(separator = ", ") { it.displayTitle }
-                        .ifBlank { noSourcesSelected },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        AnimatedVisibility(visible = expanded) {
-            Column {
-                SettingsGroupDivider(isTablet = isTablet)
-                items.forEachIndexed { index, item ->
-                    if (index > 0) {
-                        SettingsGroupDivider(isTablet = isTablet)
-                    }
-                    SettingsSwitchRow(
-                        title = item.displayTitle,
-                        description = if (!item.heroSourceEnabled &&
-                            selectedHeroSourceCount >= HomeCatalogSettingsRepository.HERO_SOURCE_SELECTION_LIMIT
-                        ) {
-                            stringResource(
-                                Res.string.settings_homescreen_limit_reached,
-                                item.addonName,
-                                HomeCatalogSettingsRepository.HERO_SOURCE_SELECTION_LIMIT,
-                            )
-                        } else {
-                            item.addonName
-                        },
-                        checked = item.heroSourceEnabled,
-                        enabled = item.heroSourceEnabled ||
-                            selectedHeroSourceCount < HomeCatalogSettingsRepository.HERO_SOURCE_SELECTION_LIMIT,
-                        isTablet = isTablet,
-                        onCheckedChange = { HomeCatalogSettingsRepository.setHeroSourceEnabled(item.key, it) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun HomescreenSummaryCard(
     isTablet: Boolean,
     enabledCatalogCount: Int,
     totalCatalogCount: Int,
-    selectedHeroSourceCount: Int,
 ) {
     SettingsGroup(isTablet = isTablet) {
         Column(
@@ -223,7 +129,6 @@ private fun HomescreenSummaryCard(
                     Res.string.settings_homescreen_summary,
                     enabledCatalogCount,
                     totalCatalogCount,
-                    selectedHeroSourceCount,
                 ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextAlign
@@ -28,6 +30,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.ui.heroStretchHeight
+import com.nuvio.app.core.ui.heroStretchZoom
 import com.nuvio.app.features.details.MetaDetails
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -39,6 +43,9 @@ fun DetailHero(
     scrollOffset: Int = 0,
     contentMaxWidth: Dp = 560.dp,
     onHeightChanged: (Int) -> Unit = {},
+    heroGradientColor: Color? = null,
+    stretchPx: () -> Float = { 0f },
+    onBackdropLoaded: (Painter, ImageBitmap?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(
@@ -52,7 +59,7 @@ fun DetailHero(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(heroHeight)
+                .heroStretchHeight(heroHeight, stretchPx)
                 .onSizeChanged { onHeightChanged(it.height) }
                 .graphicsLayer {
                     clip = true
@@ -70,6 +77,7 @@ fun DetailHero(
                         contentDescription = meta.name,
                         modifier = Modifier
                             .fillMaxSize()
+                            .heroStretchZoom(stretchPx)
                             .graphicsLayer {
                                 translationY = scrollOffset * 0.5f
                                 scaleX = 1.08f
@@ -77,6 +85,12 @@ fun DetailHero(
                             },
                         alignment = if (isTablet) Alignment.TopCenter else Alignment.Center,
                         contentScale = ContentScale.Crop,
+                        onSuccess = { state ->
+                            onBackdropLoaded(
+                                state.painter,
+                                loadedBackdropImageBitmap(state.result),
+                            )
+                        },
                     )
                 } else {
                     Box(
@@ -95,8 +109,8 @@ fun DetailHero(
                             Brush.verticalGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
-                                    MaterialTheme.colorScheme.background,
+                                    (heroGradientColor ?: MaterialTheme.colorScheme.background).copy(alpha = 0.7f),
+                                    heroGradientColor ?: MaterialTheme.colorScheme.background,
                                 ),
                             ),
                         ),

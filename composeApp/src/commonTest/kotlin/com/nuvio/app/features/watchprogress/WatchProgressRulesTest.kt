@@ -1,6 +1,9 @@
 package com.nuvio.app.features.watchprogress
 
+import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.player.PlayerPlaybackSnapshot
+import com.nuvio.app.features.watching.domain.WatchingCompletedEpisode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,6 +11,112 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WatchProgressRulesTest {
+
+    @Test
+    fun `immediate projection advances a long series without waiting for enrichment`() {
+        val meta = MetaDetails(
+            id = "tt0988824",
+            type = "series",
+            name = "Naruto Shippuden",
+            poster = "poster",
+            background = "backdrop",
+            videos = listOf(
+                MetaVideo(id = "tt0988824:22:12", title = "Episode 12", released = "2026-07-01", season = 22, episode = 12),
+                MetaVideo(id = "tt0988824:22:13", title = "Episode 13", released = "2026-07-02", season = 22, episode = 13),
+                MetaVideo(id = "tt0988824:22:14", title = "Episode 14", released = "2026-07-03", season = 22, episode = 14),
+            ),
+        )
+
+        val cached = buildImmediateNextUpCacheItem(
+            meta = meta,
+            completed = WatchingCompletedEpisode(
+                seasonNumber = 22,
+                episodeNumber = 12,
+                markedAtEpochMs = 1_000L,
+            ),
+            todayIsoDate = "2026-08-03",
+            showUnairedNextUp = false,
+            metadataCheckedAtEpochMs = 1_001L,
+        )
+
+        assertEquals("tt0988824:22:13", cached?.videoId)
+        assertEquals(22, cached?.seedSeason)
+        assertEquals(12, cached?.seedEpisode)
+        assertEquals(13, cached?.episode)
+        assertEquals("Episode 13", cached?.episodeTitle)
+    }
+
+    @Test
+    fun `completed progress rejects duplicate eof and stale paused snapshots`() {
+        val previous = entry(videoId = "episode").copy(isCompleted = true)
+
+        assertTrue(
+            shouldIgnoreTerminalProgressRegression(
+                previousEntry = previous,
+                snapshot = playbackSnapshot(isPlaying = false, isEnded = true),
+                incomingIsCompleted = true,
+            ),
+        )
+        assertTrue(
+            shouldIgnoreTerminalProgressRegression(
+                previousEntry = previous,
+                snapshot = playbackSnapshot(isPlaying = false, isEnded = false),
+                incomingIsCompleted = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `completed progress permits a real replay to start a new position`() {
+        assertFalse(
+            shouldIgnoreTerminalProgressRegression(
+                previousEntry = entry(videoId = "episode").copy(isCompleted = true),
+                snapshot = playbackSnapshot(isPlaying = true, isEnded = false),
+                incomingIsCompleted = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `newer completed local progress wins a stale server pull`() {
+        val local = entry(videoId = "episode", lastUpdatedEpochMs = 200L).copy(isCompleted = true)
+        val remote = entry(videoId = "episode", lastUpdatedEpochMs = 100L)
+
+        assertTrue(
+            shouldPreferLocalProgressAfterPull(
+                local = local,
+                remote = remote,
+                pullStartedAtEpochMs = 250L,
+            ),
+        )
+        assertFalse(
+            shouldPreferLocalProgressAfterPull(
+                local = local,
+                remote = remote.copy(lastUpdatedEpochMs = 300L),
+                pullStartedAtEpochMs = 250L,
+            ),
+        )
+    }
+
+    @Test
+    fun `only a recent local row survives when server pull omits it`() {
+        val pullStartedAt = 1_000_000L
+
+        assertTrue(
+            shouldPreferLocalProgressAfterPull(
+                local = entry(videoId = "recent", lastUpdatedEpochMs = pullStartedAt - 1_000L),
+                remote = null,
+                pullStartedAtEpochMs = pullStartedAt,
+            ),
+        )
+        assertFalse(
+            shouldPreferLocalProgressAfterPull(
+                local = entry(videoId = "old", lastUpdatedEpochMs = pullStartedAt - 180_000L),
+                remote = null,
+                pullStartedAtEpochMs = pullStartedAt,
+            ),
+        )
+    }
 
     @Test
     fun `codec round trips entries in descending updated order`() {
@@ -242,6 +351,7 @@ class WatchProgressRulesTest {
                 season = 1,
                 episode = 2,
             ),
+            releaseEpochMs = null,
         )
 
         assertEquals("kitsu:244:2", item.videoId)
@@ -274,4 +384,14 @@ class WatchProgressRulesTest {
             progressPercent = progressPercent,
             source = source,
         )
+
+    private fun playbackSnapshot(
+        isPlaying: Boolean,
+        isEnded: Boolean,
+    ): PlayerPlaybackSnapshot = PlayerPlaybackSnapshot(
+        isPlaying = isPlaying,
+        isEnded = isEnded,
+        positionMs = if (isEnded) 1_000_000L else 120_000L,
+        durationMs = 1_000_000L,
+    )
 }

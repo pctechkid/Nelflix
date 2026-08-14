@@ -71,8 +71,8 @@ fun AudioTrackModal(
         ) {
             AnimatedVisibility(
                 visible = visible,
-                enter = slideInVertically(tween(300)) { it / 3 } + fadeIn(tween(300)),
-                exit = slideOutVertically(tween(250)) { it / 3 } + fadeOut(tween(250)),
+                enter = fadeIn(tween(240)) + slideInVertically(tween(240)) { it },
+                exit = fadeOut() + slideOutVertically { it / 2 },
             ) {
                 Box(
                     modifier = Modifier
@@ -148,7 +148,12 @@ private fun AudioTrackRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = localizedTrackDisplayName(track.label, track.language, track.index),
+            text = localizedTrackDisplayName(
+                label = track.label,
+                language = track.language,
+                index = track.index,
+                kind = PlayerTrackKind.Audio,
+            ),
             color = Color.White,
             fontSize = 14.sp,
             fontWeight = weight,

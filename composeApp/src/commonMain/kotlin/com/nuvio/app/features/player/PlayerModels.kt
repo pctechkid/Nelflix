@@ -37,6 +37,24 @@ data class PlayerLaunch(
     val initialPositionMs: Long = 0L,
     val initialProgressFraction: Float? = null,
     val initialWatchTogetherRoom: WatchTogetherRoomState? = null,
+    val launchedFromManualStreamSelection: Boolean = false,
+)
+
+data class NextEpisodePlaybackRequest(
+    val parentMetaId: String,
+    val parentMetaType: String,
+    val parentTitle: String,
+    val parentLogo: String?,
+    val parentPoster: String?,
+    val parentBackground: String?,
+    val parentDescription: String?,
+    val nextVideoId: String,
+    val nextSeasonNumber: Int,
+    val nextEpisodeNumber: Int,
+    val nextEpisodeTitle: String,
+    val nextEpisodeThumbnail: String?,
+    val nextEpisodeOverview: String?,
+    val currentBingeGroup: String? = null,
 )
 
 object PlayerLaunchStore {

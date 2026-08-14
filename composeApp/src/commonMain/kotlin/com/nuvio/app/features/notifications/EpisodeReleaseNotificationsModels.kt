@@ -1,6 +1,6 @@
 package com.nuvio.app.features.notifications
 
-import kotlinx.coroutines.runBlocking
+import com.nuvio.app.core.time.EpisodeReleaseBusinessDelayHours
 import kotlinx.serialization.Serializable
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_episode_code_episode_only
@@ -51,6 +51,7 @@ internal data class EpisodeReleaseNotificationRequest(
     val notificationTitle: String,
     val notificationBody: String,
     val releaseDateIso: String,
+    val rawReleaseValue: String? = null,
     val triggerAtEpochMs: Long? = null,
     val triggerTimeLabel: String? = null,
     val deepLinkUrl: String,
@@ -60,7 +61,7 @@ internal data class EpisodeReleaseNotificationRequest(
 
 internal const val EpisodeReleaseNotificationHour = 9
 internal const val EpisodeReleaseNotificationMinute = 0
-internal const val EpisodeReleaseNotificationDelayHours = 9L
+internal const val EpisodeReleaseNotificationDelayHours = EpisodeReleaseBusinessDelayHours
 internal const val EpisodeReleaseNotificationScheduleGraceMs = 15L * 60L * 1000L
 internal const val DefaultEpisodeReleaseTimezoneId = "UTC"
 internal const val MinReasonableSavedAtEpochMs = 946684800000L
@@ -101,11 +102,11 @@ internal fun buildEpisodeReleaseNotificationId(
     return "episode-release-$profileId-$contentHash-$episodeHash-$releaseDateIso"
 }
 
-internal fun buildEpisodeReleaseNotificationBody(
+internal suspend fun buildEpisodeReleaseNotificationBody(
     seasonNumber: Int?,
     episodeNumber: Int?,
     episodeTitle: String?,
-): String = runBlocking {
+): String {
     val code = when {
         seasonNumber != null && episodeNumber != null ->
             getString(Res.string.compose_player_episode_code_full, seasonNumber, episodeNumber)
@@ -115,7 +116,7 @@ internal fun buildEpisodeReleaseNotificationBody(
     }
     val title = episodeTitle?.trim().takeUnless { it.isNullOrBlank() }
 
-    when {
+    return when {
         code.isNotBlank() && title != null ->
             getString(Res.string.notifications_episode_release_body_code_title, code, title)
         code.isNotBlank() ->

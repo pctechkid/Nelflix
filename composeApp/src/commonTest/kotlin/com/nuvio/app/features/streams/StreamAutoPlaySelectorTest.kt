@@ -7,6 +7,62 @@ import kotlin.test.assertNull
 class StreamAutoPlaySelectorTest {
 
     @Test
+    fun `ordered candidates keep binge match first and retain normal fallbacks`() {
+        val first = stream(
+            addonName = "AddonA",
+            url = "https://example.com/first.m3u8",
+            bingeGroup = "other-group",
+        )
+        val preferred = stream(
+            addonName = "AddonB",
+            url = "https://example.com/preferred.m3u8",
+            bingeGroup = "same-group",
+        )
+        val fallback = stream(
+            addonName = "AddonC",
+            url = "https://example.com/fallback.m3u8",
+            bingeGroup = "third-group",
+        )
+
+        val candidates = StreamAutoPlaySelector.orderedAutoPlayCandidates(
+            streams = listOf(first, preferred, fallback),
+            mode = StreamAutoPlayMode.FIRST_STREAM,
+            regexPattern = "",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = setOf("AddonA", "AddonB", "AddonC"),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet(),
+            preferredBingeGroup = "same-group",
+            preferBingeGroupInSelection = true,
+        )
+
+        assertEquals(listOf(preferred, first, fallback), candidates)
+    }
+
+    @Test
+    fun `ordered candidates honor bounded fallback limit`() {
+        val streams = (1..12).map { index ->
+            stream(
+                addonName = "Addon$index",
+                url = "https://example.com/$index.m3u8",
+            )
+        }
+
+        val candidates = StreamAutoPlaySelector.orderedAutoPlayCandidates(
+            streams = streams,
+            mode = StreamAutoPlayMode.FIRST_STREAM,
+            regexPattern = "",
+            source = StreamAutoPlaySource.ALL_SOURCES,
+            installedAddonNames = streams.map(StreamItem::addonName).toSet(),
+            selectedAddons = emptySet(),
+            selectedPlugins = emptySet(),
+            limit = 4,
+        )
+
+        assertEquals(streams.take(4), candidates)
+    }
+
+    @Test
     fun `bingeGroup-first selects matching stream before first stream mode`() {
         val first = stream(
             addonName = "AddonA",

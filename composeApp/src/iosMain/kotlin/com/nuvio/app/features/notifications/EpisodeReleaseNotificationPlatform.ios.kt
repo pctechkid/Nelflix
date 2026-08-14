@@ -1,6 +1,7 @@
 package com.nuvio.app.features.notifications
 
 import com.nuvio.app.core.storage.ProfileScopedKey
+import com.nuvio.app.core.time.resolveDeviceLocalScheduledEpisodeReleaseEpochMs
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
@@ -11,9 +12,8 @@ import io.ktor.client.engine.darwin.Darwin
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import kotlinx.coroutines.suspendCancellableCoroutine
-import platform.Foundation.NSCalendar
 import platform.Foundation.NSDate
-import platform.Foundation.NSDateComponents
+import platform.Foundation.NSDateFormatter
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSTemporaryDirectory
@@ -25,7 +25,6 @@ import platform.UserNotifications.UNAuthorizationOptionBadge
 import platform.UserNotifications.UNAuthorizationOptionSound
 import platform.UserNotifications.UNAuthorizationStatusAuthorized
 import platform.UserNotifications.UNAuthorizationStatusProvisional
-import platform.UserNotifications.UNCalendarNotificationTrigger
 import platform.UserNotifications.UNMutableNotificationContent
 import platform.UserNotifications.UNNotificationRequest
 import platform.UserNotifications.UNTimeIntervalNotificationTrigger
@@ -71,14 +70,21 @@ internal actual object EpisodeReleaseNotificationPlatform {
     actual fun openExactAlarmSettings(): Boolean = false
 
     actual fun resolveReleaseTriggerEpochMs(rawReleaseValue: String?, timezoneId: String): Long? {
-        val releaseDate = releaseDateIso(rawReleaseValue) ?: return null
-        val components = buildDateComponents(releaseDate) ?: return null
-        val date = NSCalendar.currentCalendar.dateFromComponents(components) ?: return null
-        return (date.timeIntervalSince1970 * 1000.0).toLong()
+        return resolveDeviceLocalScheduledEpisodeReleaseEpochMs(
+            raw = rawReleaseValue,
+            dateOnlyHour = EpisodeReleaseNotificationHour,
+            dateOnlyMinute = EpisodeReleaseNotificationMinute,
+        )
     }
 
-    actual fun formatReleaseTriggerLabel(epochMs: Long, timezoneId: String): String =
-        NSDate(timeIntervalSince1970 = epochMs.toDouble() / 1000.0).description()
+    actual fun formatReleaseTriggerLabel(epochMs: Long, timezoneId: String): String {
+        val formatter = NSDateFormatter().apply {
+            dateFormat = "MMM d, yyyy h:mm a"
+        }
+        return formatter.stringFromDate(
+            NSDate(timeIntervalSince1970 = epochMs.toDouble() / 1000.0),
+        )
+    }
 
     actual suspend fun scheduleEpisodeReleaseNotifications(requests: List<EpisodeReleaseNotificationRequest>) {
         clearScheduledEpisodeReleaseNotifications()
@@ -88,24 +94,20 @@ internal actual object EpisodeReleaseNotificationPlatform {
 
         requests.forEach { request ->
             val triggerEpochMs = request.triggerAtEpochMs
-            val delaySeconds = triggerEpochMs?.let { (it / 1000.0) - NSDate().timeIntervalSince1970 }
-            if (delaySeconds != null && delaySeconds <= 0.0) return@forEach
+                ?: resolveDeviceLocalScheduledEpisodeReleaseEpochMs(
+                    raw = request.rawReleaseValue ?: request.releaseDateIso,
+                    dateOnlyHour = EpisodeReleaseNotificationHour,
+                    dateOnlyMinute = EpisodeReleaseNotificationMinute,
+                )
+                ?: return@forEach
+            val delaySeconds = (triggerEpochMs / 1000.0) - NSDate().timeIntervalSince1970
+            if (delaySeconds <= 0.0) return@forEach
 
             val content = buildNotificationContent(request)
-            val trigger = if (delaySeconds != null) {
-                UNTimeIntervalNotificationTrigger.triggerWithTimeInterval(
-                    timeInterval = delaySeconds,
-                    repeats = false,
-                )
-            } else {
-                val dateComponents = buildDateComponents(request.releaseDateIso) ?: return@forEach
-                val scheduledDate = NSCalendar.currentCalendar.dateFromComponents(dateComponents) ?: return@forEach
-                if (scheduledDate.timeIntervalSince1970 <= NSDate().timeIntervalSince1970) return@forEach
-                UNCalendarNotificationTrigger.triggerWithDateMatchingComponents(
-                    dateComponents = dateComponents,
-                    repeats = false,
-                )
-            }
+            val trigger = UNTimeIntervalNotificationTrigger.triggerWithTimeInterval(
+                timeInterval = delaySeconds,
+                repeats = false,
+            )
             val notificationRequest = UNNotificationRequest.requestWithIdentifier(
                 identifier = request.requestId,
                 content = content,
@@ -205,23 +207,4 @@ internal actual object EpisodeReleaseNotificationPlatform {
             }
         }
 
-    private fun buildDateComponents(releaseDateIso: String): NSDateComponents? {
-        val parts = releaseDateIso.split('-')
-        if (parts.size != 3) return null
-
-        val year = parts[0].toLongOrNull() ?: return null
-        val month = parts[1].toLongOrNull() ?: return null
-        val day = parts[2].toLongOrNull() ?: return null
-
-        return NSDateComponents().apply {
-            this.year = year
-            this.month = month
-            this.day = day
-            this.hour = EpisodeReleaseNotificationHour.toLong()
-            this.minute = EpisodeReleaseNotificationMinute.toLong()
-            this.second = 0
-            this.calendar = NSCalendar.currentCalendar
-            setTimeZone(NSCalendar.currentCalendar.timeZone)
-        }
-    }
 }

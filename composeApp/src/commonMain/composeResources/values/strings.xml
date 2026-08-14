@@ -19,6 +19,7 @@
     <string name="action_retry">Retry</string>
     <string name="action_save">Save</string>
     <string name="action_share">Share</string>
+    <string name="details_actions_menu_label">More actions</string>
     <string name="action_validate">Validate</string>
     <string name="addon_installing">Installing</string>
     <string name="addon_title">Addons</string>
@@ -388,6 +389,7 @@
     <string name="compose_settings_page_mdblist_ratings">MDBList Ratings</string>
     <string name="compose_settings_page_meta_screen">Detail Page</string>
     <string name="compose_settings_page_notifications">Notifications</string>
+    <string name="compose_settings_page_advanced">Advanced</string>
     <string name="compose_settings_page_playback">Playback</string>
     <string name="compose_settings_page_plugins">Plugins</string>
     <string name="compose_settings_page_poster_customization">Poster Card Style</string>
@@ -407,6 +409,7 @@
     <string name="compose_settings_root_general_section">GENERAL</string>
     <string name="compose_settings_root_integrations_description">Manage available integrations</string>
     <string name="compose_settings_root_notifications_description">Manage episode release alerts and send a test notification.</string>
+    <string name="compose_settings_root_advanced_description">Cache and maintenance tools.</string>
     <string name="compose_settings_root_switch_profile_description">Change to a different profile.</string>
     <string name="compose_settings_root_switch_profile_title">Switch Profile</string>
     <string name="compose_settings_root_trakt_description">Open Trakt connection screen</string>
@@ -525,8 +528,12 @@
     <string name="layout_hide_unreleased_sub">Hide movies and shows that haven't been released yet.</string>
     <string name="settings_homescreen_hide_catalog_underline">Hide Catalog Underline</string>
     <string name="settings_homescreen_hide_catalog_underline_description">Remove the accent line under catalog and collection titles throughout the app.</string>
-    <string name="settings_homescreen_summary">%1$d of %2$d catalogs visible • %3$d hero sources selected</string>
+    <string name="settings_homescreen_summary">%1$d of %2$d catalogs visible - spotlight hero uses the profile selection source</string>
     <string name="settings_homescreen_summary_hint">Open a catalog only when you need to rename or reorder it.</string>
+    <string name="settings_advanced_section_cache">CACHE</string>
+    <string name="settings_advanced_clear_cw_cache">Clear Continue Watching Cache</string>
+    <string name="settings_advanced_clear_cw_cache_subtitle">Remove cached Continue Watching metadata and refresh it from current progress</string>
+    <string name="settings_advanced_clear_cw_cache_done">Cache cleared</string>
     <string name="settings_homescreen_visible">Visible</string>
     <string name="settings_hide_secret">Hide value</string>
     <string name="settings_playback_subtitle">Player, subtitles, and auto-play</string>
@@ -925,7 +932,14 @@
     <string name="theme_violet">Violet</string>
     <string name="theme_white">White</string>
     <string name="player_next_episode">Next Episode</string>
+    <string name="player_next_episode_up_next">UP NEXT</string>
+    <string name="player_next_episode_title_format">S%1$d:E%2$d • %3$s</string>
     <string name="player_next_episode_finding_source">Finding source…</string>
+    <string name="player_next_episode_preparing">Preparing next episode</string>
+    <string name="player_next_episode_countdown">Playing in %1$d seconds</string>
+    <string name="player_next_episode_ready">Starting soon</string>
+    <string name="player_next_episode_play_now">Play Now</string>
+    <string name="player_next_episode_resolve_failed">Couldn&apos;t prepare the next episode.</string>
     <string name="player_next_episode_playing_via_countdown">Playing via %1$s in %2$d…</string>
     <string name="player_next_episode_thumbnail">Next episode thumbnail</string>
     <string name="player_next_episode_unaired">Unaired</string>
@@ -1057,8 +1071,9 @@
     <string name="episode_mark_season_watched">Mark %1$s as watched</string>
     <string name="episode_mark_unwatched">Mark as unwatched</string>
     <string name="episode_mark_watched">Mark as watched</string>
-    <string name="home_continue_watching_up_next">Next Up</string>
+    <string name="home_continue_watching_up_next">Up Next</string>
     <string name="cw_new_episode">New Episode</string>
+    <string name="cw_new_season">New Season</string>
     <string name="home_continue_watching_watched">%1$s watched</string>
     <string name="home_empty_no_active_addons_message">Install and validate at least one addon before loading catalog rows on Home.</string>
     <string name="home_empty_no_rows_message">Installed addons do not currently expose board-compatible catalogs without required extras.</string>
@@ -1205,8 +1220,8 @@
     <string name="auth_sign_out_failed">Sign-out failed</string>
     <string name="auth_sign_up_failed">Sign-up failed</string>
     <string name="catalog_load_failed">Unable to load catalog items.</string>
-    <string name="continue_watching_up_next">Next Up</string>
-    <string name="continue_watching_up_next_episode">Next Up • S%1$dE%2$d</string>
+    <string name="continue_watching_up_next">Up Next</string>
+    <string name="continue_watching_up_next_episode">Up Next • S%1$dE%2$d</string>
     <string name="detail_logo_content_description">%1$s logo</string>
     <string name="details_comments_load_failed">Failed to load comments</string>
     <string name="details_load_failed_all_addons">Could not load details from any addon.</string>

@@ -1,6 +1,7 @@
 package com.nuvio.app.features.tmdb
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.cache.putBoundedEntry
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.details.MetaCompany
 import com.nuvio.app.features.details.MetaDetails
@@ -10,11 +11,15 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.details.PersonDetail
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
+import com.nuvio.app.features.watchprogress.WatchProgressClock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -25,17 +30,17 @@ import org.jetbrains.compose.resources.getString
 object TmdbMetadataService {
     private val log = Logger.withTag("TmdbMetadata")
     private val json = Json { ignoreUnknownKeys = true }
-
-    private val enrichmentCache = mutableMapOf<String, TmdbEnrichment>()
-    private val episodeCache = mutableMapOf<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>()
-    private val moreLikeThisCache = mutableMapOf<String, List<MetaPreview>>()
-    private val collectionCache = mutableMapOf<String, Pair<String?, List<MetaPreview>>>()
-    private val trailerCache = mutableMapOf<String, List<MetaTrailer>>()
-    private val personCache = mutableMapOf<String, PersonDetail>()
-    private val entityBrowseCache = mutableMapOf<String, TmdbEntityBrowseData>()
-    private val entityHeaderCache = mutableMapOf<String, TmdbEntityHeader>()
-    private val entityRailCache = mutableMapOf<String, List<MetaPreview>>()
-    private val previewArtworkCache = mutableMapOf<String, TmdbPreviewArtwork>()
+    private val cacheMutex = Mutex()
+    private val enrichmentCache = linkedMapOf<String, TmdbEnrichment>()
+    private val episodeCache = linkedMapOf<String, CachedEpisodeEnrichment>()
+    private val moreLikeThisCache = linkedMapOf<String, List<MetaPreview>>()
+    private val collectionCache = linkedMapOf<String, Pair<String?, List<MetaPreview>>>()
+    private val trailerCache = linkedMapOf<String, List<MetaTrailer>>()
+    private val personCache = linkedMapOf<String, PersonDetail>()
+    private val entityBrowseCache = linkedMapOf<String, TmdbEntityBrowseData>()
+    private val entityHeaderCache = linkedMapOf<String, TmdbEntityHeader>()
+    private val entityRailCache = linkedMapOf<String, List<MetaPreview>>()
+    private val previewArtworkCache = linkedMapOf<String, TmdbPreviewArtwork>()
 
     suspend fun fetchPersonDetail(
         personId: Int,
@@ -45,7 +50,7 @@ object TmdbMetadataService {
         if (!settings.enabled || !settings.hasApiKey) return@withContext null
         val language = normalizeTmdbLanguage(settings.language)
         val cacheKey = "$personId:${preferCrewCredits?.toString() ?: "auto"}:$language"
-        personCache[cacheKey]?.let { return@withContext it }
+        readCache(personCache, cacheKey)?.let { return@withContext it }
 
         try {
             val (person, credits) = coroutineScope {
@@ -107,9 +112,10 @@ object TmdbMetadataService {
                 movieCredits = movieCredits,
                 tvCredits = tvCredits,
             )
-            personCache[cacheKey] = detail
+            writeCache(personCache, cacheKey, detail, MAX_PERSON_CACHE_ENTRIES)
             detail
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             log.w(e) { "Failed to fetch person detail for $personId" }
             null
         }
@@ -287,7 +293,7 @@ object TmdbMetadataService {
         val language = normalizeTmdbLanguage(settings.language)
         val normalizedSourceType = normalizeEntitySourceType(sourceType)
         val cacheKey = "${entityKind.routeValue}:$entityId:$normalizedSourceType:$language"
-        entityBrowseCache[cacheKey]?.let { return@withContext it }
+        readCache(entityBrowseCache, cacheKey)?.let { return@withContext it }
 
         val header = fetchEntityHeader(
             entityKind = entityKind,
@@ -335,7 +341,7 @@ object TmdbMetadataService {
             ),
             rails = rails,
         )
-        entityBrowseCache[cacheKey] = data
+        writeCache(entityBrowseCache, cacheKey, data, MAX_ENTITY_BROWSE_CACHE_ENTRIES)
         data
     }
 
@@ -352,7 +358,7 @@ object TmdbMetadataService {
         }
 
         val cacheKey = "${entityKind.routeValue}:$entityId:${mediaType.value}:${railType.value}:$language:page:$page"
-        entityRailCache[cacheKey]?.let { cached ->
+        readCache(entityRailCache, cacheKey)?.let { cached ->
             return TmdbEntityRailPageResult(items = cached, hasMore = cached.isNotEmpty())
         }
 
@@ -407,12 +413,13 @@ object TmdbMetadataService {
                 hasMore = page < totalPages && mappedItems.isNotEmpty(),
             )
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             log.w(e) { "Failed to fetch entity rail ${railType.value}/${mediaType.value} for $entityId" }
             TmdbEntityRailPageResult(items = emptyList(), hasMore = false)
         }
 
         if (result.items.isNotEmpty()) {
-            entityRailCache[cacheKey] = result.items
+            writeCache(entityRailCache, cacheKey, result.items, MAX_ENTITY_RAIL_CACHE_ENTRIES)
         }
         return result
     }
@@ -424,7 +431,7 @@ object TmdbMetadataService {
         language: String = normalizeTmdbLanguage(TmdbSettingsRepository.uiState.value.language),
     ): TmdbEntityHeader? {
         val cacheKey = "${entityKind.routeValue}:$entityId:$language:header"
-        entityHeaderCache[cacheKey]?.let { return it }
+        readCache(entityHeaderCache, cacheKey)?.let { return it }
 
         var resolvedFromRemote = false
         val header = try {
@@ -465,6 +472,7 @@ object TmdbMetadataService {
                 }
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             log.w(e) { "Failed to fetch ${entityKind.routeValue} header for $entityId" }
             null
         } ?: fallbackName?.takeIf { it.isNotBlank() }?.let {
@@ -481,7 +489,7 @@ object TmdbMetadataService {
 
         // Do not make a transient request failure permanent for the current app session.
         if (header != null && resolvedFromRemote) {
-            entityHeaderCache[cacheKey] = header
+            writeCache(entityHeaderCache, cacheKey, header, MAX_ENTITY_HEADER_CACHE_ENTRIES)
         }
         return header
     }
@@ -527,7 +535,7 @@ object TmdbMetadataService {
     ): TmdbPreviewArtwork? = withContext(Dispatchers.Default) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val cacheKey = "$tmdbId:$mediaType:$normalizedLanguage:preview_artwork"
-        previewArtworkCache[cacheKey]?.let { cached ->
+        readCache(previewArtworkCache, cacheKey)?.let { cached ->
             return@withContext cached.takeIf { it.backdrop != null || it.logo != null }
         }
 
@@ -558,7 +566,7 @@ object TmdbMetadataService {
             backdrop = buildImageUrl(response.first?.backdropPath, "w1280"),
             logo = buildImageUrl(response.second?.logos.orEmpty().selectBestLocalizedImagePath(normalizedLanguage), "w500"),
         )
-        previewArtworkCache[cacheKey] = artwork
+        writeCache(previewArtworkCache, cacheKey, artwork, MAX_PREVIEW_ARTWORK_CACHE_ENTRIES)
         artwork.takeIf { it.backdrop != null || it.logo != null }
     }
 
@@ -674,7 +682,7 @@ object TmdbMetadataService {
             releaseInfo = enrichment.releaseInfo,
             lastAirDate = enrichment.lastAirDate,
             status = enrichment.status,
-            imdbRating = enrichment.rating?.formatRating(),
+            imdbRating = null,
             ageRating = enrichment.ageRating,
             runtime = enrichment.runtimeMinutes?.formatRuntime(),
             genres = enrichment.genres,
@@ -713,7 +721,7 @@ object TmdbMetadataService {
             updated = updated.copy(
                 name = enrichment.localizedTitle ?: updated.name,
                 description = enrichment.description ?: updated.description,
-                imdbRating = enrichment.rating?.formatRating() ?: updated.imdbRating,
+                imdbRating = updated.imdbRating?.trim()?.takeIf(String::isNotBlank),
                 genres = enrichment.genres.ifEmpty { updated.genres },
             )
         }
@@ -777,8 +785,6 @@ object TmdbMetadataService {
                             } else {
                                 video.thumbnail
                             },
-                            imdbRating = video.imdbRating?.takeIf { it.isNotBlank() }
-                                ?: enrichmentForEpisode.voteAverage?.takeIf { it > 0.0 }?.formatRating(),
                             seasonPoster = if (settings.useSeasonPosters) {
                                 enrichmentForEpisode.seasonPoster ?: video.seasonPoster
                             } else {
@@ -821,7 +827,7 @@ object TmdbMetadataService {
     ): TmdbEnrichment? = withContext(Dispatchers.Default) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val cacheKey = "$tmdbId:$mediaType:$normalizedLanguage"
-        enrichmentCache[cacheKey]?.let { return@withContext it }
+        readCache(enrichmentCache, cacheKey)?.let { return@withContext it }
 
         val numericId = tmdbId.toIntOrNull() ?: return@withContext null
         val includeImageLanguage = buildString {
@@ -943,7 +949,7 @@ object TmdbMetadataService {
         )
 
         if (!enrichment.hasContent()) return@withContext null
-        enrichmentCache[cacheKey] = enrichment
+        writeCache(enrichmentCache, cacheKey, enrichment, MAX_ENRICHMENT_CACHE_ENTRIES)
         enrichment
     }
 
@@ -958,7 +964,11 @@ object TmdbMetadataService {
         if (normalizedSeasons.isEmpty()) return@withContext emptyMap()
 
         val cacheKey = "$numericId:${normalizedSeasons.joinToString(",")}:$normalizedLanguage"
-        episodeCache[cacheKey]?.let { return@withContext it }
+        val cached = readCache(episodeCache, cacheKey)
+        val nowEpochMs = WatchProgressClock.nowEpochMs()
+        if (cached != null && nowEpochMs - cached.savedAtEpochMs < EPISODE_CACHE_TTL_MS) {
+            return@withContext cached.episodes
+        }
 
         val pairs = coroutineScope {
             normalizedSeasons.map { season ->
@@ -978,7 +988,6 @@ object TmdbMetadataService {
                                 seasonPoster = buildImageUrl(details.posterPath, "w500"),
                                 airDate = episode.airDate?.trim()?.takeIf(String::isNotBlank),
                                 runtimeMinutes = episode.runtime,
-                                voteAverage = episode.voteAverage,
                             )
                         }
                         .toMap()
@@ -986,10 +995,19 @@ object TmdbMetadataService {
             }.awaitAll()
         }
 
-        val merged = pairs.fold(emptyMap<Pair<Int, Int>, TmdbEpisodeEnrichment>()) { acc, value -> acc + value }
-        if (merged.isNotEmpty()) {
-            episodeCache[cacheKey] = merged
-        }
+        val fresh = pairs.fold(emptyMap<Pair<Int, Int>, TmdbEpisodeEnrichment>()) { acc, value -> acc + value }
+        if (fresh.isEmpty()) return@withContext cached?.episodes.orEmpty()
+
+        val merged = mergeTmdbEpisodeEnrichment(
+            cached = cached?.episodes.orEmpty(),
+            fresh = fresh,
+        )
+        writeCache(
+            cache = episodeCache,
+            key = cacheKey,
+            value = CachedEpisodeEnrichment(episodes = merged, savedAtEpochMs = nowEpochMs),
+            maxEntries = MAX_EPISODE_CACHE_ENTRIES,
+        )
         merged
     }
 
@@ -1012,7 +1030,7 @@ object TmdbMetadataService {
         language: String,
     ): List<MetaPreview> {
         val cacheKey = "$tmdbId:$mediaType:$language:recommendations"
-        moreLikeThisCache[cacheKey]?.let { return it }
+        readCache(moreLikeThisCache, cacheKey)?.let { return it }
 
         val response = fetch<TmdbRecommendationResponse>(
             endpoint = "$mediaType/$tmdbId/recommendations",
@@ -1051,7 +1069,7 @@ object TmdbMetadataService {
             }
             .take(12)
 
-        moreLikeThisCache[cacheKey] = items
+        writeCache(moreLikeThisCache, cacheKey, items, MAX_MORE_LIKE_THIS_CACHE_ENTRIES)
         return items
     }
 
@@ -1060,7 +1078,7 @@ object TmdbMetadataService {
         language: String,
     ): Pair<String?, List<MetaPreview>> {
         val cacheKey = "$collectionId:$language:collection"
-        collectionCache[cacheKey]?.let { return it }
+        readCache(collectionCache, cacheKey)?.let { return it }
 
         val response = fetch<TmdbCollectionResponse>(
             endpoint = "collection/$collectionId",
@@ -1087,7 +1105,7 @@ object TmdbMetadataService {
             }
 
         val result = response.name?.trim()?.takeIf(String::isNotBlank) to items
-        collectionCache[cacheKey] = result
+        writeCache(collectionCache, cacheKey, result, MAX_COLLECTION_CACHE_ENTRIES)
         return result
     }
 
@@ -1097,7 +1115,7 @@ object TmdbMetadataService {
         language: String,
     ): List<MetaTrailer> {
         val cacheKey = "$tmdbId:$mediaType:$language:trailers"
-        trailerCache[cacheKey]?.let { return it }
+        readCache(trailerCache, cacheKey)?.let { return it }
 
         val allVideos = mutableListOf<MetaTrailer>()
 
@@ -1188,7 +1206,7 @@ object TmdbMetadataService {
         )
 
         val result = sortedCategories.flatMap { byCategory[it].orEmpty() }
-        trailerCache[cacheKey] = result
+        writeCache(trailerCache, cacheKey, result, MAX_TRAILER_CACHE_ENTRIES)
         return result
     }
 
@@ -1201,6 +1219,90 @@ object TmdbMetadataService {
             query = mapOf("language" to language),
         )
         return response?.results.orEmpty()
+    }
+
+    private suspend fun <T> readCache(
+        cache: Map<String, T>,
+        key: String,
+    ): T? = cacheMutex.withLock {
+        cache[key]
+    }
+
+    private suspend fun <T> writeCache(
+        cache: MutableMap<String, T>,
+        key: String,
+        value: T,
+        maxEntries: Int,
+    ) {
+        cacheMutex.withLock {
+            cache.putBoundedEntry(
+                key = key,
+                value = value,
+                maxEntries = maxEntries,
+            )
+        }
+    }
+
+    private const val MAX_ENRICHMENT_CACHE_ENTRIES = 32
+    private const val MAX_EPISODE_CACHE_ENTRIES = 24
+    private const val MAX_MORE_LIKE_THIS_CACHE_ENTRIES = 48
+    private const val MAX_COLLECTION_CACHE_ENTRIES = 24
+    private const val MAX_TRAILER_CACHE_ENTRIES = 24
+    private const val MAX_PERSON_CACHE_ENTRIES = 16
+    private const val MAX_ENTITY_BROWSE_CACHE_ENTRIES = 16
+    private const val MAX_ENTITY_HEADER_CACHE_ENTRIES = 48
+    private const val MAX_ENTITY_RAIL_CACHE_ENTRIES = 96
+    private const val MAX_PREVIEW_ARTWORK_CACHE_ENTRIES = 192
+    private const val EPISODE_CACHE_TTL_MS = 30L * 60L * 1000L
+}
+
+private data class CachedEpisodeEnrichment(
+    val episodes: Map<Pair<Int, Int>, TmdbEpisodeEnrichment>,
+    val savedAtEpochMs: Long,
+)
+
+internal fun mergeTmdbEpisodeEnrichment(
+    cached: Map<Pair<Int, Int>, TmdbEpisodeEnrichment>,
+    fresh: Map<Pair<Int, Int>, TmdbEpisodeEnrichment>,
+): Map<Pair<Int, Int>, TmdbEpisodeEnrichment> {
+    if (cached.isEmpty()) return fresh
+    val merged = cached.toMutableMap()
+    fresh.forEach { (key, incoming) ->
+        val previous = cached[key]
+        merged[key] = if (previous == null) {
+            incoming
+        } else {
+            incoming.copy(
+                title = preferTmdbEpisodeTitle(
+                    previous = previous.title,
+                    incoming = incoming.title,
+                    episodeNumber = key.second,
+                ),
+                overview = incoming.overview.nonBlankValue() ?: previous.overview.nonBlankValue(),
+                thumbnail = incoming.thumbnail.nonBlankValue() ?: previous.thumbnail.nonBlankValue(),
+                seasonPoster = incoming.seasonPoster.nonBlankValue() ?: previous.seasonPoster.nonBlankValue(),
+                airDate = incoming.airDate.nonBlankValue() ?: previous.airDate.nonBlankValue(),
+                runtimeMinutes = incoming.runtimeMinutes ?: previous.runtimeMinutes,
+            )
+        }
+    }
+    return merged
+}
+
+private fun String?.nonBlankValue(): String? = this?.trim()?.takeIf(String::isNotBlank)
+
+private fun preferTmdbEpisodeTitle(
+    previous: String?,
+    incoming: String?,
+    episodeNumber: Int,
+): String? {
+    val oldValue = previous.nonBlankValue()
+    val newValue = incoming.nonBlankValue() ?: return oldValue
+    val genericPattern = Regex("""(?:episode\s*|ep\.?\s*|e)0*$episodeNumber""", RegexOption.IGNORE_CASE)
+    return if (genericPattern.matches(newValue) && oldValue != null && !genericPattern.matches(oldValue)) {
+        oldValue
+    } else {
+        newValue
     }
 }
 
@@ -1267,7 +1369,6 @@ internal data class TmdbEpisodeEnrichment(
     val seasonPoster: String? = null,
     val airDate: String?,
     val runtimeMinutes: Int?,
-    val voteAverage: Double? = null,
 )
 
 private fun normalizeMetaType(type: String): String =

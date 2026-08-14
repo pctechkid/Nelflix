@@ -14,6 +14,11 @@ interface PlayerEngineController {
     fun getAudioTracks(): List<AudioTrack>
     fun getSubtitleTracks(): List<SubtitleTrack>
     fun getChapters(): List<PlayerChapter> = emptyList()
+    fun getMediaTracks(): PlayerMediaTracks = PlayerMediaTracks(
+        audioTracks = getAudioTracks(),
+        subtitleTracks = getSubtitleTracks(),
+        chapters = getChapters(),
+    )
     fun selectAudioTrack(index: Int)
     fun selectSubtitleTrack(index: Int)
     fun selectChapter(index: Int) {}
@@ -65,9 +70,11 @@ expect fun PlatformPlayerSurface(
     useYoutubeChunkedPlayback: Boolean = false,
     modifier: Modifier = Modifier,
     playWhenReady: Boolean = true,
+    initialPositionMs: Long? = null,
     resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
     useNativeController: Boolean = false,
     onControllerReady: (PlayerEngineController) -> Unit,
+    onTrackListChanged: () -> Unit = {},
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
 )

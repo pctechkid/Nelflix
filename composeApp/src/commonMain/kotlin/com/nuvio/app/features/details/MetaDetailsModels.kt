@@ -87,6 +87,8 @@ data class MetaVideo(
     val overview: String? = null,
     val runtime: Int? = null,
     val imdbRating: String? = null,
+    val ageRating: String? = null,
+    val genres: List<String> = emptyList(),
     val streams: List<StreamItem> = emptyList(),
 )
 

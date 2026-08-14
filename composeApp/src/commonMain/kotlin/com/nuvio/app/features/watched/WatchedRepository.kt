@@ -1,6 +1,8 @@
 package com.nuvio.app.features.watched
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.trakt.TraktAuthRepository
@@ -12,11 +14,15 @@ import com.nuvio.app.features.watching.sync.TraktWatchedSyncAdapter
 import com.nuvio.app.features.watching.sync.WatchedSyncAdapter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -25,12 +31,23 @@ import kotlinx.serialization.json.Json
 @Serializable
 private data class StoredWatchedPayload(
     val items: List<WatchedItem> = emptyList(),
+    val pendingMutations: List<PendingWatchedMutation> = emptyList(),
+)
+
+@Serializable
+internal data class PendingWatchedMutation(
+    val item: WatchedItem,
+    val isWatched: Boolean,
 )
 
 object WatchedRepository {
     private const val watchedItemsPageSize = 500
 
-    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var syncScopeJob: Job = SupervisorJob()
+    private var syncScope = CoroutineScope(syncScopeJob + Dispatchers.Default)
+    private var pendingSyncJob: Job? = null
+    private var pendingSyncProfileId: Int? = null
+    private val mutationSyncMutex = Mutex()
     private val log = Logger.withTag("WatchedRepository")
     private val json = Json {
         ignoreUnknownKeys = true
@@ -43,6 +60,8 @@ object WatchedRepository {
     private var hasLoaded = false
     private var currentProfileId: Int = 1
     private var itemsByKey: MutableMap<String, WatchedItem> = mutableMapOf()
+    private var pendingMutationsByKey: MutableMap<String, PendingWatchedMutation> = mutableMapOf()
+    private var lastSyncErrorMessage: String? = null
     internal var syncAdapter: WatchedSyncAdapter = SupabaseWatchedSyncAdapter
 
     private fun activePullSyncAdapter(): WatchedSyncAdapter =
@@ -59,26 +78,45 @@ object WatchedRepository {
     }
 
     fun clearLocalState() {
+        syncScopeJob.cancel()
+        syncScopeJob = SupervisorJob()
+        syncScope = CoroutineScope(syncScopeJob + Dispatchers.Default)
+        pendingSyncJob = null
+        pendingSyncProfileId = null
         hasLoaded = false
         currentProfileId = 1
         itemsByKey.clear()
+        pendingMutationsByKey.clear()
+        lastSyncErrorMessage = null
         _uiState.value = WatchedUiState()
     }
 
     private fun loadFromDisk(profileId: Int) {
+        pendingSyncJob?.cancel()
+        pendingSyncJob = null
+        pendingSyncProfileId = null
         currentProfileId = profileId
         hasLoaded = true
         itemsByKey.clear()
+        pendingMutationsByKey.clear()
+        lastSyncErrorMessage = null
 
         val payload = WatchedStorage.loadPayload(profileId).orEmpty().trim()
         if (payload.isNotEmpty()) {
-            val items = runCatching {
-                json.decodeFromString<StoredWatchedPayload>(payload).items
-            }.getOrDefault(emptyList())
-            itemsByKey = items
+            val stored = runCatching {
+                json.decodeFromString<StoredWatchedPayload>(payload)
+            }.getOrDefault(StoredWatchedPayload())
+            itemsByKey = stored.items
                 .map(WatchedItem::normalizedMarkedAt)
                 .associateBy { watchedItemKey(it.type, it.id, it.season, it.episode) }
                 .toMutableMap()
+            pendingMutationsByKey = stored.pendingMutations
+                .associateBy(PendingWatchedMutation::key)
+                .toMutableMap()
+            applyPendingWatchedMutations(
+                targetItems = itemsByKey,
+                pendingMutations = pendingMutationsByKey.values,
+            )
         }
 
         publish()
@@ -92,36 +130,23 @@ object WatchedRepository {
         }
         currentProfileId = profileId
         runCatching {
+            flushPendingMutations(profileId)
             val serverItems = activePullSyncAdapter().pull(
                 profileId = profileId,
                 pageSize = watchedItemsPageSize,
             )
 
-            val serverByKey = serverItems
-                .map(WatchedItem::normalizedMarkedAt)
-                .associateBy { watchedItemKey(it.type, it.id, it.season, it.episode) }
-            val localItems = itemsByKey.values.map(WatchedItem::normalizedMarkedAt)
-            val mergedByKey = serverByKey.toMutableMap()
-            val localOnlyItems = mutableListOf<WatchedItem>()
+            val merged = mergeWatchedPull(
+                serverItems = serverItems,
+                pendingMutations = pendingMutationsByKey.values,
+            )
 
-            localItems.forEach { localItem ->
-                val key = watchedItemKey(localItem.type, localItem.id, localItem.season, localItem.episode)
-                val serverItem = mergedByKey[key]
-                if (serverItem == null) {
-                    mergedByKey[key] = localItem
-                    localOnlyItems += localItem
-                } else if (localItem.markedAtEpochMs > serverItem.markedAtEpochMs) {
-                    mergedByKey[key] = localItem
-                    localOnlyItems += localItem
-                }
-            }
-
-            itemsByKey = mergedByKey
+            itemsByKey = merged.items.toMutableMap()
             hasLoaded = true
             publish()
             persist()
-            if (localOnlyItems.isNotEmpty()) {
-                pushToActiveTargets(profileId = profileId, items = localOnlyItems)
+            if (pendingMutationsByKey.isNotEmpty()) {
+                requestPendingMutationSync(profileId)
             }
         }.onFailure { e ->
             log.e(e) { "Failed to pull watched items from server" }
@@ -152,10 +177,14 @@ object WatchedRepository {
         timestampedItems.forEach { watchedItem ->
             val key = watchedItemKey(watchedItem.type, watchedItem.id, watchedItem.season, watchedItem.episode)
             itemsByKey[key] = watchedItem
+            pendingMutationsByKey[key] = PendingWatchedMutation(
+                item = watchedItem,
+                isWatched = true,
+            )
         }
         publish()
         persist()
-        pushMarksToServer(timestampedItems)
+        requestPendingMutationSync(currentProfileId)
     }
 
     fun unmarkWatched(item: WatchedItem) {
@@ -185,14 +214,17 @@ object WatchedRepository {
     fun unmarkWatched(items: Collection<WatchedItem>) {
         ensureLoaded()
         if (items.isEmpty()) return
-        val removedItems = items.mapNotNull { watchedItem ->
-            itemsByKey.remove(watchedItemKey(watchedItem.type, watchedItem.id, watchedItem.season, watchedItem.episode))
+        items.forEach { watchedItem ->
+            val key = watchedItem.key()
+            val removedItem = itemsByKey.remove(key)
+            pendingMutationsByKey[key] = PendingWatchedMutation(
+                item = removedItem ?: watchedItem,
+                isWatched = false,
+            )
         }
-        if (removedItems.isNotEmpty()) {
-            publish()
-            persist()
-            pushDeleteToServer(removedItems)
-        }
+        publish()
+        persist()
+        requestPendingMutationSync(currentProfileId)
     }
 
     fun isWatched(
@@ -229,28 +261,65 @@ object WatchedRepository {
         }
     }
 
-    private fun pushMarksToServer(items: Collection<WatchedItem>) {
-        syncScope.launch {
-            runCatching {
-                if (items.isEmpty()) return@runCatching
-                val profileId = ProfileRepository.activeProfileId
-                pushToActiveTargets(profileId = profileId, items = items)
-            }.onFailure { e ->
-                log.e(e) { "Failed to push watched items" }
+    private fun requestPendingMutationSync(profileId: Int) {
+        if (pendingSyncJob?.isActive == true && pendingSyncProfileId == profileId) return
+        pendingSyncJob?.cancel()
+        pendingSyncProfileId = profileId
+        pendingSyncJob = syncScope.launch {
+            var retryDelayMs = INITIAL_SYNC_RETRY_DELAY_MS
+            while (profileId == currentProfileId && pendingMutationsByKey.isNotEmpty()) {
+                if (flushPendingMutations(profileId)) return@launch
+                delay(retryDelayMs)
+                retryDelayMs = (retryDelayMs * 2L).coerceAtMost(MAX_SYNC_RETRY_DELAY_MS)
             }
         }
     }
 
-    private fun pushDeleteToServer(items: Collection<WatchedItem>) {
-        syncScope.launch {
-            runCatching {
-                if (items.isEmpty()) return@runCatching
-                val profileId = ProfileRepository.activeProfileId
-                deleteFromActiveTargets(profileId = profileId, items = items)
-            }.onFailure { e ->
-                log.e(e) { "Failed to push watched item delete" }
+    private suspend fun flushPendingMutations(profileId: Int): Boolean = mutationSyncMutex.withLock {
+        if (profileId != currentProfileId) return@withLock false
+
+        TraktAuthRepository.ensureLoaded()
+        TraktSettingsRepository.ensureLoaded()
+        val authState = AuthRepository.state.value
+        val hasSupabaseAccount = authState is AuthState.Authenticated && !authState.isAnonymous
+        val hasTraktAccount = TraktAuthRepository.isAuthenticated.value
+        if (!hasSupabaseAccount && !hasTraktAccount) return@withLock false
+
+        while (profileId == currentProfileId && pendingMutationsByKey.isNotEmpty()) {
+            val snapshot = pendingMutationsByKey.toMap()
+            val marks = snapshot.values.filter(PendingWatchedMutation::isWatched).map(PendingWatchedMutation::item)
+            val deletes = snapshot.values.filterNot(PendingWatchedMutation::isWatched).map(PendingWatchedMutation::item)
+
+            val result = runCatching {
+                if (hasSupabaseAccount) {
+                    if (marks.isNotEmpty()) syncAdapter.push(profileId = profileId, items = marks)
+                    if (deletes.isNotEmpty()) syncAdapter.delete(profileId = profileId, items = deletes)
+                }
+                if (hasTraktAccount) {
+                    if (marks.isNotEmpty()) TraktWatchedSyncAdapter.push(profileId = profileId, items = marks)
+                    if (deletes.isNotEmpty()) TraktWatchedSyncAdapter.delete(profileId = profileId, items = deletes)
+                }
             }
+
+            if (result.isFailure) {
+                val error = result.exceptionOrNull()
+                    ?: IllegalStateException("Watched-state synchronization failed")
+                lastSyncErrorMessage = error.message ?: "Watched-state synchronization failed"
+                publish()
+                log.e(error) { "Failed to synchronize ${snapshot.size} watched mutations" }
+                return@withLock false
+            }
+
+            if (profileId != currentProfileId) return@withLock false
+            pendingMutationsByKey = acknowledgePendingWatchedMutations(
+                current = pendingMutationsByKey,
+                sent = snapshot,
+            ).toMutableMap()
+            lastSyncErrorMessage = null
+            persist()
+            publish()
         }
+        true
     }
 
     private fun publish() {
@@ -263,6 +332,7 @@ object WatchedRepository {
                 watchedItemKey(it.type, it.id, it.season, it.episode)
             },
             isLoaded = true,
+            syncErrorMessage = lastSyncErrorMessage,
         )
     }
 
@@ -274,6 +344,7 @@ object WatchedRepository {
                     items = itemsByKey.values
                         .map(WatchedItem::normalizedMarkedAt)
                         .sortedByDescending { it.markedAtEpochMs },
+                    pendingMutations = pendingMutationsByKey.values.toList(),
                 ),
             ),
         )
@@ -285,36 +356,56 @@ object WatchedRepository {
             source = TraktSettingsRepository.uiState.value.watchProgressSource,
         )
 
-    private suspend fun pushToActiveTargets(
-        profileId: Int,
-        items: Collection<WatchedItem>,
-    ) {
-        if (shouldUseTraktWatchedSync()) {
-            TraktWatchedSyncAdapter.push(profileId = profileId, items = items)
-            return
-        }
+    private const val INITIAL_SYNC_RETRY_DELAY_MS = 2_000L
+    private const val MAX_SYNC_RETRY_DELAY_MS = 60_000L
+}
 
-        syncAdapter.push(profileId = profileId, items = items)
-        if (TraktAuthRepository.isAuthenticated.value) {
-            TraktWatchedSyncAdapter.push(profileId = profileId, items = items)
-        }
-    }
+internal data class WatchedPullMerge(
+    val items: Map<String, WatchedItem>,
+)
 
-    private suspend fun deleteFromActiveTargets(
-        profileId: Int,
-        items: Collection<WatchedItem>,
-    ) {
-        if (shouldUseTraktWatchedSync()) {
-            TraktWatchedSyncAdapter.delete(profileId = profileId, items = items)
-            return
-        }
+internal fun mergeWatchedPull(
+    serverItems: Collection<WatchedItem>,
+    pendingMutations: Collection<PendingWatchedMutation>,
+): WatchedPullMerge {
+    val mergedByKey = serverItems
+        .map(WatchedItem::normalizedMarkedAt)
+        .associateBy(WatchedItem::key)
+        .toMutableMap()
 
-        syncAdapter.delete(profileId = profileId, items = items)
-        if (TraktAuthRepository.isAuthenticated.value) {
-            TraktWatchedSyncAdapter.delete(profileId = profileId, items = items)
+    applyPendingWatchedMutations(
+        targetItems = mergedByKey,
+        pendingMutations = pendingMutations,
+    )
+    return WatchedPullMerge(
+        items = mergedByKey,
+    )
+}
+
+internal fun applyPendingWatchedMutations(
+    targetItems: MutableMap<String, WatchedItem>,
+    pendingMutations: Collection<PendingWatchedMutation>,
+) {
+    pendingMutations.forEach { mutation ->
+        val key = mutation.key()
+        if (mutation.isWatched) {
+            targetItems[key] = mutation.item.normalizedMarkedAt()
+        } else {
+            targetItems.remove(key)
         }
     }
 }
+
+internal fun acknowledgePendingWatchedMutations(
+    current: Map<String, PendingWatchedMutation>,
+    sent: Map<String, PendingWatchedMutation>,
+): Map<String, PendingWatchedMutation> = current.filter { (key, mutation) ->
+    sent[key] != mutation
+}
+
+private fun PendingWatchedMutation.key(): String = item.key()
+
+private fun WatchedItem.key(): String = watchedItemKey(type, id, season, episode)
 
 internal fun shouldUseTraktWatchedSync(
     isAuthenticated: Boolean,

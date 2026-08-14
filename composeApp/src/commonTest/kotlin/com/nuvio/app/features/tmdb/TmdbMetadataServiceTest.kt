@@ -8,6 +8,36 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TmdbMetadataServiceTest {
+
+    @Test
+    fun `episode refresh cannot erase complete cached metadata with blanks`() {
+        val key = 1 to 5
+        val cached = TmdbEpisodeEnrichment(
+            title = "The Real Episode",
+            overview = "Summary",
+            thumbnail = "thumbnail",
+            seasonPoster = "poster",
+            airDate = "2026-08-03",
+            runtimeMinutes = 24,
+        )
+        val fresh = TmdbEpisodeEnrichment(
+            title = "Episode 5",
+            overview = "",
+            thumbnail = null,
+            seasonPoster = null,
+            airDate = null,
+            runtimeMinutes = null,
+        )
+
+        val merged = mergeTmdbEpisodeEnrichment(mapOf(key to cached), mapOf(key to fresh)).getValue(key)
+
+        assertEquals("The Real Episode", merged.title)
+        assertEquals("Summary", merged.overview)
+        assertEquals("thumbnail", merged.thumbnail)
+        assertEquals("poster", merged.seasonPoster)
+        assertEquals("2026-08-03", merged.airDate)
+        assertEquals(24, merged.runtimeMinutes)
+    }
     @Test
     fun `buildStandaloneMeta maps tmdb enrichment without addon meta`() {
         val enrichment = TmdbEnrichment(
@@ -42,7 +72,7 @@ class TmdbMetadataServiceTest {
         assertEquals("movie", result.type)
         assertEquals("TMDB Movie", result.name)
         assertEquals("TMDB description", result.description)
-        assertEquals("8.4", result.imdbRating)
+        assertEquals(null, result.imdbRating)
         assertEquals("105m", result.runtime)
         assertEquals("US, GB", result.country)
         assertEquals(listOf("Cast Member"), result.cast.map { it.name })
@@ -56,6 +86,7 @@ class TmdbMetadataServiceTest {
             type = "series",
             name = "Original",
             description = "Addon description",
+            imdbRating = "7.5",
             videos = listOf(
                 MetaVideo(
                     id = "ep1",
@@ -105,7 +136,7 @@ class TmdbMetadataServiceTest {
         assertEquals("Localized", result.name)
         assertEquals("TMDB description", result.description)
         assertEquals(listOf("Drama", "Mystery"), result.genres)
-        assertEquals("8.4", result.imdbRating)
+        assertEquals("7.5", result.imdbRating)
         assertEquals("TV-MA", result.ageRating)
         assertEquals("52m", result.runtime)
         assertEquals(listOf("Director Name"), result.director)
@@ -113,6 +144,41 @@ class TmdbMetadataServiceTest {
         assertEquals(listOf("HBO"), result.networks.map { it.name })
         assertEquals("Pilot", result.videos.first().title)
         assertEquals(58, result.videos.first().runtime)
+    }
+
+    @Test
+    fun `tmdb basic info never fabricates an imdb-labelled fallback`() {
+        val result = TmdbMetadataService.applyEnrichment(
+            meta = MetaDetails(
+                id = "tmdb:123",
+                type = "movie",
+                name = "Movie",
+            ),
+            enrichment = TmdbEnrichment(
+                localizedTitle = "Movie",
+                description = null,
+                genres = emptyList(),
+                backdrop = null,
+                logo = null,
+                poster = null,
+                people = emptyList(),
+                director = emptyList(),
+                writer = emptyList(),
+                releaseInfo = null,
+                rating = 8.1,
+                runtimeMinutes = null,
+                ageRating = null,
+                status = null,
+                countries = emptyList(),
+                language = null,
+                productionCompanies = emptyList(),
+                networks = emptyList(),
+            ),
+            episodeMap = emptyMap(),
+            settings = TmdbSettings(enabled = true),
+        )
+
+        assertEquals(null, result.imdbRating)
     }
 
     @Test

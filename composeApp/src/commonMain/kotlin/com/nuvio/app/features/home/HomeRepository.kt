@@ -29,8 +29,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlin.math.absoluteValue
-import kotlin.random.Random
 
 object HomeRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -60,7 +58,7 @@ object HomeRepository {
         if (!force && activeRequestKey == requestKey && _uiState.value.isLoading) return
 
         if (!force && requestKey == lastRequestKey && requestKeys.all(cachedSections::containsKey)) {
-            if (_uiState.value.sections.isEmpty() || _uiState.value.heroItems.isEmpty()) {
+            if (_uiState.value.sections.isEmpty()) {
                 applyCurrentSettings()
             }
             return
@@ -143,7 +141,7 @@ object HomeRepository {
 
     fun recoverIfEmpty(addons: List<ManagedAddon>): Boolean {
         val state = _uiState.value
-        if (state.isLoading || state.sections.isNotEmpty() || state.heroItems.isNotEmpty()) {
+        if (state.isLoading || state.sections.isNotEmpty()) {
             return false
         }
 
@@ -154,7 +152,7 @@ object HomeRepository {
         if (currentDefinitions.isNotEmpty() && requestKeys.all(cachedSections::containsKey)) {
             applyCurrentSettings()
             val recoveredState = _uiState.value
-            if (recoveredState.sections.isNotEmpty() || recoveredState.heroItems.isNotEmpty()) {
+            if (recoveredState.sections.isNotEmpty()) {
                 return true
             }
         }
@@ -210,23 +208,9 @@ object HomeRepository {
                 )
             }
 
-        val heroItems = if (snapshot.heroEnabled) {
-            val heroRandom = Random((requestKey?.hashCode() ?: 0).absoluteValue + 1)
-            currentDefinitions
-                .filter { definition -> preferences[definition.key]?.heroSourceEnabled != false }
-                .mapNotNull { definition -> cachedSections[definition.key] }
-                .map { section -> section.withReleaseFilter() }
-                .flatMap { section -> section.items }
-                .distinctBy { item -> "${item.type}:${item.id}" }
-                .shuffled(heroRandom)
-                .take(HOME_HERO_ITEM_LIMIT)
-        } else {
-            emptyList()
-        }
-
         _uiState.value = HomeUiState(
             isLoading = isLoading,
-            heroItems = heroItems,
+            heroItems = emptyList(),
             sections = sections,
             errorMessage = if (sections.isEmpty()) lastErrorMessage else null,
         )
@@ -389,7 +373,6 @@ private fun JsonObject.stringList(name: String): List<String> =
         }
         .orEmpty()
 
-private const val HOME_HERO_ITEM_LIMIT = 8
 private const val HOME_CATALOG_FETCH_BATCH_SIZE = 4
 private const val HOME_CATALOG_PREVIEW_FETCH_LIMIT = 18
 private const val HOME_CATALOG_PUBLISH_INTERVAL = 2
@@ -411,7 +394,7 @@ private fun prioritizeDefinitions(
         if (preference == null) {
             true
         } else {
-            preference.enabled || (snapshot.heroEnabled && preference.heroSourceEnabled)
+            preference.enabled
         }
     }
     return priority + remainder

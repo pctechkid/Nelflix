@@ -104,6 +104,8 @@ internal fun OpeningOverlay(
     horizontalSafePadding: Dp,
     modifier: Modifier = Modifier,
 ) {
+    var logoLoadFailed by remember(logo) { mutableStateOf(false) }
+    LaunchedEffect(logo) { logoLoadFailed = false }
     val contentAlpha by animateFloatAsState(
         targetValue = 1f,
         animationSpec = tween(durationMillis = 700, delayMillis = 400, easing = LinearEasing),
@@ -168,7 +170,7 @@ internal fun OpeningOverlay(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (logo != null) {
+            if (!logo.isNullOrBlank() && !logoLoadFailed) {
                 AsyncImage(
                     model = logo,
                     contentDescription = null,
@@ -181,6 +183,7 @@ internal fun OpeningOverlay(
                             scaleY = contentScale
                         },
                     contentScale = ContentScale.Fit,
+                    onError = { logoLoadFailed = true },
                 )
             } else if (!title.isNullOrBlank()) {
                 Text(

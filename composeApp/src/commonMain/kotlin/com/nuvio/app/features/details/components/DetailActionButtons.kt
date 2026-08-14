@@ -1,18 +1,21 @@
 package com.nuvio.app.features.details.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -27,7 +30,7 @@ import com.nuvio.app.core.ui.AppIconResource
 import com.nuvio.app.core.ui.appIconPainter
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
-import nuvio.composeapp.generated.resources.action_save
+import nuvio.composeapp.generated.resources.details_actions_menu_label
 import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -35,47 +38,39 @@ import org.jetbrains.compose.resources.stringResource
 fun DetailActionButtons(
     modifier: Modifier = Modifier,
     playLabel: String = stringResource(Res.string.action_play),
-    saveLabel: String = stringResource(Res.string.action_save),
-    isSaved: Boolean = false,
     isTablet: Boolean = false,
     onPlayClick: () -> Unit = {},
     onPlayLongClick: (() -> Unit)? = null,
-    onSaveClick: () -> Unit = {},
-    onSaveLongClick: (() -> Unit)? = null,
+    onMoreClick: () -> Unit = {},
 ) {
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
-    val libraryAddPainter = appIconPainter(AppIconResource.LibraryAddPlus)
+    val buttonHeight = 48.dp
+    val playMinWidth = 172.dp
+    val playMaxWidth = if (isTablet) 240.dp else 232.dp
     val playShape = RoundedCornerShape(40.dp)
 
     Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = if (isTablet) {
-            Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
-        } else {
-            Arrangement.spacedBy(12.dp)
-        },
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        val rowButtonModifier = if (isTablet) {
-            Modifier.width(220.dp)
-        } else {
-            Modifier.weight(1f)
-        }
-
         Surface(
-            modifier = rowButtonModifier.height(50.dp),
+            modifier = Modifier
+                .widthIn(min = playMinWidth, max = playMaxWidth)
+                .height(buttonHeight),
             shape = playShape,
             color = MaterialTheme.colorScheme.onBackground,
             contentColor = MaterialTheme.colorScheme.background,
         ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .combinedClickable(
                         onClick = onPlayClick,
                         onLongClick = onPlayLongClick,
                         role = Role.Button,
                     )
-                    .height(50.dp),
+                    .padding(horizontal = 18.dp)
+                    .height(buttonHeight),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -95,49 +90,24 @@ fun DetailActionButtons(
         }
 
         Surface(
-            modifier = rowButtonModifier.height(50.dp),
-            shape = RoundedCornerShape(40.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0f),
+            modifier = Modifier.size(buttonHeight),
+            shape = playShape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
-            Row(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .combinedClickable(
-                        onClick = onSaveClick,
-                        onLongClick = onSaveLongClick,
-                        role = Role.Button,
-                    )
-                    .height(50.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
+                    .size(buttonHeight)
+                    .clickable(role = Role.Button, onClick = onMoreClick),
+                contentAlignment = Alignment.Center,
             ) {
-                if (isSaved) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                } else {
-                    Icon(
-                        painter = libraryAddPainter,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = saveLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Icon(
+                    imageVector = Icons.Default.MoreHoriz,
+                    contentDescription = stringResource(Res.string.details_actions_menu_label),
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
-
     }
 }

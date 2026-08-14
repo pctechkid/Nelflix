@@ -4,6 +4,7 @@ import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WatchedRepositoryTest {
@@ -44,5 +45,77 @@ class WatchedRepositoryTest {
 
         assertTrue(result)
     }
+
+    @Test
+    fun pullMerge_pendingSeasonDeletesOverrideStaleServerRows() {
+        val serverItems = (1..3).map { episode ->
+            watchedEpisode(episode = episode, markedAtEpochMs = 1_000L)
+        }
+        val pendingDeletes = serverItems.map { item ->
+            PendingWatchedMutation(item = item, isWatched = false)
+        }
+
+        val merged = mergeWatchedPull(
+            serverItems = serverItems,
+            pendingMutations = pendingDeletes,
+        )
+
+        assertTrue(merged.items.isEmpty())
+    }
+
+    @Test
+    fun pullMerge_pendingMarkOverridesOlderServerRow() {
+        val serverItem = watchedEpisode(episode = 2, markedAtEpochMs = 1_000L)
+        val localItem = serverItem.copy(markedAtEpochMs = 2_000L)
+
+        val merged = mergeWatchedPull(
+            serverItems = listOf(serverItem),
+            pendingMutations = listOf(PendingWatchedMutation(localItem, isWatched = true)),
+        )
+
+        assertEquals(localItem, merged.items.getValue(watchedItemKey("series", "show", 1, 2)))
+    }
+
+    @Test
+    fun pullMerge_doesNotResurrectStaleLocalWatchedRowDeletedByAnotherDevice() {
+        val staleLocalItem = watchedEpisode(episode = 3, markedAtEpochMs = 1_000L)
+
+        val merged = mergeWatchedPull(
+            serverItems = emptyList(),
+            pendingMutations = emptyList(),
+        )
+
+        assertFalse(staleLocalItem.keyForTest() in merged.items)
+    }
+
+    @Test
+    fun mutationAcknowledgement_preservesNewerOppositeMutation() {
+        val item = watchedEpisode(episode = 4, markedAtEpochMs = 1_000L)
+        val sentDelete = PendingWatchedMutation(item = item, isWatched = false)
+        val newerMark = PendingWatchedMutation(item = item.copy(markedAtEpochMs = 2_000L), isWatched = true)
+        val key = watchedItemKey("series", "show", 1, 4)
+
+        val remaining = acknowledgePendingWatchedMutations(
+            current = mapOf(key to newerMark),
+            sent = mapOf(key to sentDelete),
+        )
+
+        assertEquals(newerMark, remaining[key])
+        assertFalse(remaining.isEmpty())
+    }
+
+    private fun watchedEpisode(
+        episode: Int,
+        markedAtEpochMs: Long,
+    ): WatchedItem = WatchedItem(
+        id = "show",
+        type = "series",
+        name = "Episode $episode",
+        season = 1,
+        episode = episode,
+        markedAtEpochMs = markedAtEpochMs,
+    )
+
+    private fun WatchedItem.keyForTest(): String = watchedItemKey(type, id, season, episode)
 }
 

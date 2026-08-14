@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioGlassModalBackdrop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -63,6 +64,7 @@ import com.nuvio.app.features.player.LockPlayerToLandscape
 import com.nuvio.app.features.player.PlatformPlayerSurface
 import com.nuvio.app.features.player.PlayerResizeMode
 import com.nuvio.app.features.trailer.TrailerPlaybackSource
+import dev.chrisbanes.haze.HazeState
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.detail_tab_trailer
@@ -83,6 +85,7 @@ fun TrailerPlayerPopup(
     errorMessage: String?,
     onDismiss: () -> Unit,
     onRetry: (() -> Unit)? = null,
+    hazeState: HazeState? = null,
 ) {
     if (!visible) return
 
@@ -127,7 +130,7 @@ fun TrailerPlayerPopup(
         },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            dismissOnBackPress = false,
+            dismissOnBackPress = true,
             dismissOnClickOutside = false,
         ),
     ) {
@@ -138,6 +141,7 @@ fun TrailerPlayerPopup(
             playbackSource = playbackSource,
             isLoading = isLoading,
             activeError = activeError,
+            hazeState = hazeState,
             onRetry = onRetry,
             onPlayerError = { playerError = it },
             onToggleFullscreen = { fullscreen = !fullscreen },
@@ -154,6 +158,7 @@ private fun TrailerPlayerDialogContent(
     playbackSource: TrailerPlaybackSource?,
     isLoading: Boolean,
     activeError: String?,
+    hazeState: HazeState?,
     onRetry: (() -> Unit)?,
     onPlayerError: (String?) -> Unit,
     onToggleFullscreen: () -> Unit,
@@ -162,14 +167,14 @@ private fun TrailerPlayerDialogContent(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                if (fullscreen) {
-                    Color.Black
-                } else {
-                    MaterialTheme.colorScheme.scrim.copy(alpha = 0.72f)
-                },
-            ),
+            .background(if (fullscreen) Color.Black else Color.Transparent),
     ) {
+        if (!fullscreen) {
+            NuvioGlassModalBackdrop(
+                hazeState = hazeState,
+                scrimAlpha = 0.38f,
+            )
+        }
         val layout = remember(maxWidth, maxHeight, fullscreen) {
             trailerPopupLayout(maxWidth = maxWidth, maxHeight = maxHeight, fullscreen = fullscreen)
         }
@@ -315,7 +320,7 @@ private fun CompactLandscapeTrailerLayout(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.92f))
+            .background(Color.Transparent)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
@@ -378,11 +383,11 @@ private fun BoxScope.CompactPortraitTrailerLayout(
             .widthIn(max = 560.dp)
             .heightIn(max = maxHeight * 0.78f),
         shape = panelShape,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
         shadowElevation = 18.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
     ) {
         Column(
             modifier = Modifier.padding(
@@ -450,11 +455,11 @@ private fun BoxScope.TheaterTrailerLayout(
             .widthIn(max = 1040.dp)
             .heightIn(max = maxHeight - verticalSafePadding - 40.dp),
         shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
         shadowElevation = 18.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.34f)),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
     ) {
         Column(
             modifier = Modifier.padding(12.dp),

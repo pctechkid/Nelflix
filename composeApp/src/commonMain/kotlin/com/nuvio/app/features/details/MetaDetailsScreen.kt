@@ -5,6 +5,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -28,11 +29,14 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
@@ -41,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -48,11 +53,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.Dp
@@ -60,7 +66,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.deeplink.buildMetaShareUrl
@@ -73,8 +78,8 @@ import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
 import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.PosterZoomAnchorHolder
 import com.nuvio.app.core.ui.PosterZoomOverlayAction
-import com.nuvio.app.core.ui.TraktListPickerDialog
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
+import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.features.details.components.DetailActionButtons
 import com.nuvio.app.features.details.components.CommentDetailSheet
 import com.nuvio.app.features.details.components.DetailAdditionalInfoSection
@@ -99,7 +104,6 @@ import com.nuvio.app.features.trakt.TraktCommentReview
 import com.nuvio.app.features.trakt.TraktCommentsRepository
 import com.nuvio.app.features.trakt.TraktCommentsSettings
 import com.nuvio.app.features.trakt.TraktConnectionMode
-import com.nuvio.app.features.trakt.TraktListTab
 import com.nuvio.app.features.trailer.TrailerPlaybackResolver
 import com.nuvio.app.features.trailer.TrailerPlaybackSource
 import com.nuvio.app.features.watched.WatchedRepository
@@ -115,6 +119,8 @@ import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import com.kmpalette.extensions.painter.rememberPainterDominantColorState
+import com.kmpalette.rememberDominantColorState
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
@@ -169,6 +175,7 @@ fun MetaDetailsScreen(
     var selectedEpisodeZoomAnchor by remember(type, id) { mutableStateOf<PosterZoomAnchor?>(null) }
     var selectedSeasonForActions by remember(type, id) { mutableStateOf<Int?>(null) }
     var selectedSeasonZoomAnchor by remember(type, id) { mutableStateOf<PosterZoomAnchor?>(null) }
+    var showDetailsActions by remember(type, id) { mutableStateOf(false) }
     val detailContextMenuHazeState = rememberHazeState()
     val commentsEnabled by remember {
         TraktCommentsSettings.ensureLoaded()
@@ -182,11 +189,6 @@ fun MetaDetailsScreen(
     var commentsError by remember(type, id) { mutableStateOf<String?>(null) }
     var selectedComment by remember(type, id) { mutableStateOf<TraktCommentReview?>(null) }
     val detailsScope = rememberCoroutineScope()
-    var showLibraryListPicker by remember(type, id) { mutableStateOf(false) }
-    var pickerTabs by remember(type, id) { mutableStateOf<List<TraktListTab>>(emptyList()) }
-    var pickerMembership by remember(type, id) { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
-    var pickerPending by remember(type, id) { mutableStateOf(false) }
-    var pickerError by remember(type, id) { mutableStateOf<String?>(null) }
     var episodeImdbRatings by remember(type, id) { mutableStateOf<Map<Pair<Int, Int>, Double>>(emptyMap()) }
 
     val shouldShowComments = commentsEnabled &&
@@ -221,21 +223,25 @@ fun MetaDetailsScreen(
             episodeImdbRatings = emptyMap()
             return@LaunchedEffect
         }
+        val metadataRatings = episodeMetadataImdbRatings(metaForRatings.videos)
+        episodeImdbRatings = metadataRatings
 
-        val imdbId = extractImdbId(metaForRatings.id) ?: extractImdbId(id)
-        val tmdbId = extractTmdbId(metaForRatings.id)
-            ?: extractTmdbId(id)
+        val imdbId = extractImdbTitleId(metaForRatings.id) ?: extractImdbTitleId(id)
+        val tmdbId = extractTmdbTitleId(metaForRatings.id)
+            ?: extractTmdbTitleId(id)
             ?: TmdbService.ensureTmdbId(metaForRatings.id, metaForRatings.type)?.toIntOrNull()
             ?: TmdbService.ensureTmdbId(id, type)?.toIntOrNull()
 
         if (imdbId == null && tmdbId == null) {
-            episodeImdbRatings = emptyMap()
             return@LaunchedEffect
         }
 
-        episodeImdbRatings = ImdbEpisodeRatingsRepository.getEpisodeRatings(
-            imdbId = imdbId,
-            tmdbId = tmdbId,
+        episodeImdbRatings = mergeEpisodeImdbRatings(
+            providerRatings = ImdbEpisodeRatingsRepository.getEpisodeRatings(
+                imdbId = imdbId,
+                tmdbId = tmdbId,
+            ),
+            metadataRatings = metadataRatings,
         )
     }
 
@@ -317,6 +323,7 @@ fun MetaDetailsScreen(
 
             displayedMeta != null -> {
                 val meta = displayedMeta
+                val metaPreview = remember(meta) { meta.toMetaPreview() }
                 val todayIsoDate = CurrentDateProvider.todayIsoDate()
                 val isSaved = remember(
                     libraryUiState.items,
@@ -327,29 +334,11 @@ fun MetaDetailsScreen(
                 ) {
                     LibraryRepository.isSaved(meta.id, meta.type)
                 }
-                val openLibraryListPicker = remember(meta) {
-                    {
-                        val libraryItem = meta.toLibraryItem(savedAtEpochMs = 0L)
-                        pickerTabs = LibraryRepository.libraryListTabs()
-                        pickerMembership = pickerTabs.associate { it.key to false }
-                        pickerPending = true
-                        pickerError = null
-                        showLibraryListPicker = true
-                        detailsScope.launch {
-                            runCatching {
-                                val snapshot = LibraryRepository.getMembershipSnapshot(libraryItem)
-                                val tabs = LibraryRepository.libraryListTabs()
-                                pickerTabs = tabs
-                                pickerMembership = tabs.associate { tab ->
-                                    tab.key to (snapshot[tab.key] == true)
-                                }
-                            }.onFailure { error ->
-                                pickerError = error.message ?: getString(Res.string.trakt_lists_load_failed)
-                            }
-                            pickerPending = false
-                        }
-                        Unit
-                    }
+                val isWatched = remember(watchedUiState.watchedKeys, metaPreview) {
+                    WatchingState.isPosterWatched(
+                        watchedKeys = watchedUiState.watchedKeys,
+                        item = metaPreview,
+                    )
                 }
                 val toggleSaved = remember(meta) {
                     {
@@ -617,6 +606,7 @@ fun MetaDetailsScreen(
                     )
                 }
                 val scrollState = rememberScrollState()
+                val heroStretchState = rememberHeroStretchState(scrollState)
                 val density = LocalDensity.current
                 val safeAreaTopPx = with(density) {
                     WindowInsets.statusBars
@@ -637,45 +627,86 @@ fun MetaDetailsScreen(
                 )
 
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val colorScheme = MaterialTheme.colorScheme
                     val isTablet = maxWidth >= 720.dp
                     val contentHorizontalPadding = if (isTablet) 32.dp else 18.dp
                     val contentMaxWidth = detailTabletContentMaxWidth(maxWidth, isTablet)
-                    val cinematicEnabled = metaScreenSettingsUiState.cinematicBackground
+                    val backdropUrl = meta.background ?: meta.poster
+                    val artworkIdentity = "${meta.type}:${meta.id}:${backdropUrl.orEmpty()}"
+                    var dominantBackdropPainter by remember(artworkIdentity) {
+                        mutableStateOf<Painter?>(null)
+                    }
+                    var dominantBackdropImageBitmap by remember(artworkIdentity) {
+                        mutableStateOf<ImageBitmap?>(null)
+                    }
+                    val dominantImageBitmapColorState = key("bitmap:$artworkIdentity") {
+                        rememberDominantColorState(
+                            defaultColor = colorScheme.background,
+                            defaultOnColor = colorScheme.onBackground,
+                        )
+                    }
+                    val dominantPainterColorState = key("painter:$artworkIdentity") {
+                        rememberPainterDominantColorState(
+                            defaultColor = colorScheme.background,
+                            defaultOnColor = colorScheme.onBackground,
+                        )
+                    }
+                    LaunchedEffect(artworkIdentity, dominantBackdropImageBitmap, dominantBackdropPainter) {
+                        val imageBitmap = dominantBackdropImageBitmap
+                        val painter = dominantBackdropPainter
+                        when {
+                            imageBitmap != null -> runCatching {
+                                dominantImageBitmapColorState.updateFrom(imageBitmap)
+                            }
+                            painter != null -> runCatching {
+                                dominantPainterColorState.updateFrom(painter)
+                            }
+                        }
+                    }
+                    val extractedDominantColor = when {
+                        dominantBackdropImageBitmap != null -> dominantImageBitmapColorState.color
+                        dominantBackdropPainter != null -> dominantPainterColorState.color
+                        else -> null
+                    }
+                    val dominantBackdropTargetColor = dominantBackdropBlendColor(
+                        dominantColor = extractedDominantColor,
+                        backgroundColor = colorScheme.background,
+                    )
+                    val dominantBackdropColor by animateColorAsState(
+                        targetValue = dominantBackdropTargetColor,
+                        animationSpec = tween(
+                            durationMillis = 320,
+                            easing = LinearOutSlowInEasing,
+                        ),
+                        label = "detail_dominant_backdrop_color",
+                    )
 
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize(),
+                    ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(
-                                    if (selectedEpisodeForActions != null || selectedSeasonForActions != null) {
+                                    if (
+                                        selectedEpisodeForActions != null ||
+                                        selectedSeasonForActions != null ||
+                                        showDetailsActions ||
+                                        selectedTrailer != null
+                                    ) {
                                         Modifier.hazeSource(state = detailContextMenuHazeState)
                                     } else {
                                         Modifier
                                     },
-                                ),
+                                )
+                                .background(dominantBackdropColor),
                         ) {
-                        if (cinematicEnabled) {
-                            val backdropUrl = meta.background ?: meta.poster
-                            if (backdropUrl != null) {
-                                AsyncImage(
-                                    model = backdropUrl,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .blur(30.dp),
-                                    contentScale = ContentScale.Crop,
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f)),
-                                )
-                            }
-                        }
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .zIndex(1f)
+                                .nestedScroll(heroStretchState.nestedScrollConnection)
                                 .verticalScroll(scrollState),
                         ) {
                             DetailHero(
@@ -683,7 +714,13 @@ fun MetaDetailsScreen(
                                 isTablet = isTablet,
                                 contentMaxWidth = contentMaxWidth,
                                 scrollOffset = scrollState.value,
+                                stretchPx = { heroStretchState.stretchPx },
                                 onHeightChanged = { heroHeightPx = it },
+                                heroGradientColor = dominantBackdropColor,
+                                onBackdropLoaded = { painter, imageBitmap ->
+                                    dominantBackdropPainter = painter
+                                    dominantBackdropImageBitmap = imageBitmap
+                                },
                             )
 
                             Column(
@@ -699,12 +736,9 @@ fun MetaDetailsScreen(
                                     meta = meta,
                                     isTablet = isTablet,
                                     playButtonLabel = playButtonLabel,
-                                    isSaved = isSaved,
                                     onPrimaryPlayClick = onPrimaryPlayClick,
                                     onPrimaryPlayLongClick = onPrimaryPlayLongClick,
-                                    onSaveClick = toggleSaved,
-                                    onSaveLongClick = openLibraryListPicker,
-                                    onShareClick = shareMeta,
+                                    onMoreClick = { showDetailsActions = true },
                                     showManualPlayOption = showManualPlayOption,
                                     preferredEpisodeSeasonNumber = seriesAction?.seasonNumber,
                                     preferredEpisodeNumber = seriesAction?.episodeNumber,
@@ -777,8 +811,8 @@ fun MetaDetailsScreen(
                             }
                         }
 
-                        if (cinematicEnabled && heroHeightPx > 0) {
-                            val blendColor = MaterialTheme.colorScheme.background
+                        if (heroHeightPx > 0) {
+                            val blendColor = dominantBackdropColor
                             Box(
                                 modifier = Modifier
                                     .zIndex(0.5f)
@@ -814,12 +848,61 @@ fun MetaDetailsScreen(
 
                         DetailFloatingHeader(
                             meta = meta,
-                            isSaved = isSaved,
                             progress = headerProgress,
                             onBack = onBack,
-                            onToggleSaved = toggleSaved,
+                            onOpenActions = { showDetailsActions = true },
+                            backgroundColor = dominantBackdropColor,
                             modifier = Modifier.zIndex(2f),
                         )
+                        }
+
+                        if (showDetailsActions) {
+                            val detailsSubtitle = formatMetaReleaseLineForDetails(meta)
+                                ?: meta.type.replaceFirstChar { it.uppercase() }
+                            NuvioPosterZoomActionOverlay(
+                                imageUrl = meta.poster ?: meta.background,
+                                title = meta.name,
+                                subtitle = detailsSubtitle,
+                                isWatched = isWatched,
+                                anchor = null,
+                                actions = listOf(
+                                    PosterZoomOverlayAction(
+                                        icon = if (isWatched) {
+                                            Icons.Default.CheckCircle
+                                        } else {
+                                            Icons.Default.CheckCircleOutline
+                                        },
+                                        label = if (isWatched) {
+                                            stringResource(Res.string.hero_mark_unwatched)
+                                        } else {
+                                            stringResource(Res.string.hero_mark_watched)
+                                        },
+                                        onSelected = {
+                                            detailsScope.launch {
+                                                WatchingActions.togglePosterWatched(metaPreview)
+                                            }
+                                        },
+                                    ),
+                                    PosterZoomOverlayAction(
+                                        icon = if (isSaved) Icons.Default.DeleteOutline else Icons.Default.Add,
+                                        label = if (isSaved) {
+                                            stringResource(Res.string.hero_remove_from_library)
+                                        } else {
+                                            stringResource(Res.string.hero_add_to_library)
+                                        },
+                                        isDestructive = isSaved,
+                                        onSelected = toggleSaved,
+                                    ),
+                                    PosterZoomOverlayAction(
+                                        icon = Icons.Default.Share,
+                                        label = stringResource(Res.string.action_share),
+                                        onSelected = shareMeta,
+                                    ),
+                                ),
+                                hazeState = detailContextMenuHazeState,
+                                modifier = Modifier.zIndex(30f),
+                                onDismissed = { showDetailsActions = false },
+                            )
                         }
 
                         selectedEpisodeForActions?.let { selectedEpisode ->
@@ -1064,44 +1147,9 @@ fun MetaDetailsScreen(
                                 onRetry = selectedTrailer?.let { trailer ->
                                     { resolveTrailer(trailer) }
                                 },
+                                hazeState = detailContextMenuHazeState,
                             )
                         }
-
-                        TraktListPickerDialog(
-                            visible = showLibraryListPicker,
-                            title = meta.name,
-                            tabs = pickerTabs,
-                            membership = pickerMembership,
-                            isPending = pickerPending,
-                            errorMessage = pickerError,
-                            onToggle = { listKey ->
-                                pickerMembership = pickerMembership.toMutableMap().apply {
-                                    this[listKey] = !(this[listKey] == true)
-                                }
-                            },
-                            onDismiss = {
-                                if (!pickerPending) {
-                                    showLibraryListPicker = false
-                                }
-                            },
-                            onSave = {
-                                detailsScope.launch {
-                                    pickerPending = true
-                                    pickerError = null
-                                    runCatching {
-                                        LibraryRepository.applyMembershipChanges(
-                                            item = meta.toLibraryItem(savedAtEpochMs = 0L),
-                                            desiredMembership = pickerMembership,
-                                        )
-                                    }.onSuccess {
-                                        showLibraryListPicker = false
-                                    }.onFailure { error ->
-                                        pickerError = error.message ?: getString(Res.string.trakt_lists_update_failed)
-                                    }
-                                    pickerPending = false
-                                }
-                            },
-                        )
 
                         selectedComment?.let { comment ->
                             val commentIndex = comments.indexOfFirst { it.id == comment.id }.coerceAtLeast(0)
@@ -1165,24 +1213,6 @@ private fun MetaDetails.isSeriesLikeForEpisodeRatings(): Boolean {
     return hasNumberedEpisodes && normalizedType in setOf("series", "show", "tv", "tvshow")
 }
 
-private fun extractImdbId(value: String?): String? =
-    value
-        ?.trim()
-        ?.split(':', '/', '?', '&')
-        ?.firstOrNull { part -> part.startsWith("tt", ignoreCase = true) }
-        ?.takeIf { it.length > 2 }
-
-private fun extractTmdbId(value: String?): Int? {
-    val trimmed = value?.trim().orEmpty()
-    if (trimmed.isBlank()) return null
-    return trimmed
-        .takeIf { it.startsWith("tmdb:", ignoreCase = true) }
-        ?.substringAfter(':')
-        ?.substringBefore(':')
-        ?.substringBefore('/')
-        ?.toIntOrNull()
-}
-
 @Composable
 @OptIn(ExperimentalSharedTransitionApi::class)
 private fun ConfiguredMetaSections(
@@ -1190,12 +1220,9 @@ private fun ConfiguredMetaSections(
     meta: MetaDetails,
     isTablet: Boolean,
     playButtonLabel: String,
-    isSaved: Boolean,
     onPrimaryPlayClick: () -> Unit,
     onPrimaryPlayLongClick: (() -> Unit)?,
-    onSaveClick: () -> Unit,
-    onSaveLongClick: (() -> Unit)?,
-    onShareClick: () -> Unit,
+    onMoreClick: () -> Unit,
     showManualPlayOption: Boolean,
     preferredEpisodeSeasonNumber: Int?,
     preferredEpisodeNumber: Int?,
@@ -1253,24 +1280,14 @@ private fun ConfiguredMetaSections(
             MetaScreenSectionKey.ACTIONS -> {
                 DetailActionButtons(
                     playLabel = playButtonLabel,
-                    saveLabel = if (isSaved) {
-                        stringResource(Res.string.action_saved)
-                    } else {
-                        stringResource(Res.string.action_save)
-                    },
-                    isSaved = isSaved,
                     isTablet = isTablet,
                     onPlayClick = onPrimaryPlayClick,
                     onPlayLongClick = if (showManualPlayOption) onPrimaryPlayLongClick else null,
-                    onSaveClick = onSaveClick,
-                    onSaveLongClick = onSaveLongClick,
+                    onMoreClick = onMoreClick,
                 )
             }
             MetaScreenSectionKey.OVERVIEW -> {
-                DetailMetaInfo(
-                    meta = meta,
-                    onShareClick = onShareClick,
-                )
+                DetailMetaInfo(meta = meta)
             }
             MetaScreenSectionKey.PRODUCTION -> {
                 if (hasProductionSection) {
@@ -1454,6 +1471,19 @@ private fun TabbedSectionGroup(
     }
 }
 
+private fun MetaDetails.toMetaPreview(): MetaPreview = MetaPreview(
+    id = id,
+    type = type,
+    name = name,
+    poster = poster,
+    banner = background,
+    logo = logo,
+    description = description,
+    releaseInfo = releaseInfo,
+    imdbRating = imdbRating,
+    genres = genres,
+)
+
 @Composable
 private fun selectedSeasonLabel(season: Int): String =
     if (season == 0) {
@@ -1504,3 +1534,20 @@ private fun detailTabletContentMaxWidth(maxWidth: Dp, isTablet: Boolean): Dp =
     } else {
         (maxWidth * 0.6f).coerceIn(520.dp, 680.dp)
     }
+
+internal fun dominantBackdropBlendColor(
+    dominantColor: Color?,
+    backgroundColor: Color,
+): Color = dominantColor
+    ?.let { backgroundColor.blendTowards(it, fraction = 0.42f) }
+    ?: backgroundColor
+
+private fun Color.blendTowards(target: Color, fraction: Float): Color {
+    val clamped = fraction.coerceIn(0f, 1f)
+    return Color(
+        red = red + (target.red - red) * clamped,
+        green = green + (target.green - green) * clamped,
+        blue = blue + (target.blue - blue) * clamped,
+        alpha = alpha + (target.alpha - alpha) * clamped,
+    )
+}

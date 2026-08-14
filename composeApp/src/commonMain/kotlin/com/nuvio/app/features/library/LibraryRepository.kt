@@ -1,6 +1,7 @@
 package com.nuvio.app.features.library
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.cache.InFlightRequestCoalescer
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.trakt.TraktAuthRepository
@@ -23,6 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -31,6 +34,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
+import kotlin.concurrent.Volatile
 
 @Serializable
 private data class StoredLibraryPayload(
@@ -52,6 +56,12 @@ private data class LibrarySyncItem(
     @SerialName("added_at") val addedAt: Long = 0,
 )
 
+private data class PendingLibraryPush(
+    val profileId: Int,
+    val mutationVersion: Long,
+    val items: List<LibrarySyncItem>,
+)
+
 object LibraryRepository {
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("LibraryRepository")
@@ -59,6 +69,8 @@ object LibraryRepository {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+    private val pullRequests = InFlightRequestCoalescer<String, Boolean>()
+    private val remoteSyncMutex = Mutex()
 
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
@@ -66,6 +78,13 @@ object LibraryRepository {
     private var hasLoaded = false
     private var currentProfileId: Int = 1
     private var itemsById: MutableMap<String, LibraryItem> = mutableMapOf()
+    @Volatile
+    private var localMutationVersion = 0L
+    @Volatile
+    private var acknowledgedMutationVersion = 0L
+    @Volatile
+    private var pendingPush: PendingLibraryPush? = null
+    private var lastPushedVersionByProfile: Map<Int, Long> = emptyMap()
 
     init {
         syncScope.launch {
@@ -135,6 +154,10 @@ object LibraryRepository {
         hasLoaded = false
         currentProfileId = 1
         itemsById.clear()
+        localMutationVersion = 0L
+        acknowledgedMutationVersion = 0L
+        pendingPush = null
+        lastPushedVersionByProfile = emptyMap()
         TraktAuthRepository.clearLocalState()
         TraktLibraryRepository.clearLocalState()
         _uiState.value = LibraryUiState()
@@ -144,6 +167,8 @@ object LibraryRepository {
         currentProfileId = profileId
         hasLoaded = true
         itemsById.clear()
+        localMutationVersion += 1L
+        acknowledgedMutationVersion = localMutationVersion
 
         val payload = LibraryStorage.loadPayload(profileId).orEmpty().trim()
         if (payload.isNotEmpty()) {
@@ -156,32 +181,60 @@ object LibraryRepository {
         publish()
     }
 
-    suspend fun pullFromServer(profileId: Int) {
-        currentProfileId = profileId
-
-        if (isTraktLibrarySourceActive()) {
-            runCatching { TraktLibraryRepository.refreshNow() }
-                .onFailure { e -> log.e(e) { "Failed to pull Trakt library" } }
-            publish()
-            return
-        }
-
-        runCatching {
-            val params = buildJsonObject {
-                put("p_profile_id", profileId)
-                put("p_limit", 500)
-                put("p_offset", 0)
+    suspend fun pullFromServer(profileId: Int): Boolean =
+        pullRequests.runCoalesced("${effectiveLibrarySourceMode()}:$profileId") {
+            if (currentProfileId != profileId || !hasLoaded) {
+                loadFromDisk(profileId)
             }
-            val result = SupabaseProvider.client.postgrest.rpc("sync_pull_library", params)
-            val serverItems = result.decodeList<LibrarySyncItem>()
-            itemsById = serverItems.map { it.toLibraryItem() }.associateBy { it.id }.toMutableMap()
-            hasLoaded = true
-            publish()
-            persist()
-        }.onFailure { e ->
-            log.e(e) { "Failed to pull library from server" }
+
+            if (isTraktLibrarySourceActive()) {
+                val result = runCatching { TraktLibraryRepository.refreshNow() }
+                    .onFailure { e -> log.e(e) { "Failed to pull Trakt library" } }
+                publish()
+                return@runCoalesced result.isSuccess
+            }
+
+            val pending = pendingPush?.takeIf { request -> request.profileId == profileId }
+            if (pending != null && !flushPendingPush(pending)) {
+                return@runCoalesced false
+            }
+
+            val mutationVersionAtStart = localMutationVersion
+            runCatching {
+                val serverItems = remoteSyncMutex.withLock {
+                    val params = buildJsonObject {
+                        put("p_profile_id", profileId)
+                        put("p_limit", 500)
+                        put("p_offset", 0)
+                    }
+                    SupabaseProvider.client.postgrest
+                        .rpc("sync_pull_library", params)
+                        .decodeList<LibrarySyncItem>()
+                }
+                val remoteItems = serverItems
+                    .map(LibrarySyncItem::toLibraryItem)
+                    .associateBy(LibraryItem::id)
+                if (
+                    shouldApplyLibraryRemoteSnapshot(
+                        requestedProfileId = profileId,
+                        currentProfileId = currentProfileId,
+                        mutationVersionAtStart = mutationVersionAtStart,
+                        currentMutationVersion = localMutationVersion,
+                        hasPendingLocalPush = pendingPush?.profileId == profileId ||
+                            acknowledgedMutationVersion < localMutationVersion,
+                    )
+                ) {
+                    if (librarySnapshotChanged(itemsById, remoteItems)) {
+                        itemsById = remoteItems.toMutableMap()
+                        hasLoaded = true
+                        publish()
+                        persist()
+                    }
+                }
+            }.onFailure { e ->
+                log.e(e) { "Failed to pull library from server" }
+            }.isSuccess
         }
-    }
 
     fun toggleSaved(item: LibraryItem) {
         ensureLoaded()
@@ -207,7 +260,7 @@ object LibraryRepository {
         itemsById[item.id] = item.copy(savedAtEpochMs = LibraryClock.nowEpochMs())
         publish()
         persist()
-        pushToServer()
+        queuePushToServer()
     }
 
     fun remove(id: String) {
@@ -215,7 +268,7 @@ object LibraryRepository {
         if (itemsById.remove(id) != null) {
             publish()
             persist()
-            pushToServer()
+            queuePushToServer()
         }
     }
 
@@ -304,21 +357,54 @@ object LibraryRepository {
         applyMembershipChanges(item, desiredMembership)
     }
 
-    private fun pushToServer() {
+    private fun queuePushToServer() {
+        val request = PendingLibraryPush(
+            profileId = currentProfileId,
+            mutationVersion = localMutationVersion + 1L,
+            items = itemsById.values.map(LibraryItem::toSyncItem),
+        )
+        localMutationVersion = request.mutationVersion
+        pendingPush = request
         syncScope.launch {
-            runCatching {
-                val profileId = ProfileRepository.activeProfileId
-                val syncItems = itemsById.values.map { it.toSyncItem() }
-                val params = buildJsonObject {
-                    put("p_profile_id", profileId)
-                    put("p_items", json.encodeToJsonElement(syncItems))
-                }
-                SupabaseProvider.client.postgrest.rpc("sync_push_library", params)
-            }.onFailure { e ->
-                log.e(e) { "Failed to push library to server" }
-            }
+            flushPendingPush(request)
         }
     }
+
+    private suspend fun flushPendingPush(request: PendingLibraryPush): Boolean =
+        runCatching {
+            remoteSyncMutex.withLock {
+                val latestRequest = pendingPush
+                    ?.takeIf { pending ->
+                        pending.profileId == request.profileId &&
+                            pending.mutationVersion >= request.mutationVersion
+                    }
+                    ?: request
+                val lastPushedVersion = lastPushedVersionByProfile[latestRequest.profileId] ?: 0L
+                if (lastPushedVersion < latestRequest.mutationVersion) {
+                    val params = buildJsonObject {
+                        put("p_profile_id", latestRequest.profileId)
+                        put("p_items", json.encodeToJsonElement(latestRequest.items))
+                    }
+                    SupabaseProvider.client.postgrest.rpc("sync_push_library", params)
+                    lastPushedVersionByProfile = lastPushedVersionByProfile +
+                        (latestRequest.profileId to latestRequest.mutationVersion)
+                }
+                if (
+                    pendingPush?.profileId == latestRequest.profileId &&
+                    pendingPush?.mutationVersion == latestRequest.mutationVersion
+                ) {
+                    pendingPush = null
+                }
+                if (
+                    currentProfileId == latestRequest.profileId &&
+                    acknowledgedMutationVersion < latestRequest.mutationVersion
+                ) {
+                    acknowledgedMutationVersion = latestRequest.mutationVersion
+                }
+            }
+        }.onFailure { e ->
+            log.e(e) { "Failed to push library to server" }
+        }.isSuccess
 
     private fun publish() {
         if (isTraktLibrarySourceActive()) {
@@ -471,3 +557,19 @@ internal fun String.toLibraryDisplayTitle(): String {
         }
         .ifBlank { "Other" }
 }
+
+internal fun shouldApplyLibraryRemoteSnapshot(
+    requestedProfileId: Int,
+    currentProfileId: Int,
+    mutationVersionAtStart: Long,
+    currentMutationVersion: Long,
+    hasPendingLocalPush: Boolean,
+): Boolean =
+    requestedProfileId == currentProfileId &&
+        mutationVersionAtStart == currentMutationVersion &&
+        !hasPendingLocalPush
+
+internal fun librarySnapshotChanged(
+    current: Map<String, LibraryItem>,
+    remote: Map<String, LibraryItem>,
+): Boolean = current != remote

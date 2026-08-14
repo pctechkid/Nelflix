@@ -2,6 +2,43 @@ package com.nuvio.app.features.streams
 
 object StreamAutoPlaySelector {
 
+    fun orderedAutoPlayCandidates(
+        streams: List<StreamItem>,
+        mode: StreamAutoPlayMode,
+        regexPattern: String,
+        source: StreamAutoPlaySource,
+        installedAddonNames: Set<String>,
+        selectedAddons: Set<String>,
+        selectedPlugins: Set<String>,
+        preferredBingeGroup: String? = null,
+        preferBingeGroupInSelection: Boolean = false,
+        maxFileSizeBytes: Long? = null,
+        limit: Int = Int.MAX_VALUE,
+    ): List<StreamItem> {
+        if (limit <= 0) return emptyList()
+        val remaining = streams.toMutableList()
+        val ordered = mutableListOf<StreamItem>()
+        while (remaining.isNotEmpty() && ordered.size < limit) {
+            val selected = selectAutoPlayStream(
+                streams = remaining,
+                mode = mode,
+                regexPattern = regexPattern,
+                source = source,
+                installedAddonNames = installedAddonNames,
+                selectedAddons = selectedAddons,
+                selectedPlugins = selectedPlugins,
+                preferredBingeGroup = preferredBingeGroup,
+                preferBingeGroupInSelection = preferBingeGroupInSelection,
+                maxFileSizeBytes = maxFileSizeBytes,
+            ) ?: break
+            ordered += selected
+            val selectedIndex = remaining.indexOfFirst { it === selected }
+            if (selectedIndex < 0) break
+            remaining.removeAt(selectedIndex)
+        }
+        return ordered
+    }
+
     fun selectAutoPlayStream(
         streams: List<StreamItem>,
         mode: StreamAutoPlayMode,

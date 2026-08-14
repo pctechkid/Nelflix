@@ -311,8 +311,7 @@ fun DetailSeriesContent(
                                     video = episode,
                                     fallbackImage = meta.background ?: meta.poster,
                                     progressEntry = progressByVideoId[episodeVideoId],
-                                    imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] }
-                                        ?: episode.imdbRatingValue(),
+                                    imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] },
                                     isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
                                         WatchingState.isEpisodeWatched(
                                             watchedKeys = watchedKeys,
@@ -632,8 +631,7 @@ private fun EpisodeHorizontalRow(
                 video = episode,
                 fallbackImage = fallbackImage,
                 progressEntry = progressByVideoId[episodeVideoId],
-                imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] }
-                    ?: episode.imdbRatingValue(),
+                imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] },
                 isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
                     WatchingState.isEpisodeWatched(
                         watchedKeys = watchedKeys,
@@ -1357,13 +1355,6 @@ private fun MetaVideo.seasonEpisodeKey(): Pair<Int, Int>? {
     val episodeNumber = episode ?: return null
     return seasonNumber to episodeNumber
 }
-
-private fun MetaVideo.imdbRatingValue(): Double? =
-    imdbRating
-        ?.trim()
-        ?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
-        ?.toDoubleOrNull()
-        ?.takeIf { it > 0.0 }
 
 private fun formatEpisodeRating(rating: Double): String {
     val roundedTenths = (rating * 10.0).roundToInt()

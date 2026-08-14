@@ -62,8 +62,6 @@ import nuvio.composeapp.generated.resources.settings_meta_actions
 import nuvio.composeapp.generated.resources.settings_meta_actions_description
 import nuvio.composeapp.generated.resources.settings_meta_cast
 import nuvio.composeapp.generated.resources.settings_meta_cast_description
-import nuvio.composeapp.generated.resources.settings_meta_cinematic_background
-import nuvio.composeapp.generated.resources.settings_meta_cinematic_background_description
 import nuvio.composeapp.generated.resources.settings_meta_collection
 import nuvio.composeapp.generated.resources.settings_meta_collection_description
 import nuvio.composeapp.generated.resources.settings_meta_comments
@@ -111,14 +109,6 @@ internal fun LazyListScope.metaScreenSettingsContent(
             isTablet = isTablet,
         ) {
             SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_meta_cinematic_background),
-                    description = stringResource(Res.string.settings_meta_cinematic_background_description),
-                    checked = uiState.cinematicBackground,
-                    isTablet = isTablet,
-                    onCheckedChange = { MetaScreenSettingsRepository.setCinematicBackground(it) },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_meta_tab_layout),
                     description = stringResource(Res.string.settings_meta_tab_layout_description),

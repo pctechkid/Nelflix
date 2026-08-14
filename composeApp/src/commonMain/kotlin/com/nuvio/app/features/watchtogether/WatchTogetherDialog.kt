@@ -1,5 +1,11 @@
 package com.nuvio.app.features.watchtogether
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +78,7 @@ private val WatchTogetherDivider = Color.White.copy(alpha = 0.10f)
 
 @Composable
 fun WatchTogetherDialog(
+    visible: Boolean,
     session: WatchTogetherRoomState?,
     joinCode: String,
     isBusy: Boolean,
@@ -102,75 +109,81 @@ fun WatchTogetherDialog(
             val panelPadding = if (compact) 16.dp else 18.dp
             val panelSpacing = if (compact) 10.dp else 12.dp
 
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(panelWidthFraction)
-                    .widthIn(max = panelMaxWidth)
-                    .heightIn(max = maxHeight * 0.9f),
-                color = WatchTogetherDialogBackground,
-                shape = RoundedCornerShape(if (compact) 18.dp else 22.dp),
-                tonalElevation = 0.dp,
-                shadowElevation = 18.dp,
+            AnimatedVisibility(
+                visible = visible,
+                enter = fadeIn(tween(240)) + slideInVertically(tween(240)) { it },
+                exit = fadeOut() + slideOutVertically { it / 2 },
             ) {
-                Column(
+                Surface(
                     modifier = Modifier
-                        .verticalScroll(rememberScrollState())
-                        .padding(panelPadding),
-                    verticalArrangement = Arrangement.spacedBy(panelSpacing),
+                        .fillMaxWidth(panelWidthFraction)
+                        .widthIn(max = panelMaxWidth)
+                        .heightIn(max = maxHeight * 0.9f),
+                    color = WatchTogetherDialogBackground,
+                    shape = RoundedCornerShape(if (compact) 18.dp else 22.dp),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 18.dp,
                 ) {
-                    WatchTogetherHeader(
-                        compact = compact,
-                        onDismiss = onDismiss,
-                    )
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(panelPadding),
+                        verticalArrangement = Arrangement.spacedBy(panelSpacing),
+                    ) {
+                        WatchTogetherHeader(
+                            compact = compact,
+                            onDismiss = onDismiss,
+                        )
 
-                    when {
-                        !canUseWatchTogether -> {
-                            Text(
-                                text = "Sign in with an account to use Watch Together.",
-                                color = WatchTogetherTextMuted,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
+                        when {
+                            !canUseWatchTogether -> {
+                                Text(
+                                    text = "Sign in with an account to use Watch Together.",
+                                    color = WatchTogetherTextMuted,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
 
-                        session != null -> {
-                            ActiveRoomContent(
-                                session = session,
-                                compact = compact,
-                                onCopyCode = {
-                                    clipboardManager.setText(AnnotatedString(session.roomCode))
-                                    NuvioToastController.show("Room code copied")
-                                },
-                                onShareCode = { onShareCode(session.roomCode) },
-                                onLeaveRoom = onLeaveRoom,
-                                isBusy = isBusy,
-                            )
-                        }
+                            session != null -> {
+                                ActiveRoomContent(
+                                    session = session,
+                                    compact = compact,
+                                    onCopyCode = {
+                                        clipboardManager.setText(AnnotatedString(session.roomCode))
+                                        NuvioToastController.show("Room code copied")
+                                    },
+                                    onShareCode = { onShareCode(session.roomCode) },
+                                    onLeaveRoom = onLeaveRoom,
+                                    isBusy = isBusy,
+                                )
+                            }
 
-                        joiningRoom -> {
-                            JoinRoomContent(
-                                joinCode = joinCode,
-                                errorMessage = errorMessage,
-                                isBusy = isBusy,
-                                onJoinCodeChange = onJoinCodeChange,
-                                onCancel = {
-                                    if (joinOnly) {
-                                        onDismiss()
-                                    } else {
-                                        joiningRoom = false
-                                        onJoinCodeChange("")
-                                    }
-                                },
-                                onJoinRoom = onJoinRoom,
-                            )
-                        }
+                            joiningRoom -> {
+                                JoinRoomContent(
+                                    joinCode = joinCode,
+                                    errorMessage = errorMessage,
+                                    isBusy = isBusy,
+                                    onJoinCodeChange = onJoinCodeChange,
+                                    onCancel = {
+                                        if (joinOnly) {
+                                            onDismiss()
+                                        } else {
+                                            joiningRoom = false
+                                            onJoinCodeChange("")
+                                        }
+                                    },
+                                    onJoinRoom = onJoinRoom,
+                                )
+                            }
 
-                        else -> {
-                            CreateOrJoinContent(
-                                errorMessage = errorMessage,
-                                isBusy = isBusy,
-                                onCreateRoom = onCreateRoom,
-                                onJoinClick = { joiningRoom = true },
-                            )
+                            else -> {
+                                CreateOrJoinContent(
+                                    errorMessage = errorMessage,
+                                    isBusy = isBusy,
+                                    onCreateRoom = onCreateRoom,
+                                    onJoinClick = { joiningRoom = true },
+                                )
+                            }
                         }
                     }
                 }
