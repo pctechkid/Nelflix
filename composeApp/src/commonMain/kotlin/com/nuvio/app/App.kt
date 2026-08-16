@@ -150,6 +150,7 @@ import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.player.PlayerLaunch
+import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.NextEpisodePlaybackRequest
 import com.nuvio.app.features.player.PlayerRoute
@@ -1453,19 +1454,35 @@ private fun MainAppContent(
                 }
                 .toSet()
             val attemptedStreams = mutableSetOf<StreamItem>()
+            val nextEpisodePolicy = PlayerNextEpisodeRules.nextEpisodeAutoPlayPolicy(
+                mode = playerSettingsUiState.streamAutoPlayMode,
+                regexPattern = playerSettingsUiState.streamAutoPlayRegex,
+                source = playerSettingsUiState.streamAutoPlaySource,
+                selectedAddons = playerSettingsUiState.streamAutoPlaySelectedAddons,
+                selectedPlugins = playerSettingsUiState.streamAutoPlaySelectedPlugins,
+                preferBingeGroup = playerSettingsUiState.streamAutoPlayPreferBingeGroup,
+                maxFileSizeBytes = playerSettingsUiState.streamAutoPlayMaxFileSizeBytes,
+                selectionTimeoutSeconds = playerSettingsUiState.streamAutoPlayTimeoutSeconds,
+            )
+            val installedSelectedAddons = nextEpisodePolicy.selectedAddons.mapNotNullTo(mutableSetOf()) { selected ->
+                installedAddonNames.firstOrNull { installed -> installed.equals(selected, ignoreCase = true) }
+            }
+            val selectedNextEpisodeAddons = installedSelectedAddons.ifEmpty {
+                nextEpisodePolicy.selectedAddons
+            }
 
             suspend fun resolveCandidates(state: com.nuvio.app.features.streams.StreamsUiState): PlayerLaunch? {
                 val ordered = StreamAutoPlaySelector.orderedAutoPlayCandidates(
                     streams = state.allStreams,
-                    mode = playerSettingsUiState.streamAutoPlayMode,
-                    regexPattern = playerSettingsUiState.streamAutoPlayRegex,
-                    source = playerSettingsUiState.streamAutoPlaySource,
+                    mode = nextEpisodePolicy.mode,
+                    regexPattern = nextEpisodePolicy.regexPattern,
+                    source = nextEpisodePolicy.source,
                     installedAddonNames = installedAddonNames,
-                    selectedAddons = playerSettingsUiState.streamAutoPlaySelectedAddons,
-                    selectedPlugins = playerSettingsUiState.streamAutoPlaySelectedPlugins,
+                    selectedAddons = selectedNextEpisodeAddons,
+                    selectedPlugins = nextEpisodePolicy.selectedPlugins,
                     preferredBingeGroup = request.currentBingeGroup,
-                    preferBingeGroupInSelection = playerSettingsUiState.streamAutoPlayPreferBingeGroup,
-                    maxFileSizeBytes = playerSettingsUiState.streamAutoPlayMaxFileSizeBytes,
+                    preferBingeGroupInSelection = nextEpisodePolicy.preferBingeGroup,
+                    maxFileSizeBytes = nextEpisodePolicy.maxFileSizeBytes,
                     limit = MaxNextEpisodeAutoPlayCandidates,
                 )
                 val candidates = (listOfNotNull(state.autoPlayStream) + ordered)
@@ -1539,7 +1556,7 @@ private fun MainAppContent(
             }
 
             suspend fun awaitStreams(terminalOnly: Boolean): com.nuvio.app.features.streams.StreamsUiState? {
-                val waitMs = (playerSettingsUiState.streamAutoPlayTimeoutSeconds * 1_000L + 20_000L)
+                val waitMs = (nextEpisodePolicy.selectionTimeoutSeconds * 1_000L + 20_000L)
                     .coerceIn(20_000L, 45_000L)
                 return kotlinx.coroutines.withTimeoutOrNull(waitMs) {
                     StreamsRepository.uiState

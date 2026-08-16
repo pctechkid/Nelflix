@@ -210,6 +210,10 @@ object PlayerSettingsRepository {
         val storedMpvConf = PlayerSettingsStorage.loadMpvConf()
         mpvConf = storedMpvConf?.takeIf { it.isNotBlank() } ?: DefaultMpvConf
         if (storedMpvConf.isNullOrBlank() ||
+            storedMpvConf == previousOverlapDefaultMpvConf() ||
+            storedMpvConf == previousBackgroundBoxDefaultMpvConf() ||
+            storedMpvConf == previousStripDefaultMpvConf() ||
+            storedMpvConf == previousGpuDefaultMpvConf() ||
             storedMpvConf == LegacyDefaultMpvConf ||
             storedMpvConf == LegacyGpuNextDefaultMpvConf ||
             storedMpvConf == LegacyForwardOnlyDefaultMpvConf
@@ -684,7 +688,7 @@ object PlayerSettingsRepository {
 const val DefaultMpvDemuxerMaxBytesMiB = 1024
 const val DefaultMpvDemuxerMaxBackBytesMiB = 128
 
-const val DefaultMpvConf = """vo=gpu
+const val DefaultMpvConf = """vo=gpu-next
 save-position-on-quit
 volume=100
 volume-max=100
@@ -715,6 +719,22 @@ sub-ass-force-style=Bold=0,Italic=0
 sub-bold=no
 sub-italic=no
 """
+
+private fun previousOverlapDefaultMpvConf(): String = DefaultMpvConf
+    .replace(
+        "sub-back-color=\"#82000000\"\n",
+        "sub-back-color=\"#82000000\"\nsub-outline-color=\"#82000000\"\n",
+    )
+    .replace("sub-border-size=0", "sub-border-size=1.25")
+
+private fun previousBackgroundBoxDefaultMpvConf(): String = DefaultMpvConf
+    .replace("sub-border-style=opaque-box", "sub-border-style=background-box")
+
+private fun previousStripDefaultMpvConf(): String = DefaultMpvConf
+    .replace("sub-ass-override=force", "sub-ass-override=strip")
+
+private fun previousGpuDefaultMpvConf(): String = DefaultMpvConf
+    .replaceFirst("vo=gpu-next", "vo=gpu")
 
 private const val LegacyGpuNextDefaultMpvConf = """vo=gpu-next
 save-position-on-quit

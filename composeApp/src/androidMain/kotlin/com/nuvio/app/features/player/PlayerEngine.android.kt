@@ -258,7 +258,7 @@ class NuvioMpvView(
     override fun initOptions() {
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
-        setVo("gpu")
+        setVo("gpu-next")
         MPVLib.setOptionString("profile", "fast")
         MPVLib.setOptionString("hwdec", if (playerSettings.mpvHardwareDecodingEnabled) "auto" else "no")
         MPVLib.setOptionString("vd-lavc-dr", "no")
@@ -273,7 +273,7 @@ class NuvioMpvView(
         MPVLib.setOptionString("demuxer-max-bytes", "$demuxerBytes")
         MPVLib.setOptionString("demuxer-max-back-bytes", "$demuxerBackBytes")
         MPVLib.setOptionString("sub-fonts-dir", "${context.cacheDir.path}/fonts/")
-        MPVLib.setOptionString("sub-ass-override", "force")
+        MPVLib.setOptionString("sub-ass-override", RegularSubtitleAssOverride)
         MPVLib.setOptionString("sub-ass-justify", "yes")
         MPVLib.setOptionString("sub-font", "Helvetica")
         MPVLib.setOptionString("sub-ass-force-style", RegularSubtitleAssForceStyle)
@@ -661,7 +661,10 @@ private class MpvPlayerEngineController(
         MpvCalls.execute {
             MPVLib.setPropertyString("sub-color", style.textColor.toMpvColor())
             MPVLib.setPropertyInt("sub-font-size", style.fontSizeSp)
-            MPVLib.setPropertyString("sub-border-style", if (style.outlineEnabled) "outline-and-shadow" else "none")
+            MPVLib.setPropertyString(
+                "sub-border-style",
+                if (style.outlineEnabled) "outline-and-shadow" else RegularSubtitleBorderStyle,
+            )
             MPVLib.setPropertyInt("sub-pos", (1000 - style.bottomOffset).coerceIn(0, 1000) / 10)
             applyRegularSubtitleOverride()
             onSubtitleConfigurationChanged()
@@ -676,7 +679,7 @@ private class MpvPlayerEngineController(
 
 private fun applyRegularSubtitleOverride() {
     runCatching {
-        MPVLib.setPropertyString("sub-ass-override", "force")
+        MPVLib.setPropertyString("sub-ass-override", RegularSubtitleAssOverride)
         MPVLib.setPropertyString("sub-ass-force-style", RegularSubtitleAssForceStyle)
         MPVLib.setPropertyString("sub-bold", "no")
         MPVLib.setPropertyString("sub-italic", "no")
@@ -686,11 +689,14 @@ private fun applyRegularSubtitleOverride() {
 }
 
 private const val RegularSubtitleAssForceStyle = "Bold=0,Italic=0"
+private const val RegularSubtitleAssOverride = "force"
+private const val RegularSubtitleBorderStyle = "opaque-box"
 
 private fun String.withPersistentRegularSubtitleOverrides(): String {
     val trimmed = trimEnd()
     val block = """
-        sub-ass-override=force
+        sub-ass-override=$RegularSubtitleAssOverride
+        sub-border-style=$RegularSubtitleBorderStyle
         sub-ass-force-style=${persistentRegularSubtitleForceStyle()}
         sub-bold=no
         sub-italic=no

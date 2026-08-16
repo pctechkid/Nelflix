@@ -730,45 +730,19 @@ private fun ProgressControls(
     onInfoClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
-    val bufferedFraction = (playbackSnapshot.bufferedPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-    val playedFraction = (displayedPositionMs.coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-    val durationText = formatPlaybackTime(durationMs)
-    val timeLabelWidth = if (durationText.length > 5) 64.dp else 44.dp
     val actionButtonSize = metrics.headerIconSize + 20.dp
     val actionIconSize = metrics.headerIconSize + 4.dp
 
     Column(modifier = modifier) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .align(Alignment.CenterHorizontally)
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PlaybackTimeLabel(
-                text = formatPlaybackTime(displayedPositionMs),
-                fontSize = metrics.timeSize,
-                modifier = Modifier.width(timeLabelWidth),
-                textAlign = TextAlign.Start,
-            )
-            NetflixSeekBar(
-                modifier = Modifier.weight(1f),
-                durationMs = durationMs,
-                playedFraction = playedFraction,
-                bufferedFraction = bufferedFraction,
-                touchHeight = metrics.sliderTouchHeight,
-                onScrubChange = onScrubChange,
-                onScrubFinished = onScrubFinished,
-            )
-            PlaybackTimeLabel(
-                text = durationText,
-                fontSize = metrics.timeSize,
-                modifier = Modifier.width(timeLabelWidth),
-                textAlign = TextAlign.End,
-            )
-        }
+        PlaybackTimeline(
+            playbackSnapshot = playbackSnapshot,
+            displayedPositionMs = displayedPositionMs,
+            metrics = metrics,
+            enabled = true,
+            onScrubChange = onScrubChange,
+            onScrubFinished = onScrubFinished,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
         Box(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
@@ -878,6 +852,51 @@ private fun ProgressControls(
     }
 }
 
+@Composable
+private fun PlaybackTimeline(
+    playbackSnapshot: PlayerPlaybackSnapshot,
+    displayedPositionMs: Long,
+    metrics: PlayerLayoutMetrics,
+    enabled: Boolean,
+    onScrubChange: (Long) -> Unit,
+    onScrubFinished: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
+    val durationText = formatPlaybackTime(durationMs)
+    val timeLabelWidth = if (durationText.length > 5) 64.dp else 44.dp
+    Row(
+        modifier = modifier
+            .fillMaxWidth(0.94f)
+            .padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PlaybackTimeLabel(
+            text = formatPlaybackTime(displayedPositionMs),
+            fontSize = metrics.timeSize,
+            modifier = Modifier.width(timeLabelWidth),
+            textAlign = TextAlign.Start,
+        )
+        NetflixSeekBar(
+            modifier = Modifier.weight(1f),
+            durationMs = durationMs,
+            playedFraction = displayedPositionMs.coerceIn(0L, durationMs).toFloat() / durationMs.toFloat(),
+            bufferedFraction = (playbackSnapshot.bufferedPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f),
+            touchHeight = metrics.sliderTouchHeight,
+            enabled = enabled,
+            onScrubChange = onScrubChange,
+            onScrubFinished = onScrubFinished,
+        )
+        PlaybackTimeLabel(
+            text = durationText,
+            fontSize = metrics.timeSize,
+            modifier = Modifier.width(timeLabelWidth),
+            textAlign = TextAlign.End,
+        )
+    }
+}
+
 internal fun <T> playerControlsEnterAnimationSpec(): FiniteAnimationSpec<T> = tween(
     durationMillis = 320,
     easing = LinearOutSlowInEasing,
@@ -899,6 +918,7 @@ private fun NetflixSeekBar(
     playedFraction: Float,
     bufferedFraction: Float,
     touchHeight: androidx.compose.ui.unit.Dp,
+    enabled: Boolean = true,
     onScrubChange: (Long) -> Unit,
     onScrubFinished: (Long) -> Unit,
 ) {
@@ -1005,6 +1025,7 @@ private fun NetflixSeekBar(
                 )
             }
             Slider(
+                enabled = enabled,
                 value = effectivePlayedFraction,
                 onValueChange = { fraction ->
                     val clampedFraction = fraction.coerceIn(0f, 1f)
@@ -1047,8 +1068,6 @@ internal fun LockedPlayerOverlay(
     onUnlock: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
-
     Box(modifier = modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -1097,58 +1116,18 @@ internal fun LockedPlayerOverlay(
             )
         }
 
-        Column(
+        PlaybackTimeline(
+            playbackSnapshot = playbackSnapshot,
+            displayedPositionMs = displayedPositionMs,
+            metrics = metrics,
+            enabled = false,
+            onScrubChange = {},
+            onScrubFinished = {},
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(horizontal = horizontalSafePadding + metrics.horizontalPadding)
-                .padding(bottom = metrics.sliderBottomOffset + 18.dp),
-        ) {
-            NetflixSeekBar(
-                durationMs = durationMs,
-                playedFraction = displayedPositionMs.coerceIn(0L, durationMs).toFloat() / durationMs.toFloat(),
-                bufferedFraction = (playbackSnapshot.bufferedPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f),
-                touchHeight = metrics.sliderTouchHeight,
-                onScrubChange = {},
-                onScrubFinished = {},
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer(scaleY = metrics.sliderScaleY),
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp)
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TimePill(text = formatPlaybackTime(displayedPositionMs), fontSize = metrics.timeSize)
-                TimePill(text = formatPlaybackTime(durationMs), fontSize = metrics.timeSize)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TimePill(
-    text: String,
-    fontSize: androidx.compose.ui.unit.TextUnit,
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.5f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.nuvioTypeScale.labelSm.copy(
-                fontSize = fontSize,
-                lineHeight = fontSize * 1.25f,
-                fontWeight = FontWeight.Medium,
-            ),
-            color = Color.White,
+                .padding(bottom = metrics.verticalPadding),
         )
     }
 }

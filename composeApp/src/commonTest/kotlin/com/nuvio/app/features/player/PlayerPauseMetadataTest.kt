@@ -145,13 +145,23 @@ class PlayerPauseMetadataTest {
                 playbackSnapshot = pausedSnapshot(positionMs = 0L),
                 initialPositionMs = 600_000L,
                 initialProgressFraction = null,
+                initialSeekApplied = true,
+            ),
+        )
+        assertFalse(
+            shouldRevealResumedPlayback(
+                playbackSnapshot = pausedSnapshot(positionMs = 600_000L),
+                initialPositionMs = 600_000L,
+                initialProgressFraction = null,
+                initialSeekApplied = false,
             ),
         )
         assertTrue(
             shouldRevealResumedPlayback(
-                playbackSnapshot = pausedSnapshot(positionMs = 598_000L),
+                playbackSnapshot = pausedSnapshot(positionMs = 599_800L),
                 initialPositionMs = 600_000L,
                 initialProgressFraction = null,
+                initialSeekApplied = true,
             ),
         )
     }
@@ -163,13 +173,15 @@ class PlayerPauseMetadataTest {
                 playbackSnapshot = pausedSnapshot(positionMs = 0L).copy(durationMs = 0L),
                 initialPositionMs = 0L,
                 initialProgressFraction = 0.5f,
+                initialSeekApplied = false,
             ),
         )
         assertTrue(
             shouldRevealResumedPlayback(
-                playbackSnapshot = pausedSnapshot(positionMs = 748_000L),
+                playbackSnapshot = pausedSnapshot(positionMs = 749_800L),
                 initialPositionMs = 0L,
                 initialProgressFraction = 0.5f,
+                initialSeekApplied = true,
             ),
         )
     }

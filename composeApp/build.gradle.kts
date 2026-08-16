@@ -325,7 +325,7 @@ kotlin {
             implementation(libs.androidx.media3.common)
             implementation(libs.androidx.media3.container)
             implementation(libs.androidx.media3.extractor)
-            implementation(libs.mpv.android.lib)
+            implementation(files("libs/mpv-android-lib-nelflix-0.1.9.aar"))
             implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-*.aar"))))
         }
         commonMain.dependencies {

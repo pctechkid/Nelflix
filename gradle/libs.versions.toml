@@ -32,7 +32,6 @@ quickjsKt = "1.0.5"
 ksoup = "0.2.6"
 reorderable = "3.0.0"
 desugarJdkLibs = "2.1.5"
-mpv-android-lib = "0.1.9"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -89,7 +88,6 @@ quickjs-kt = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjsKt"
 ksoup = { module = "com.fleeksoft.ksoup:ksoup", version.ref = "ksoup" }
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
-mpv-android-lib = { module = "io.github.abdallahmehiz:mpv-android-lib", version.ref = "mpv-android-lib" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

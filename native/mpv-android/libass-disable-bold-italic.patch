@@ -1,0 +1,41 @@
+diff --git a/libass/ass_parse.c b/libass/ass_parse.c
+index b1f5cb9..1ac1301 100644
+--- a/libass/ass_parse.c
++++ b/libass/ass_parse.c
+@@ -823,16 +823,12 @@ char *ass_parse_tags(RenderContext *state, char *p, char *end, double pwr,
+             } else
+                 state->be = 0;
+         } else if (tag("b")) {
+-            int32_t val = argtoi32(*args);
+-            if (!nargs || !(val == 0 || val == 1 || val >= 100))
+-                val = state->style->Bold;
+-            state->bold = val;
++            // Keep subtitle glyph metrics uniform while retaining all other
++            // ASS overrides, including positioning and animation tags.
++            state->bold = 0;
+             ass_update_font(state);
+         } else if (tag("i")) {
+-            int32_t val = argtoi32(*args);
+-            if (!nargs || !(val == 0 || val == 1))
+-                val = state->style->Italic;
+-            state->italic = val;
++            state->italic = 0;
+             ass_update_font(state);
+         } else if (tag("kt")) {
+             // v4++
+diff --git a/libass/ass_render.c b/libass/ass_render.c
+index c291d26..a6616c8 100644
+--- a/libass/ass_render.c
++++ b/libass/ass_render.c
+@@ -1090,6 +1090,9 @@ void ass_reset_render_context(RenderContext *state, ASS_Style *style)
+     state->family.str = style->FontName;
+     state->family.len = strlen(style->FontName);
+     state->treat_family_as_pattern = style->treat_fontname_as_pattern;
+-    state->bold = style->Bold;
+-    state->italic = style->Italic;
++    // Nelflix renders ASS/SSA text at a uniform regular weight so opaque
++    // boxes remain continuous across author-supplied style runs. Other ASS
++    // styling, positioning, timing, drawing and animation remain untouched.
++    state->bold = 0;
++    state->italic = 0;
+     ass_update_font(state);

@@ -206,6 +206,7 @@ fun PlayerScreen(
     ) {
         val horizontalSafePadding = playerHorizontalSafePadding()
         val metrics = remember(maxWidth) { PlayerLayoutMetrics.fromWidth(maxWidth) }
+        val isTabletLayout = maxWidth >= 600.dp
         val sliderEdgePadding = horizontalSafePadding + metrics.horizontalPadding
         val overlayBottomPadding = sliderOverlayBottomPadding(metrics)
         val scope = rememberCoroutineScope()
@@ -321,6 +322,9 @@ fun PlayerScreen(
         var accumulatedSeekResetJob by remember { mutableStateOf<Job?>(null) }
         var accumulatedSeekState by remember { mutableStateOf<PlayerAccumulatedSeekState?>(null) }
         var initialLoadCompleted by remember(activeSourceUrl) { mutableStateOf(false) }
+        var openingOverlayExitSettled by remember(activeSourceUrl) {
+            mutableStateOf(!playerSettingsUiState.showLoadingOverlay)
+        }
         var speedBoostRestoreSpeed by remember(activeSourceUrl) { mutableStateOf<Float?>(null) }
         var isHoldToSpeedGestureActive by remember(activeSourceUrl) { mutableStateOf(false) }
         var holdToRewindJob by remember(activeSourceUrl) { mutableStateOf<Job?>(null) }
@@ -1886,6 +1890,18 @@ fun PlayerScreen(
             initialSeekApplied = true
         }
 
+        LaunchedEffect(initialLoadCompleted, playerSettingsUiState.showLoadingOverlay) {
+            when {
+                !playerSettingsUiState.showLoadingOverlay -> openingOverlayExitSettled = true
+                !initialLoadCompleted -> openingOverlayExitSettled = false
+                else -> {
+                    openingOverlayExitSettled = false
+                    delay(OpeningOverlayExitSettleDelayMs)
+                    openingOverlayExitSettled = true
+                }
+            }
+        }
+
         LaunchedEffect(
             controlsVisible,
             isScrubbingTimeline,
@@ -2015,9 +2031,6 @@ fun PlayerScreen(
 
         val shouldOfferNextEpisode = PlayerNextEpisodeRules.isNextEpisodeAutoAdvanceEligible(
             isSeriesEpisode = isSeries && activeSeasonNumber != null && activeEpisodeNumber != null,
-            streamAutoPlayMode = playerSettingsUiState.streamAutoPlayMode,
-            streamAutoPlayRegex = playerSettingsUiState.streamAutoPlayRegex,
-            launchedFromManualStreamSelection = launchedFromManualStreamSelection,
             isWatchTogetherGuest = watchTogetherSession?.isHost == false,
         ) && availableNextEpisodeInfo != null
 
@@ -2429,6 +2442,7 @@ fun PlayerScreen(
                             playbackSnapshot = snapshot,
                             initialPositionMs = activeInitialPositionMs,
                             initialProgressFraction = activeInitialProgressFraction,
+                            initialSeekApplied = initialSeekApplied,
                         )
                     ) {
                         initialLoadCompleted = true
@@ -2627,7 +2641,12 @@ fun PlayerScreen(
             }
 
             // Skip intro/recap/outro button
-            if (!playerControlsLocked && !nextEpisodeCardVisible) {
+            if (
+                !playerControlsLocked &&
+                !nextEpisodeCardVisible &&
+                initialLoadCompleted &&
+                openingOverlayExitSettled
+            ) {
                 SkipIntroButton(
                     interval = activeSkipInterval,
                     dismissed = skipIntervalDismissed,
@@ -2668,6 +2687,7 @@ fun PlayerScreen(
                         .coerceIn(0f, 1f)
                 } ?: 0f,
                 canPlayNow = nextEpisodeLaunch != null,
+                isTablet = isTabletLayout,
                 onPlayNext = {
                     nextEpisodeLaunch?.let(::switchToNextEpisode)
                 },
@@ -3095,6 +3115,7 @@ internal fun shouldRevealResumedPlayback(
     playbackSnapshot: PlayerPlaybackSnapshot,
     initialPositionMs: Long,
     initialProgressFraction: Float?,
+    initialSeekApplied: Boolean,
 ): Boolean {
     if (playbackSnapshot.isLoading) return false
 
@@ -3109,14 +3130,14 @@ internal fun shouldRevealResumedPlayback(
         else -> 0L
     }
     if (targetPositionMs <= 0L || playbackSnapshot.isEnded) return true
+    if (!initialSeekApplied) return false
 
-    val revealToleranceMs = (targetPositionMs / 100L)
-        .coerceIn(MinResumeRevealToleranceMs, MaxResumeRevealToleranceMs)
-    return playbackSnapshot.positionMs >= (targetPositionMs - revealToleranceMs).coerceAtLeast(0L)
+    return playbackSnapshot.positionMs >=
+        (targetPositionMs - ResumeRevealToleranceMs).coerceAtLeast(0L)
 }
 
-private const val MinResumeRevealToleranceMs = 1_500L
-private const val MaxResumeRevealToleranceMs = 5_000L
+private const val ResumeRevealToleranceMs = 250L
+private const val OpeningOverlayExitSettleDelayMs = 350L
 
 internal fun isSnapshotFromActivePlayback(
     snapshotGeneration: Long,

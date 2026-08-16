@@ -3,6 +3,18 @@ package com.nuvio.app.features.player.skip
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlayPolicy
+import com.nuvio.app.features.streams.StreamAutoPlaySource
+
+data class NextEpisodeAutoPlayPolicy(
+    val mode: StreamAutoPlayMode,
+    val regexPattern: String,
+    val source: StreamAutoPlaySource,
+    val selectedAddons: Set<String>,
+    val selectedPlugins: Set<String>,
+    val preferBingeGroup: Boolean,
+    val maxFileSizeBytes: Long?,
+    val selectionTimeoutSeconds: Int,
+)
 
 object PlayerNextEpisodeRules {
 
@@ -67,15 +79,42 @@ object PlayerNextEpisodeRules {
 
     fun isNextEpisodeAutoAdvanceEligible(
         isSeriesEpisode: Boolean,
-        streamAutoPlayMode: StreamAutoPlayMode,
-        streamAutoPlayRegex: String,
-        launchedFromManualStreamSelection: Boolean,
         isWatchTogetherGuest: Boolean,
-    ): Boolean =
-        isSeriesEpisode &&
-            !launchedFromManualStreamSelection &&
-            !isWatchTogetherGuest &&
-            isTrueAutomaticStreamMode(streamAutoPlayMode, streamAutoPlayRegex)
+    ): Boolean = isSeriesEpisode && !isWatchTogetherGuest
+
+    fun nextEpisodeAutoPlayPolicy(
+        mode: StreamAutoPlayMode,
+        regexPattern: String,
+        source: StreamAutoPlaySource,
+        selectedAddons: Set<String>,
+        selectedPlugins: Set<String>,
+        preferBingeGroup: Boolean,
+        maxFileSizeBytes: Long?,
+        selectionTimeoutSeconds: Int,
+    ): NextEpisodeAutoPlayPolicy =
+        if (mode == StreamAutoPlayMode.MANUAL) {
+            NextEpisodeAutoPlayPolicy(
+                mode = StreamAutoPlayMode.REGEX_MATCH,
+                regexPattern = ManualNextEpisodeRegex,
+                source = StreamAutoPlaySource.INSTALLED_ADDONS_ONLY,
+                selectedAddons = ManualNextEpisodeAddons,
+                selectedPlugins = emptySet(),
+                preferBingeGroup = false,
+                maxFileSizeBytes = ManualNextEpisodeMaxFileSizeBytes,
+                selectionTimeoutSeconds = 0,
+            )
+        } else {
+            NextEpisodeAutoPlayPolicy(
+                mode = mode,
+                regexPattern = regexPattern,
+                source = source,
+                selectedAddons = selectedAddons,
+                selectedPlugins = selectedPlugins,
+                preferBingeGroup = preferBingeGroup,
+                maxFileSizeBytes = maxFileSizeBytes,
+                selectionTimeoutSeconds = selectionTimeoutSeconds,
+            )
+        }
 
     fun hasEpisodeAired(raw: String?): Boolean {
         val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return true
@@ -102,6 +141,10 @@ object PlayerNextEpisodeRules {
         if (m1 != m2) return m1.compareTo(m2)
         return d1.compareTo(d2)
     }
+
+    const val ManualNextEpisodeRegex = "(2160p|4k|1080p)"
+    const val ManualNextEpisodeMaxFileSizeBytes = 10_000_000_000L
+    val ManualNextEpisodeAddons = setOf("Premium", "Plus")
 }
 
 internal expect fun currentDateComponents(): DateComponents

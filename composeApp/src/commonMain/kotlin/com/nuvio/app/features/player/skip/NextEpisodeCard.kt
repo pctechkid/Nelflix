@@ -61,6 +61,7 @@ fun NextEpisodeCard(
     autoPlayCountdownSec: Int?,
     countdownProgress: Float,
     canPlayNow: Boolean,
+    isTablet: Boolean = false,
     onPlayNext: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -75,7 +76,18 @@ fun NextEpisodeCard(
             fadeOut(animationSpec = tween(180)),
         modifier = modifier,
     ) {
-        val shape = RoundedCornerShape(13.dp)
+        val shape = RoundedCornerShape(if (isTablet) 14.dp else 13.dp)
+        val minWidth = if (isTablet) 348.dp else 292.dp
+        val maxWidth = if (isTablet) 372.dp else 312.dp
+        val thumbnailWidth = if (isTablet) 144.dp else 120.dp
+        val thumbnailHeight = if (isTablet) 94.dp else 78.dp
+        val horizontalPadding = if (isTablet) 13.dp else 11.dp
+        val verticalPadding = if (isTablet) 11.dp else 9.dp
+        val contentGap = if (isTablet) 13.dp else 11.dp
+        val eyebrowSize = if (isTablet) 11.sp else 10.sp
+        val titleSize = if (isTablet) 14.sp else 13.sp
+        val statusSize = if (isTablet) 12.sp else 11.sp
+        val actionHeight = if (isTablet) 34.dp else 30.dp
         val animatedCountdownProgress by animateFloatAsState(
             targetValue = if (autoPlayCountdownSec != null) {
                 countdownProgress.coerceIn(0f, 1f)
@@ -90,20 +102,20 @@ fun NextEpisodeCard(
         )
         Column(
             modifier = Modifier
-                .widthIn(min = 292.dp, max = 312.dp)
+                .widthIn(min = minWidth, max = maxWidth)
                 .shadow(12.dp, shape)
                 .clip(shape)
                 .background(Color(0xF70A0A0B)),
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
-                horizontalArrangement = Arrangement.spacedBy(11.dp),
+                modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding),
+                horizontalArrangement = Arrangement.spacedBy(contentGap),
                 verticalAlignment = Alignment.Top,
             ) {
                 Box(
                     modifier = Modifier
-                        .width(120.dp)
-                        .height(78.dp)
+                        .width(thumbnailWidth)
+                        .height(thumbnailHeight)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color(0xFF242424)),
                     contentAlignment = Alignment.Center,
@@ -142,8 +154,8 @@ fun NextEpisodeCard(
                     Text(
                         text = stringResource(Res.string.player_next_episode_up_next),
                         color = Color(0xFFE50914),
-                        fontSize = 10.sp,
-                        lineHeight = 11.sp,
+                        fontSize = eyebrowSize,
+                        lineHeight = (eyebrowSize.value + 1f).sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.sp,
                     )
@@ -155,8 +167,8 @@ fun NextEpisodeCard(
                             nextEpisode.title,
                         ),
                         color = Color.White,
-                        fontSize = 13.sp,
-                        lineHeight = 15.sp,
+                        fontSize = titleSize,
+                        lineHeight = (titleSize.value + 2f).sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -173,8 +185,8 @@ fun NextEpisodeCard(
                     Text(
                         text = status,
                         color = Color.White.copy(alpha = 0.72f),
-                        fontSize = 11.sp,
-                        lineHeight = 13.sp,
+                        fontSize = statusSize,
+                        lineHeight = (statusSize.value + 2f).sp,
                         fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -190,11 +202,12 @@ fun NextEpisodeCard(
                             label = stringResource(Res.string.player_next_episode_play_now),
                             enabled = canPlayNow,
                             onClick = onPlayNext,
+                            height = actionHeight,
                         )
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(30.dp)
+                                .height(actionHeight)
                                 .clip(RoundedCornerShape(6.dp))
                                 .clickable(onClick = onDismiss)
                                 .padding(horizontal = 4.dp),
@@ -237,12 +250,13 @@ private fun NextEpisodeActionButton(
     label: String,
     enabled: Boolean,
     onClick: () -> Unit,
+    height: androidx.compose.ui.unit.Dp = 30.dp,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(6.dp)
     Row(
         modifier = modifier
-            .height(30.dp)
+            .height(height)
             .alpha(if (enabled) 1f else 0.45f)
             .clip(shape)
             .background(Color(0xFFE50914))
