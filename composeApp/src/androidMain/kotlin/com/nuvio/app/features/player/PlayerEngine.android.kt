@@ -115,14 +115,23 @@ actual fun PlatformPlayerSurface(
     }
     val mediaTrackStore = remember(playerSourceKey) { AndroidPlayerMediaTrackStore() }
     val latestMediaTrackStore = rememberUpdatedState(mediaTrackStore)
+    val latestPlayerSourceKey = rememberUpdatedState(playerSourceKey)
     var playerView by remember { mutableStateOf<NuvioMpvView?>(null) }
     val snapshotRequestInFlight = remember { AtomicBoolean(false) }
     val requestSnapshot: () -> Unit = remember(scope) {
-        {
+        snapshotRequest@{
+            val requestedView = playerView ?: return@snapshotRequest
+            if (!requestedView.canPublishPlaybackSnapshot()) return@snapshotRequest
+            val requestedSource = latestPlayerSourceKey.value
             if (snapshotRequestInFlight.compareAndSet(false, true)) {
                 scope.launch {
                     try {
                         MpvCalls.callOrNull(MpvSnapshotTimeoutMs) { MPVLib.snapshot() }
+                            ?.takeIf {
+                                playerView === requestedView &&
+                                    latestPlayerSourceKey.value == requestedSource &&
+                                    requestedView.canPublishPlaybackSnapshot()
+                            }
                             ?.let { latestOnSnapshot.value(it) }
                     } finally {
                         snapshotRequestInFlight.set(false)
@@ -138,6 +147,10 @@ actual fun PlatformPlayerSurface(
             requestSnapshot = requestSnapshot,
             onError = { latestOnError.value(it) },
             currentExternalAudioUrl = { playerView?.currentExternalAudioUrl() },
+            onFileLoaded = {
+                playerView?.onFileLoaded()
+                requestSnapshot()
+            },
             onMediaTrackPropertyChanged = { property, value ->
                 when (property) {
                     "track-list" -> {
@@ -175,7 +188,7 @@ actual fun PlatformPlayerSurface(
     DisposableEffect(lifecycleOwner, playWhenReady) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> if (playWhenReady) MpvCalls.execute { MPVLib.setPropertyBoolean("pause", false) }
+                Lifecycle.Event.ON_START -> if (playWhenReady) playerView?.setPlayWhenReady(true)
                 Lifecycle.Event.ON_STOP -> MpvCalls.execute { MPVLib.setPropertyBoolean("pause", true) }
                 else -> Unit
             }
@@ -184,11 +197,9 @@ actual fun PlatformPlayerSurface(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(playWhenReady) {
-        MpvCalls.callOrNull(MpvReadTimeoutMs) {
-            MPVLib.setPropertyBoolean("pause", !playWhenReady)
-            MPVLib.snapshot()
-        }?.let { latestOnSnapshot.value(it) }
+    LaunchedEffect(playWhenReady, playerView) {
+        playerView?.setPlayWhenReady(playWhenReady)
+        requestSnapshot()
     }
 
     LaunchedEffect(playerSourceKey) {
@@ -248,9 +259,12 @@ class NuvioMpvView(
     private var surfaceGeneration: Long = 0L
     @Volatile
     private var currentPlayWhenReady: Boolean = true
+    @Volatile
+    private var sourceReadyForSnapshots: Boolean = false
 
     fun prepareForRelease() {
         isReleasing = true
+        sourceReadyForSnapshots = false
         surfaceGeneration += 1L
         sourceLoadGate.onSurfaceDetached()
         holder.removeCallback(this)
@@ -266,6 +280,7 @@ class NuvioMpvView(
         currentPlayWhenReady = playWhenReady
         if (!force && source == currentSource) return
         currentSource = source
+        sourceReadyForSnapshots = false
         MpvCalls.execute {
             if (isReleasing) return@execute
             sourceLoadGate.offer(source)?.let(::loadSourceNow)
@@ -273,6 +288,7 @@ class NuvioMpvView(
     }
 
     private fun loadSourceNow(source: MpvSource) {
+        sourceReadyForSnapshots = false
         applyHeaders(source.headers)
         applyResponseHeaderOverrides(source.responseHeaders)
         applyYoutubeChunkedCompat(source.useYoutubeChunkedPlayback)
@@ -295,6 +311,27 @@ class NuvioMpvView(
         applyResizeModeNow(currentResizeMode)
         MPVLib.setPropertyBoolean("pause", !currentPlayWhenReady)
     }
+
+    internal fun setPlayWhenReady(playWhenReady: Boolean) {
+        currentPlayWhenReady = playWhenReady
+        MpvCalls.execute {
+            if (
+                isReleasing ||
+                !sourceReadyForSnapshots ||
+                currentPlayWhenReady != playWhenReady
+            ) return@execute
+            MPVLib.setPropertyBoolean("pause", !playWhenReady)
+        }
+    }
+
+    internal fun onFileLoaded() {
+        if (isReleasing) return
+        sourceReadyForSnapshots = true
+        MPVLib.setPropertyBoolean("pause", !currentPlayWhenReady)
+    }
+
+    internal fun canPublishPlaybackSnapshot(): Boolean =
+        !isReleasing && sourceReadyForSnapshots
 
     internal fun currentExternalAudioUrl(): String? =
         currentSource?.audioUrl?.takeIf { it.isNotBlank() }
@@ -533,6 +570,7 @@ private class NuvioMpvObserver(
     private val requestSnapshot: () -> Unit,
     private val onError: (String?) -> Unit,
     private val currentExternalAudioUrl: () -> String?,
+    private val onFileLoaded: () -> Unit,
     private val onMediaTrackPropertyChanged: (String, MPVNode?) -> Unit,
 ) : MPVLib.EventObserver {
     private val lastSnapshotRequestMs = AtomicLong(0L)
@@ -572,6 +610,7 @@ private class NuvioMpvObserver(
                     currentExternalAudioUrl()?.let { audioUrl ->
                         MPVLib.command("audio-add", audioUrl.toPlayablePath(context), "select")
                     }
+                    onFileLoaded()
                 }
                 onMediaTrackPropertyChanged("track-list", null)
                 onError(null)

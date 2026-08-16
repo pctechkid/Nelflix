@@ -139,4 +139,79 @@ class PlayerNextEpisodeRulesTest {
             ),
         )
     }
+
+    @Test
+    fun episodeHandoffRejectsLoadingAndPreviousEpisodeEndSnapshots() {
+        assertFalse(
+            isFreshSnapshotAfterEpisodeHandoff(
+                snapshot = PlayerPlaybackSnapshot(
+                    isLoading = true,
+                    durationMs = 0L,
+                    positionMs = 0L,
+                ),
+                initialPositionMs = 0L,
+                initialProgressFraction = null,
+            ),
+        )
+        assertFalse(
+            isFreshSnapshotAfterEpisodeHandoff(
+                snapshot = PlayerPlaybackSnapshot(
+                    isLoading = false,
+                    isEnded = true,
+                    durationMs = 24 * 60_000L,
+                    positionMs = 24 * 60_000L,
+                ),
+                initialPositionMs = 0L,
+                initialProgressFraction = null,
+            ),
+        )
+        assertFalse(
+            isFreshSnapshotAfterEpisodeHandoff(
+                snapshot = PlayerPlaybackSnapshot(
+                    isLoading = false,
+                    durationMs = 24 * 60_000L,
+                    positionMs = 23 * 60_000L,
+                ),
+                initialPositionMs = 0L,
+                initialProgressFraction = null,
+            ),
+        )
+    }
+
+    @Test
+    fun episodeHandoffAcceptsFreshStartAndResumeSnapshots() {
+        assertTrue(
+            isFreshSnapshotAfterEpisodeHandoff(
+                snapshot = PlayerPlaybackSnapshot(
+                    isLoading = false,
+                    durationMs = 24 * 60_000L,
+                    positionMs = 1_000L,
+                ),
+                initialPositionMs = 0L,
+                initialProgressFraction = null,
+            ),
+        )
+        assertTrue(
+            isFreshSnapshotAfterEpisodeHandoff(
+                snapshot = PlayerPlaybackSnapshot(
+                    isLoading = false,
+                    durationMs = 24 * 60_000L,
+                    positionMs = 12 * 60_000L,
+                ),
+                initialPositionMs = 12 * 60_000L,
+                initialProgressFraction = null,
+            ),
+        )
+        assertTrue(
+            isFreshSnapshotAfterEpisodeHandoff(
+                snapshot = PlayerPlaybackSnapshot(
+                    isLoading = false,
+                    durationMs = 20 * 60_000L,
+                    positionMs = 15 * 60_000L,
+                ),
+                initialPositionMs = 0L,
+                initialProgressFraction = 0.75f,
+            ),
+        )
+    }
 }

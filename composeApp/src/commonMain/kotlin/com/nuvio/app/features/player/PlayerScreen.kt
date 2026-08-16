@@ -282,6 +282,7 @@ fun PlayerScreen(
         var layoutSize by remember { mutableStateOf(IntSize.Zero) }
         var playbackSnapshot by remember { mutableStateOf(PlayerPlaybackSnapshot()) }
         var playbackGeneration by remember { mutableLongStateOf(0L) }
+        var awaitingNextEpisodeSourceSnapshot by remember { mutableStateOf(false) }
         var playbackEndUiLatched by remember(activeSourceUrl) { mutableStateOf(false) }
         var playbackEndRevealGeneration by remember(activeSourceUrl, activeVideoId) { mutableLongStateOf(0L) }
         var terminalProgressFlushed by remember(activeSourceUrl, activeVideoId) { mutableStateOf(false) }
@@ -741,6 +742,7 @@ fun PlayerScreen(
 
         fun switchToNextEpisode(launch: PlayerLaunch) {
             flushWatchProgress(playbackUiSnapshot)
+            awaitingNextEpisodeSourceSnapshot = true
             playbackGeneration += 1L
             playbackSnapshot = PlayerPlaybackSnapshot()
             nextEpisodeAutoAdvanceJob?.cancel()
@@ -2039,6 +2041,7 @@ fun PlayerScreen(
 
         LaunchedEffect(
             shouldOfferNextEpisode,
+            awaitingNextEpisodeSourceSnapshot,
             playbackUiSnapshot.positionMs,
             playbackUiSnapshot.durationMs,
             playbackUiSnapshot.isEnded,
@@ -2047,6 +2050,20 @@ fun PlayerScreen(
             playerSettingsUiState.nextEpisodeThresholdPercent,
             playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
         ) {
+            if (awaitingNextEpisodeSourceSnapshot) {
+                nextEpisodeResolveJob?.cancel()
+                nextEpisodeResolveJob = null
+                nextEpisodeAutoAdvanceJob?.cancel()
+                nextEpisodeAutoAdvanceJob = null
+                nextEpisodeInfo = null
+                nextEpisodeLaunch = null
+                nextEpisodeCardVisible = false
+                nextEpisodeResolving = false
+                nextEpisodeCountdownSec = null
+                nextEpisodeResolutionAttempted = false
+                nextEpisodeCancelled = false
+                return@LaunchedEffect
+            }
             if (!shouldOfferNextEpisode) {
                 nextEpisodeResolveJob?.cancel()
                 nextEpisodeResolveJob = null
@@ -2430,6 +2447,22 @@ fun PlayerScreen(
                 onSnapshot = { snapshot ->
                     if (!isSnapshotFromActivePlayback(surfacePlaybackGeneration, playbackGeneration)) {
                         return@PlatformPlayerSurface
+                    }
+                    if (
+                        awaitingNextEpisodeSourceSnapshot &&
+                        !isFreshSnapshotAfterEpisodeHandoff(
+                            snapshot = snapshot,
+                            initialPositionMs = activeInitialPositionMs,
+                            initialProgressFraction = activeInitialProgressFraction,
+                        )
+                    ) {
+                        return@PlatformPlayerSurface
+                    }
+                    if (awaitingNextEpisodeSourceSnapshot) {
+                        awaitingNextEpisodeSourceSnapshot = false
+                        if (shouldPlay && !snapshot.isPlaying) {
+                            playerController?.play()
+                        }
                     }
                     val endTransition = reducePlaybackEndUiState(
                         currentlyLatched = playbackEndUiLatched,
@@ -3146,3 +3179,30 @@ internal fun isSnapshotFromActivePlayback(
     snapshotGeneration: Long,
     activeGeneration: Long,
 ): Boolean = snapshotGeneration == activeGeneration
+
+internal fun isFreshSnapshotAfterEpisodeHandoff(
+    snapshot: PlayerPlaybackSnapshot,
+    initialPositionMs: Long,
+    initialProgressFraction: Float?,
+): Boolean {
+    if (snapshot.isLoading || snapshot.isEnded || snapshot.durationMs <= 0L) return false
+
+    val startingWindowMs = minOf(
+        30_000L,
+        maxOf(5_000L, snapshot.durationMs / 20L),
+    )
+    if (snapshot.positionMs <= startingWindowMs) return true
+
+    val expectedPositionMs = when {
+        initialPositionMs > 0L -> initialPositionMs
+        initialProgressFraction != null && initialProgressFraction > 0f -> {
+            (snapshot.durationMs * initialProgressFraction.coerceIn(0f, 1f)).toLong()
+        }
+        else -> return false
+    }
+    val targetToleranceMs = maxOf(
+        5_000L,
+        minOf(30_000L, snapshot.durationMs / 100L),
+    )
+    return abs(snapshot.positionMs - expectedPositionMs) <= targetToleranceMs
+}
