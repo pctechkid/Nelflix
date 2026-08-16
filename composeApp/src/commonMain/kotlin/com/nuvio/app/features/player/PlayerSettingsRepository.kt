@@ -213,7 +213,7 @@ object PlayerSettingsRepository {
             storedMpvConf == previousOverlapDefaultMpvConf() ||
             storedMpvConf == previousBackgroundBoxDefaultMpvConf() ||
             storedMpvConf == previousStripDefaultMpvConf() ||
-            storedMpvConf == previousGpuDefaultMpvConf() ||
+            storedMpvConf == previousGpuNextDefaultMpvConf() ||
             storedMpvConf == LegacyDefaultMpvConf ||
             storedMpvConf == LegacyGpuNextDefaultMpvConf ||
             storedMpvConf == LegacyForwardOnlyDefaultMpvConf
@@ -222,9 +222,11 @@ object PlayerSettingsRepository {
             PlayerSettingsStorage.saveMpvConf(DefaultMpvConf)
         }
         mpvInputConf = PlayerSettingsStorage.loadMpvInputConf() ?: ""
-        mpvDemuxerMaxBytesMiB = PlayerSettingsStorage.loadMpvDemuxerMaxBytesMiB()
-            ?.coerceIn(128, 4096)
-            ?: DefaultMpvDemuxerMaxBytesMiB
+        val storedDemuxerMaxBytesMiB = PlayerSettingsStorage.loadMpvDemuxerMaxBytesMiB()
+        mpvDemuxerMaxBytesMiB = when (storedDemuxerMaxBytesMiB) {
+            null, LegacyDefaultMpvDemuxerMaxBytesMiB -> DefaultMpvDemuxerMaxBytesMiB
+            else -> storedDemuxerMaxBytesMiB.coerceIn(128, 4096)
+        }
         PlayerSettingsStorage.saveMpvDemuxerMaxBytesMiB(mpvDemuxerMaxBytesMiB)
         streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
             ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
@@ -685,10 +687,11 @@ object PlayerSettingsRepository {
     }
 }
 
-const val DefaultMpvDemuxerMaxBytesMiB = 1024
-const val DefaultMpvDemuxerMaxBackBytesMiB = 128
+const val DefaultMpvDemuxerMaxBytesMiB = 256
+const val DefaultMpvDemuxerMaxBackBytesMiB = 64
+private const val LegacyDefaultMpvDemuxerMaxBytesMiB = 1024
 
-const val DefaultMpvConf = """vo=gpu-next
+const val DefaultMpvConf = """vo=gpu
 save-position-on-quit
 volume=100
 volume-max=100
@@ -709,8 +712,8 @@ sub-pos=93
 sub-ass-force-style=FontName=Helvetica
 slang=eng,en,enUS,en-US,English
 vd-lavc-dr=no
-demuxer-max-bytes=1024MiB
-demuxer-max-back-bytes=128MiB
+demuxer-max-bytes=256MiB
+demuxer-max-back-bytes=64MiB
 cache=yes
 blend-subtitles=yes
 osd-font-size=18
@@ -733,8 +736,10 @@ private fun previousBackgroundBoxDefaultMpvConf(): String = DefaultMpvConf
 private fun previousStripDefaultMpvConf(): String = DefaultMpvConf
     .replace("sub-ass-override=force", "sub-ass-override=strip")
 
-private fun previousGpuDefaultMpvConf(): String = DefaultMpvConf
-    .replaceFirst("vo=gpu-next", "vo=gpu")
+private fun previousGpuNextDefaultMpvConf(): String = DefaultMpvConf
+    .replaceFirst("vo=gpu", "vo=gpu-next")
+    .replace("demuxer-max-bytes=256MiB", "demuxer-max-bytes=1024MiB")
+    .replace("demuxer-max-back-bytes=64MiB", "demuxer-max-back-bytes=128MiB")
 
 private const val LegacyGpuNextDefaultMpvConf = """vo=gpu-next
 save-position-on-quit

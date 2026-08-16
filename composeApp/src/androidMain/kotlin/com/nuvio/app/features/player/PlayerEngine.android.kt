@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import android.content.Context
+import android.os.Build
 import android.net.Uri
 import android.os.Environment
 import android.os.ParcelFileDescriptor
@@ -258,9 +259,14 @@ class NuvioMpvView(
     override fun initOptions() {
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
-        setVo("gpu-next")
+        setVo("gpu")
         MPVLib.setOptionString("profile", "fast")
-        MPVLib.setOptionString("hwdec", if (playerSettings.mpvHardwareDecodingEnabled) "auto" else "no")
+        val hardwareDecodingEnabled = playerSettings.mpvHardwareDecodingEnabled &&
+            !PlayerHardwareDecodingPolicy.shouldDisableForDevice(Build.MANUFACTURER, Build.MODEL)
+        if (playerSettings.mpvHardwareDecodingEnabled && !hardwareDecodingEnabled) {
+            Log.w(TAG, "Disabling MediaCodec on ${Build.MANUFACTURER} ${Build.MODEL} due to known codec instability")
+        }
+        MPVLib.setOptionString("hwdec", if (hardwareDecodingEnabled) "auto" else "no")
         MPVLib.setOptionString("vd-lavc-dr", "no")
         MPVLib.setOptionString("keep-open", "yes")
         MPVLib.setOptionString("input-default-bindings", "yes")
@@ -293,11 +299,17 @@ class NuvioMpvView(
     override fun postInitOptions() = Unit
 
     override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
-        if (!isReleasing) {
-            super.surfaceDestroyed(holder)
+        if (isReleasing) {
+            Log.w(TAG, "surface destroyed during release; MPV stop/destroy already queued")
             return
         }
-        Log.w(TAG, "surface destroyed during release; MPV stop/destroy already queued")
+        // BaseMPVView detaches synchronously. If MediaCodec has wedged MPV, that
+        // blocks the Android main thread and turns a decoder failure into an ANR.
+        MpvCalls.execute {
+            MPVLib.setPropertyString("vo", "null")
+            MPVLib.setPropertyString("force-window", "no")
+            MPVLib.detachSurface()
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
