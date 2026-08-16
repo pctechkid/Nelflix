@@ -42,6 +42,7 @@ import java.util.Collections
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "NuvioMpvPlayer"
@@ -72,6 +73,27 @@ actual fun PlatformPlayerSurface(
     val latestOnSnapshot = rememberUpdatedState(onSnapshot)
     val latestOnError = rememberUpdatedState(onError)
     val latestOnTrackListChanged = rememberUpdatedState(onTrackListChanged)
+    var mpvRuntimeReady by remember { mutableStateOf(false) }
+
+    LaunchedEffect(context) {
+        val preparationResult = withContext(Dispatchers.IO) {
+            runCatching {
+                check(MpvCalls.drain(MpvReleaseTimeoutMs)) {
+                    "The previous MPV session did not finish shutting down"
+                }
+                NuvioMpvFiles.prepare(context.applicationContext)
+            }
+        }
+        preparationResult.onSuccess {
+            mpvRuntimeReady = true
+        }.onFailure { error ->
+            Log.e(TAG, "Unable to prepare MPV runtime", error)
+            latestOnError.value("Unable to initialize player.")
+        }
+    }
+
+    if (!mpvRuntimeReady) return
+
     val sanitizedSourceHeaders = sanitizePlaybackHeaders(sourceHeaders)
     val sanitizedSourceResponseHeaders = sanitizePlaybackResponseHeaders(sourceResponseHeaders)
     val playerSourceKey = remember(
@@ -94,16 +116,26 @@ actual fun PlatformPlayerSurface(
     val mediaTrackStore = remember(playerSourceKey) { AndroidPlayerMediaTrackStore() }
     val latestMediaTrackStore = rememberUpdatedState(mediaTrackStore)
     var playerView by remember { mutableStateOf<NuvioMpvView?>(null) }
+    val snapshotRequestInFlight = remember { AtomicBoolean(false) }
+    val requestSnapshot: () -> Unit = remember(scope) {
+        {
+            if (snapshotRequestInFlight.compareAndSet(false, true)) {
+                scope.launch {
+                    try {
+                        MpvCalls.callOrNull(MpvSnapshotTimeoutMs) { MPVLib.snapshot() }
+                            ?.let { latestOnSnapshot.value(it) }
+                    } finally {
+                        snapshotRequestInFlight.set(false)
+                    }
+                }
+            }
+        }
+    }
 
     DisposableEffect(Unit) {
         val observer = NuvioMpvObserver(
             context = context,
-            requestSnapshot = {
-                scope.launch {
-                    MpvCalls.callOrNull(MpvSnapshotTimeoutMs) { MPVLib.snapshot() }
-                        ?.let { latestOnSnapshot.value(it) }
-                }
-            },
+            requestSnapshot = requestSnapshot,
             onError = { latestOnError.value(it) },
             currentExternalAudioUrl = { playerView?.currentExternalAudioUrl() },
             onMediaTrackPropertyChanged = { property, value ->
@@ -171,10 +203,8 @@ actual fun PlatformPlayerSurface(
 
     LaunchedEffect(Unit) {
         while (isActive) {
-            withContext(Dispatchers.Default) {
-                MpvCalls.callOrNull(MpvSnapshotTimeoutMs) { MPVLib.snapshot() }
-            }?.let { latestOnSnapshot.value(it) }
             delay(MpvSnapshotIntervalMs)
+            requestSnapshot()
         }
     }
 
@@ -210,47 +240,60 @@ class NuvioMpvView(
 ) : BaseMPVView(context, attrs) {
     private var currentSource: MpvSource? = null
     private var currentResizeMode: PlayerResizeMode = PlayerResizeMode.Fit
+    private val sourceLoadGate = PlayerSurfaceSourceGate<MpvSource>()
+    @Volatile
     var isReleasing: Boolean = false
         private set
+    @Volatile
+    private var surfaceGeneration: Long = 0L
+    @Volatile
+    private var currentPlayWhenReady: Boolean = true
 
     fun prepareForRelease() {
         isReleasing = true
+        surfaceGeneration += 1L
+        sourceLoadGate.onSurfaceDetached()
         holder.removeCallback(this)
     }
 
     internal fun initializeForNuvio(source: MpvSource, playWhenReady: Boolean) {
-        MpvCalls.drain(MpvReleaseTimeoutMs)
-        NuvioMpvFiles.prepare(context)
         initialize(context.filesDir.path, context.cacheDir.path)
         loadSourceForNuvio(source, playWhenReady, force = true)
     }
 
     internal fun loadSourceForNuvio(source: MpvSource, playWhenReady: Boolean, force: Boolean = false) {
+        if (isReleasing) return
+        currentPlayWhenReady = playWhenReady
         if (!force && source == currentSource) return
         currentSource = source
         MpvCalls.execute {
-            applyHeaders(source.headers)
-            applyResponseHeaderOverrides(source.responseHeaders)
-            applyYoutubeChunkedCompat(source.useYoutubeChunkedPlayback)
-            val playablePath = source.url.toPlayablePath(context)
-            val startSeconds = source.initialPositionMs
-                ?.takeIf { it > 0L }
-                ?.let { positionMs -> positionMs.toDouble() / 1000.0 }
-            if (startSeconds != null) {
-                MPVLib.command(
-                    "loadfile",
-                    playablePath,
-                    "replace",
-                    "-1",
-                    "start=$startSeconds",
-                )
-            } else {
-                MPVLib.command("loadfile", playablePath, "replace")
-            }
-            applyRegularSubtitleOverride()
-            applyResizeModeNow(currentResizeMode)
-            MPVLib.setPropertyBoolean("pause", !playWhenReady)
+            if (isReleasing) return@execute
+            sourceLoadGate.offer(source)?.let(::loadSourceNow)
         }
+    }
+
+    private fun loadSourceNow(source: MpvSource) {
+        applyHeaders(source.headers)
+        applyResponseHeaderOverrides(source.responseHeaders)
+        applyYoutubeChunkedCompat(source.useYoutubeChunkedPlayback)
+        val playablePath = source.url.toPlayablePath(context)
+        val startSeconds = source.initialPositionMs
+            ?.takeIf { it > 0L }
+            ?.let { positionMs -> positionMs.toDouble() / 1000.0 }
+        if (startSeconds != null) {
+            MPVLib.command(
+                "loadfile",
+                playablePath,
+                "replace",
+                "-1",
+                "start=$startSeconds",
+            )
+        } else {
+            MPVLib.command("loadfile", playablePath, "replace")
+        }
+        applyRegularSubtitleOverride()
+        applyResizeModeNow(currentResizeMode)
+        MPVLib.setPropertyBoolean("pause", !currentPlayWhenReady)
     }
 
     internal fun currentExternalAudioUrl(): String? =
@@ -298,7 +341,33 @@ class NuvioMpvView(
 
     override fun postInitOptions() = Unit
 
+    override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+        if (isReleasing) return
+        val generation = surfaceGeneration + 1L
+        surfaceGeneration = generation
+        val surface = holder.surface
+        MpvCalls.execute {
+            if (isReleasing || generation != surfaceGeneration || !surface.isValid) return@execute
+            MPVLib.attachSurface(surface)
+            MPVLib.setPropertyString("force-window", "yes")
+            MPVLib.setPropertyString("vo", "gpu")
+            sourceLoadGate.onSurfaceAttached()?.let(::loadSourceNow)
+        }
+    }
+
+    override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
+        if (isReleasing || width <= 0 || height <= 0) return
+        val generation = surfaceGeneration
+        val surface = holder.surface
+        MpvCalls.execute {
+            if (isReleasing || generation != surfaceGeneration || !surface.isValid) return@execute
+            MPVLib.setPropertyString("android-surface-size", "${width}x$height")
+        }
+    }
+
     override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+        surfaceGeneration += 1L
+        sourceLoadGate.onSurfaceDetached()
         if (isReleasing) {
             Log.w(TAG, "surface destroyed during release; MPV stop/destroy already queued")
             return
@@ -745,6 +814,7 @@ private fun String.persistentRegularSubtitleForceStyle(): String {
 }
 
 private object NuvioMpvFiles {
+    @Synchronized
     fun prepare(context: Context) {
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
@@ -967,14 +1037,14 @@ private object MpvCalls {
         }
     }
 
-    fun drain(timeoutMs: Long) {
+    fun drain(timeoutMs: Long): Boolean {
         val future = executor.submit(Callable { Unit })
-        runCatching {
+        return runCatching {
             future.get(timeoutMs, TimeUnit.MILLISECONDS)
         }.onFailure { error ->
             future.cancel(true)
             Log.w(TAG, "MPV drain timed out or failed", error)
-        }
+        }.isSuccess
     }
 
     suspend fun <T> callOrNull(timeoutMs: Long, block: () -> T): T? = withContext(Dispatchers.IO) {

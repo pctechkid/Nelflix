@@ -210,6 +210,7 @@ object PlayerSettingsRepository {
         val storedMpvConf = PlayerSettingsStorage.loadMpvConf()
         mpvConf = storedMpvConf?.takeIf { it.isNotBlank() } ?: DefaultMpvConf
         if (storedMpvConf.isNullOrBlank() ||
+            storedMpvConf == previousReducedCacheDefaultMpvConf() ||
             storedMpvConf == previousOverlapDefaultMpvConf() ||
             storedMpvConf == previousBackgroundBoxDefaultMpvConf() ||
             storedMpvConf == previousStripDefaultMpvConf() ||
@@ -687,9 +688,9 @@ object PlayerSettingsRepository {
     }
 }
 
-const val DefaultMpvDemuxerMaxBytesMiB = 256
-const val DefaultMpvDemuxerMaxBackBytesMiB = 64
-private const val LegacyDefaultMpvDemuxerMaxBytesMiB = 1024
+const val DefaultMpvDemuxerMaxBytesMiB = 1024
+const val DefaultMpvDemuxerMaxBackBytesMiB = 128
+private const val LegacyDefaultMpvDemuxerMaxBytesMiB = 256
 
 const val DefaultMpvConf = """vo=gpu
 save-position-on-quit
@@ -712,8 +713,8 @@ sub-pos=93
 sub-ass-force-style=FontName=Helvetica
 slang=eng,en,enUS,en-US,English
 vd-lavc-dr=no
-demuxer-max-bytes=256MiB
-demuxer-max-back-bytes=64MiB
+demuxer-max-bytes=1024MiB
+demuxer-max-back-bytes=128MiB
 cache=yes
 blend-subtitles=yes
 osd-font-size=18
@@ -730,6 +731,10 @@ private fun previousOverlapDefaultMpvConf(): String = DefaultMpvConf
     )
     .replace("sub-border-size=0", "sub-border-size=1.25")
 
+private fun previousReducedCacheDefaultMpvConf(): String = DefaultMpvConf
+    .replace("demuxer-max-bytes=1024MiB", "demuxer-max-bytes=256MiB")
+    .replace("demuxer-max-back-bytes=128MiB", "demuxer-max-back-bytes=64MiB")
+
 private fun previousBackgroundBoxDefaultMpvConf(): String = DefaultMpvConf
     .replace("sub-border-style=opaque-box", "sub-border-style=background-box")
 
@@ -738,8 +743,6 @@ private fun previousStripDefaultMpvConf(): String = DefaultMpvConf
 
 private fun previousGpuNextDefaultMpvConf(): String = DefaultMpvConf
     .replaceFirst("vo=gpu", "vo=gpu-next")
-    .replace("demuxer-max-bytes=256MiB", "demuxer-max-bytes=1024MiB")
-    .replace("demuxer-max-back-bytes=64MiB", "demuxer-max-back-bytes=128MiB")
 
 private const val LegacyGpuNextDefaultMpvConf = """vo=gpu-next
 save-position-on-quit

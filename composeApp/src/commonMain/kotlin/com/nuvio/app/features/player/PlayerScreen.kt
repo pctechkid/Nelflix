@@ -310,9 +310,9 @@ fun PlayerScreen(
         var scrubbingPositionMs by remember { mutableStateOf<Long?>(null) }
         var resumePlaybackAfterScrub by remember { mutableStateOf(false) }
         var lastScrubPreviewSeekAtMs by remember(activeSourceUrl) { mutableStateOf(0L) }
-        var pendingScrubPreviewSeekJob by remember(activeSourceUrl) { mutableStateOf<Job?>(null) }
+        var pendingScrubPreviewSeekJob by remember { mutableStateOf<Job?>(null) }
         var suppressPauseMetadataForScrub by remember(activeSourceUrl) { mutableStateOf(false) }
-        var pauseMetadataScrubSuppressionJob by remember(activeSourceUrl) { mutableStateOf<Job?>(null) }
+        var pauseMetadataScrubSuppressionJob by remember { mutableStateOf<Job?>(null) }
         var pausedOverlayVisible by remember { mutableStateOf(false) }
         var gestureFeedback by remember { mutableStateOf<GestureFeedbackState?>(null) }
         var liveGestureFeedback by remember { mutableStateOf<GestureFeedbackState?>(null) }
@@ -325,10 +325,10 @@ fun PlayerScreen(
         var openingOverlayExitSettled by remember(activeSourceUrl) {
             mutableStateOf(!playerSettingsUiState.showLoadingOverlay)
         }
-        var speedBoostRestoreSpeed by remember(activeSourceUrl) { mutableStateOf<Float?>(null) }
-        var isHoldToSpeedGestureActive by remember(activeSourceUrl) { mutableStateOf(false) }
-        var holdToRewindJob by remember(activeSourceUrl) { mutableStateOf<Job?>(null) }
-        var isHoldToRewindGestureActive by remember(activeSourceUrl) { mutableStateOf(false) }
+        var speedBoostRestoreSpeed by remember { mutableStateOf<Float?>(null) }
+        var isHoldToSpeedGestureActive by remember { mutableStateOf(false) }
+        var holdToRewindJob by remember { mutableStateOf<Job?>(null) }
+        var isHoldToRewindGestureActive by remember { mutableStateOf(false) }
         var initialSeekApplied by remember(activeSourceUrl, activeInitialPositionMs, activeInitialProgressFraction) {
             val initialProgressFraction = activeInitialProgressFraction
             mutableStateOf(
@@ -389,8 +389,8 @@ fun PlayerScreen(
         var nextEpisodeCountdownSec by remember(activeSourceUrl, activeVideoId) { mutableStateOf<Int?>(null) }
         var nextEpisodeResolutionAttempted by remember(activeSourceUrl, activeVideoId) { mutableStateOf(false) }
         var nextEpisodeCancelled by remember(activeSourceUrl, activeVideoId) { mutableStateOf(false) }
-        var nextEpisodeResolveJob by remember(activeSourceUrl, activeVideoId) { mutableStateOf<Job?>(null) }
-        var nextEpisodeAutoAdvanceJob by remember(activeSourceUrl, activeVideoId) { mutableStateOf<Job?>(null) }
+        var nextEpisodeResolveJob by remember { mutableStateOf<Job?>(null) }
+        var nextEpisodeAutoAdvanceJob by remember { mutableStateOf<Job?>(null) }
         val metaUiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
         var playerParentMeta by remember(activeParentMetaType, activeParentMetaId) {
             mutableStateOf(MetaDetailsRepository.peek(activeParentMetaType, activeParentMetaId))
@@ -1711,6 +1711,9 @@ fun PlayerScreen(
 
         LaunchedEffect(activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeSourceResponseHeaders) {
             errorMessage = null
+            deactivateHoldGestures()
+            gestureMessageJob?.cancel()
+            gestureMessageJob = null
             playerController = null
             playerControllerSourceUrl = null
             playbackSnapshot = PlayerPlaybackSnapshot()
